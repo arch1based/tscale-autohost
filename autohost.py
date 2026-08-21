@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.0.6"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.0.7"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -651,11 +651,21 @@ def run_step2(cfg, fallback_input, log):
         else:
             delim = {"csv": ",", "tab": "\t", "semicolon": ";"}.get(
                 fmt, cfg.get("step2_delimiter", ",") or ",")
+            tail = delim if cfg.get("step2_trailing_delim") else ""
             with open(dst, "w", encoding=out_enc, errors="replace", newline="") as fh:
-                w = csv.writer(fh, delimiter=delim)
-                if cfg.get("step2_write_header", True):
-                    w.writerow([f["name"] for f in fields])
-                w.writerows(rows)
+                if cfg.get("step2_quotes"):
+                    # πρότυπο CSV: εισαγωγικά όπου το πεδίο περιέχει διαχωριστικό
+                    w = csv.writer(fh, delimiter=delim, lineterminator="\r\n")
+                    if cfg.get("step2_write_header", True):
+                        w.writerow([f["name"] for f in fields] + ([""] if tail else []))
+                    for row in rows:
+                        w.writerow(list(row) + ([""] if tail else []))
+                else:
+                    # όπως το θέλουν οι ζυγοί: σκέτα πεδία, χωρίς εισαγωγικά
+                    if cfg.get("step2_write_header", True):
+                        fh.write(delim.join(f["name"] for f in fields) + tail + "\r\n")
+                    for row in rows:
+                        fh.write(delim.join(row) + tail + "\r\n")
     except Exception as exc:
         raise StepError("Βήμα 3", "Αδυναμία εγγραφής του αρχείου προϊόντων.",
                         "%s\n%s" % (dst, exc))
@@ -1097,6 +1107,15 @@ class App(tk.Tk):
                          ("fixed", "TXT σταθερού πλάτους")):
             ttk.Radiobutton(fmt, text=txt, value=val, variable=self.v_format,
                             command=self.on_format_change).pack(side="left", padx=(10, 0))
+
+        extra = ttk.Frame(f)
+        extra.pack(fill="x", pady=(2, 2))
+        self.v_tail = tk.BooleanVar(value=False)
+        self.v_quotes = tk.BooleanVar(value=False)
+        ttk.Checkbutton(extra, text="Διαχωριστικό και στο τέλος κάθε γραμμής (π.χ. ;…;)",
+                        variable=self.v_tail).pack(side="left")
+        ttk.Checkbutton(extra, text="Εισαγωγικά όπου χρειάζεται (πρότυπο CSV)",
+                        variable=self.v_quotes).pack(side="left", padx=14)
         ttk.Checkbutton(o, text="Θέση 1 = πρώτος χαρακτήρας", variable=self.v_onebased).pack(side="left", padx=12)
 
 
@@ -1326,6 +1345,8 @@ class App(tk.Tk):
         self.v_enc_in.set(c.get("step2_in_encoding", "auto"))
         self.v_enc_out.set(c.get("step2_out_encoding", "cp1253"))
         self.v_bytes.set(bool(c.get("step2_positions_bytes", False)))
+        self.v_tail.set(bool(c.get("step2_trailing_delim", False)))
+        self.v_quotes.set(bool(c.get("step2_quotes", False)))
         self.v_s3.set(bool(c.get("step3_enabled", True)))
         self.v_s3exe.set(c.get("step3_exe", ""))
         self.v_s3sec.set(str(c.get("step3_seconds", 120)))
@@ -1378,6 +1399,8 @@ class App(tk.Tk):
         c["step2_in_encoding"] = self.v_enc_in.get()
         c["step2_out_encoding"] = self.v_enc_out.get()
         c["step2_positions_bytes"] = self.v_bytes.get()
+        c["step2_trailing_delim"] = self.v_tail.get()
+        c["step2_quotes"] = self.v_quotes.get()
         c["step3_enabled"] = self.v_s3.get()
         c["step3_exe"] = self.v_s3exe.get().strip()
         try:
