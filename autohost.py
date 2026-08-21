@@ -25,7 +25,10 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_VERSION = "ICSautoScaleUpdater · έκδοση 1.0 — Θεσσαλονίκη, Αύγουστος 2026"
+APP_BUILD = "1.0.0"                        # σύγκριση για ενημερώσεις
+APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
+UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
+UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
 COLORS = {
     "bg":      "#eef2f7",   # φόντο παραθύρου
     "card":    "#ffffff",   # κάρτες / καρτέλες
@@ -200,6 +203,30 @@ def purge_old_logs():
                 os.remove(f)
     except Exception:
         pass
+
+
+def parse_version(text):
+    """«1.2.3» -> (1, 2, 3). Ό,τι δεν είναι αριθμός γίνεται 0."""
+    parts = []
+    for chunk in str(text).strip().split(".")[:4]:
+        digits = "".join(ch for ch in chunk if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts)
+
+
+def fetch_latest_version(timeout=6):
+    """Επιστρέφει (έκδοση, σημειώσεις) από το GitHub. Σφάλμα -> εξαίρεση."""
+    import urllib.request
+    req = urllib.request.Request(UPDATE_VERSION_URL,
+                                 headers={"User-Agent": APP_ID, "Cache-Control": "no-cache"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        text = resp.read().decode("utf-8", "replace")
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if not lines:
+        raise ValueError("κενή απάντηση")
+    return lines[0], "\n".join(lines[1:])
 
 
 def load_config():
@@ -783,6 +810,9 @@ class App(tk.Tk):
                    command=self.open_out_dir).pack(side="right")
         ttk.Button(bar, text="Αρχείο log", style="Ghost.TButton",
                    command=self.open_log_file).pack(side="right")
+        self.btn_update = ttk.Button(bar, text="Έλεγχος ενημέρωσης", style="Ghost.TButton",
+                                     command=self.check_update)
+        self.btn_update.pack(side="right")
         ttk.Button(bar, text="Καθαρισμός", style="Ghost.TButton",
                    command=lambda: self.txt_log.delete("1.0", "end")).pack(side="right")
 
@@ -1279,6 +1309,55 @@ class App(tk.Tk):
             os.startfile(d)                                  # Windows
         except AttributeError:
             subprocess.Popen(["xdg-open", d])
+
+    # ---------------- ενημέρωση (μόνο χειροκίνητα) ----------------
+    def check_update(self):
+        """Ρωτάει το GitHub αν υπάρχει νεότερη έκδοση.
+
+        Τρέχει σε ξεχωριστό νήμα με timeout: αν δεν υπάρχει internet ή αργεί ο
+        server, η εφαρμογή συνεχίζει κανονικά — δεν κολλάει ποτέ.
+        """
+        self.btn_update.config(text="Έλεγχος…", state="disabled")
+        self._update_result = None
+
+        def job():
+            try:
+                self._update_result = ("ok",) + fetch_latest_version()
+            except Exception as exc:
+                self._update_result = ("err", str(exc), "")
+
+        threading.Thread(target=job, daemon=True).start()
+        self.after(300, self._poll_update)
+
+    def _poll_update(self):
+        res = getattr(self, "_update_result", None)
+        if res is None:
+            self.after(300, self._poll_update)
+            return
+        self._update_result = None
+        self.btn_update.config(text="Έλεγχος ενημέρωσης", state="normal")
+        kind, a, b = res
+
+        if kind == "err":
+            self.log("Ο έλεγχος ενημέρωσης απέτυχε: %s" % a)
+            messagebox.showwarning(
+                APP_NAME,
+                "Δεν ήταν δυνατός ο έλεγχος για ενημέρωση.\n\n%s\n\n"
+                "Έλεγξε τη σύνδεση στο internet και ξαναδοκίμασε. Το πρόγραμμα "
+                "συνεχίζει να δουλεύει κανονικά." % a)
+            return
+
+        latest, notes = a, b
+        self.log("Έλεγχος ενημέρωσης: εγκατεστημένη %s, διαθέσιμη %s" % (APP_BUILD, latest))
+        if parse_version(latest) <= parse_version(APP_BUILD):
+            messagebox.showinfo(APP_NAME, "Έχεις την τελευταία έκδοση (%s)." % APP_BUILD)
+            return
+
+        msg = ("Υπάρχει νεότερη έκδοση!\n\nΕγκατεστημένη: %s\nΔιαθέσιμη: %s\n\n%s\n\n"
+               "Να ανοίξω τη σελίδα λήψης;" % (APP_BUILD, latest, notes or ""))
+        if messagebox.askyesno(APP_NAME, msg):
+            import webbrowser
+            webbrowser.open(UPDATE_PAGE_URL)
 
     def open_backup(self):
         base = self.v_outdir.get().strip() or os.path.dirname(self.v_watch.get().strip())
