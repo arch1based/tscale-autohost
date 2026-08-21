@@ -467,8 +467,16 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
-        self.geometry("1040x740")
-        self.minsize(940, 640)
+        try:                                    # καθαρά γράμματα σε οθόνες με scaling
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            pass
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        w = min(1040, sw - 60)
+        h = min(760, sh - 100)                  # να μη μπαίνει κάτω από τη γραμμή εργασιών
+        self.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 3)))
+        self.minsize(880, 560)
         self.cfg = load_config()
         self.worker = None
         self.stop_event = threading.Event()
@@ -594,7 +602,6 @@ class App(tk.Tk):
         tk.Frame(self, height=3, bg=COLORS["brand"], bd=0).pack(fill="x")
 
         nb = ttk.Notebook(self)
-        nb.pack(fill="both", expand=True, padx=12, pady=(10, 0))
         self.tab0 = ttk.Frame(nb, style="Card.TFrame", padding=16)
         self.tab1 = ttk.Frame(nb, style="Card.TFrame", padding=16)
         self.tab2 = ttk.Frame(nb, style="Card.TFrame", padding=16)
@@ -609,8 +616,8 @@ class App(tk.Tk):
         self._build_tab2()
         self._build_tab3()
 
-        bar = ttk.Frame(self, style="Bar.TFrame", padding=(12, 12))
-        bar.pack(fill="x")
+        bar = ttk.Frame(self, style="Bar.TFrame", padding=(12, 10))
+        bar.pack(side="bottom", fill="x")
         ttk.Button(bar, text="▶  Εκτέλεση τώρα", style="Accent.TButton",
                    command=self.run_once).pack(side="left")
         self.btn_watch = ttk.Button(bar, text="●  Έναρξη παρακολούθησης", command=self.toggle_watch)
@@ -623,11 +630,13 @@ class App(tk.Tk):
         ttk.Button(bar, text="Καθαρισμός", style="Ghost.TButton",
                    command=lambda: self.txt_log.delete("1.0", "end")).pack(side="right")
 
-        self.txt_log = self._console(self, 10, ("Consolas", 9))
-        self.txt_log.pack(fill="both", expand=False, padx=12, pady=(0, 12))
+        self.txt_log = self._console(self, 9, ("Consolas", 9))
+        self.txt_log.pack(side="bottom", fill="x", padx=12, pady=(0, 8))
         for tag, col in (("ok", "#4ade80"), ("err", "#f87171"),
                          ("info", COLORS["console_fg"]), ("dim", "#7b8ca3")):
             self.txt_log.tag_configure(tag, foreground=col)
+
+        nb.pack(fill="both", expand=True, padx=12, pady=(10, 0))
 
     def _pick_row(self, parent, label, var, kind="file", r=0):
         ttk.Label(parent, text=label).grid(row=r, column=0, sticky="w", pady=3)
@@ -690,7 +699,7 @@ class App(tk.Tk):
                        "Εντολές: INPUTFIL= / OUTPUTFL= / CNV2WIN / CNV2DOS / UPPERCASE / SKIPLINE=n / "
                        "PADLINE=n / DESCRIPT=θέση μήκος / IFEXISTn=θέση=[τιμή] THEN=[τιμή ή -1]"
                   ).pack(anchor="w", pady=6)
-        self.txt_s1 = self._console(f, 14, ("Consolas", 10))
+        self.txt_s1 = self._console(f, 11, ("Consolas", 10))
         self.txt_s1.pack(fill="both", expand=True)
         g = ttk.Frame(f)
         g.pack(fill="x", pady=8)
@@ -727,7 +736,7 @@ class App(tk.Tk):
         ttk.Checkbutton(o, text="Γράψε γραμμή επικεφαλίδων", variable=self.v_header).pack(side="left")
 
         cols = ("name", "out", "pos", "len", "extra")
-        self.tree = ttk.Treeview(f, columns=cols, show="headings", height=15, selectmode="browse")
+        self.tree = ttk.Treeview(f, columns=cols, show="headings", height=11, selectmode="browse")
         for c, t, w in (("name", "Περιγραφή", 220), ("out", "Για έξοδο σε αρχείο", 140),
                         ("pos", "Από Θέση", 90), ("len", "Μήκος Πεδίου", 110),
                         ("extra", "Εξτρα περιγραφή", 200)):
