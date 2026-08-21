@@ -42,6 +42,25 @@ COLORS = {
 
 APP_VENDOR = "ICS — ΚΑΡΑΦΥΛΛΗΣ ΣΥΣΤΗΜΑΤΑ ΠΛΗΡΟΦΟΡΙΚΗΣ"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
+SINGLETON_PORT = 49731
+_singleton_sock = None
+
+
+def claim_single_instance():
+    """True αν είμαστε το μοναδικό αντίγραφο. Κρατάει τη θύρα όσο ζει η εφαρμογή."""
+    global _singleton_sock
+    import socket
+    sk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sk.bind(("127.0.0.1", SINGLETON_PORT))
+        sk.listen(1)
+        _singleton_sock = sk
+        return True
+    except OSError:
+        sk.close()
+        return False
+
+
 def _config_dir():
     """Μόνιμος φάκελος ρυθμίσεων — επιβιώνει από κάθε νέο build του exe."""
     base = os.environ.get("APPDATA") or os.path.expanduser("~/.config")
@@ -56,6 +75,8 @@ def _config_dir():
 CONFIG_DIR = _config_dir()
 CONFIG_PATH = os.path.join(CONFIG_DIR, "autohost_config.json")
 LEGACY_CONFIG = os.path.join(APP_DIR, "autohost_config.json")
+LOG_DIR = os.path.join(CONFIG_DIR, "logs")
+LOG_KEEP_DAYS = 30
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_NAME = "TScaleAutoHost"
 DEFAULT_PATH = os.path.join(APP_DIR, "config_default.json")
@@ -125,6 +146,36 @@ def autostart_enabled():
         return True
     except Exception:
         return False
+
+
+def log_path(day=None):
+    day = day or datetime.date.today()
+    return os.path.join(LOG_DIR, "autohost-%s.log" % day.isoformat())
+
+
+def write_log(msg):
+    """Γράφει στο ημερήσιο αρχείο log. Ποτέ δεν ρίχνει την εφαρμογή."""
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path(), "a", encoding="utf-8") as fh:
+            fh.write("%s  %s\n" % (stamp, msg))
+    except Exception:
+        pass
+
+
+def purge_old_logs():
+    """Σβήνει τα log παλαιότερα των LOG_KEEP_DAYS ημερών."""
+    try:
+        limit = time.time() - LOG_KEEP_DAYS * 86400
+        for name in os.listdir(LOG_DIR):
+            if not name.startswith("autohost-") or not name.endswith(".log"):
+                continue
+            f = os.path.join(LOG_DIR, name)
+            if os.path.getmtime(f) < limit:
+                os.remove(f)
+    except Exception:
+        pass
 
 
 def load_config():
@@ -504,6 +555,7 @@ class App(tk.Tk):
         self.last_stamp = None
 
         self.tray = None
+        self.pending_error = None
         self._build()
         self._load_into_widgets()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -648,6 +700,8 @@ class App(tk.Tk):
                    command=self.hide_to_tray).pack(side="right")
         ttk.Button(bar, text="Άνοιγμα φακέλου εξόδου", style="Ghost.TButton",
                    command=self.open_out_dir).pack(side="right")
+        ttk.Button(bar, text="Αρχείο log", style="Ghost.TButton",
+                   command=self.open_log_file).pack(side="right")
         ttk.Button(bar, text="Καθαρισμός", style="Ghost.TButton",
                    command=lambda: self.txt_log.delete("1.0", "end")).pack(side="right")
 
@@ -860,6 +914,15 @@ class App(tk.Tk):
         self.deiconify()
         self.lift()
         self.focus_force()
+        err = getattr(self, "pending_error", None)
+        if err:
+            self.pending_error = None
+            if getattr(self, "tray", None) is not None:
+                try:
+                    self.tray.title = APP_NAME
+                except Exception:
+                    pass
+            messagebox.showerror(APP_NAME, err)
 
     def quit_app(self):
         self.watching = False
@@ -1048,6 +1111,16 @@ class App(tk.Tk):
         except AttributeError:
             subprocess.Popen(["xdg-open", d])
 
+    def open_log_file(self):
+        purge_old_logs()
+        f = log_path()
+        if not os.path.exists(f):
+            write_log("(κενό log)")
+        try:
+            os.startfile(f)                                  # Windows
+        except AttributeError:
+            subprocess.Popen(["xdg-open", f])
+
     def log(self, msg):
         stamp = datetime.datetime.now().strftime("%H:%M:%S")
         tag = "info"
@@ -1060,6 +1133,7 @@ class App(tk.Tk):
         self.txt_log.insert("end", "%s  " % stamp, "dim")
         self.txt_log.insert("end", "%s\n" % msg, tag)
         self.txt_log.see("end")
+        write_log(msg)
 
     def run_once(self, silent=False):
         if self.worker and self.worker.is_alive():
@@ -1082,6 +1156,7 @@ class App(tk.Tk):
         self.worker.start()
 
     def _done_ok(self, silent):
+        self.pending_error = None
         self.set_status("Επιτυχία", COLORS["ok"])
         if not silent:
             messagebox.showinfo(APP_NAME, "Η ενημέρωση των ζυγών ολοκληρώθηκε με επιτυχία.")
@@ -1089,7 +1164,33 @@ class App(tk.Tk):
     def _done_err(self, text, silent):
         self.set_status("Σφάλμα", COLORS["err"])
         self.log("ΣΦΑΛΜΑ -> " + text.replace("\n", "\n         "))
-        messagebox.showerror(APP_NAME, text)
+        self.notify_error(text)
+
+    def is_hidden(self):
+        try:
+            return self.state() in ("withdrawn", "iconic")
+        except tk.TclError:
+            return True
+
+    def notify_error(self, text):
+        """Κρυμμένο = ειδοποίηση κάτω δεξιά. Ορατό = κανονικό παράθυρο σφάλματος.
+
+        Ποτέ modal παράθυρο πάνω σε κρυμμένο window: δεν φαίνεται και μπλοκάρει τη ροή.
+        """
+        self.pending_error = text
+        if not self.is_hidden():
+            messagebox.showerror(APP_NAME, text)
+            return
+        first = text.strip().split("\n")[0]
+        if getattr(self, "tray", None) is not None:
+            try:
+                self.tray.title = "%s — ΣΦΑΛΜΑ" % APP_NAME
+                self.tray.notify(first[:200] + "\n\nΆνοιξε το πρόγραμμα για λεπτομέρειες.",
+                                 "%s — σφάλμα ενημέρωσης" % APP_NAME)
+                return
+            except Exception:
+                pass
+        self.bell()
 
     # ---------------- daemon ----------------
     def toggle_watch(self):
@@ -1122,6 +1223,22 @@ class App(tk.Tk):
         except OSError:
             return None
 
+    def _wait_until_stable(self, path, tries=40):
+        """Περιμένει να σταματήσει να γράφει το ERP: ίδιο μέγεθος σε 2 συνεχόμενους ελέγχους."""
+        prev = None
+        for _ in range(tries):
+            if self.stop_event.is_set():
+                return None
+            time.sleep(0.7)
+            cur = self._stamp(path)
+            if cur is None:
+                return None
+            if cur == prev:
+                return cur
+            prev = cur
+        self.after(0, self.log, "Προσοχή: το αρχείο του ERP γράφεται ακόμη μετά από 30 δευτερόλεπτα.")
+        return self._stamp(path)
+
     def _watch_loop(self):
         while self.watching and not self.stop_event.is_set():
             time.sleep(max(1, int(self.cfg.get("poll_seconds", 3))))
@@ -1129,10 +1246,12 @@ class App(tk.Tk):
             cur = self._stamp(path)
             if cur is None or cur == self.last_stamp:
                 continue
-            time.sleep(1.0)              # να προλάβει το ERP να κλείσει το αρχείο
-            cur = self._stamp(path)
+            self.after(0, self.log, "Εντοπίστηκε νέο αρχείο από το ERP — αναμονή να ολοκληρωθεί…")
+            cur = self._wait_until_stable(path)
+            if cur is None:
+                continue
             self.last_stamp = cur
-            self.after(0, self.log, "Εντοπίστηκε νέο αρχείο από το ERP.")
+            self.after(0, self.log, "Το αρχείο ολοκληρώθηκε (%d bytes). Έναρξη ενημέρωσης." % cur[1])
             self.after(0, self.run_once, True)
             while self.worker and self.worker.is_alive():
                 time.sleep(0.5)
@@ -1160,6 +1279,19 @@ class App(tk.Tk):
 
 if __name__ == "__main__":
     import sys
+
+    if not claim_single_instance():
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showinfo(
+            APP_NAME,
+            "Το %s τρέχει ήδη.\n\nΘα το βρεις κάτω δεξιά στην περιοχή ειδοποιήσεων "
+            "(διπλό κλικ στο εικονίδιο ICS)." % APP_NAME)
+        root.destroy()
+        sys.exit(0)
+
+    purge_old_logs()
+    write_log("=== Εκκίνηση %s (%s) ===" % (APP_NAME, APP_VERSION))
     app = App()
     app.setup_tray()
     if app.tray is None:
