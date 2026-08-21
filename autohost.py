@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.2.1"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.2.2"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -324,6 +324,7 @@ def install_update_and_restart(new_dir):
 def load_config():
     with open(DEFAULT_PATH, "r", encoding="utf-8") as fh:
         cfg = json.load(fh)
+    builtin_profiles = cfg.get("profiles", {})
     # παλιές ρυθμίσεις δίπλα στο exe -> μεταφορά στον μόνιμο φάκελο
     path = CONFIG_PATH
     if not os.path.exists(path):
@@ -341,6 +342,9 @@ def load_config():
                 save_config(cfg)                 # μεταφορά ή αναβάθμιση ρυθμίσεων
         except Exception:
             pass
+    # Τα προφίλ ανήκουν στην έκδοση: αλλιώς μια παλιά αποθήκευση θα έκρυβε
+    # για πάντα τα καινούρια.
+    cfg["profiles"] = builtin_profiles
     return cfg
 
 
@@ -361,8 +365,9 @@ def migrate_config(cfg, saved):
 
 
 def save_config(cfg):
+    data = {k: v for k, v in cfg.items() if k != "profiles"}
     with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
-        json.dump(cfg, fh, indent=2, ensure_ascii=False)
+        json.dump(data, fh, indent=2, ensure_ascii=False)
 
 
 # --------------------------------------------------------------------------
@@ -1356,7 +1361,7 @@ class App(tk.Tk):
         b.pack(side="bottom", fill="x", pady=(6, 0))
         ttk.Button(b, text="Εναλλαγή ✓ (ή Space)", command=self.toggle_field).pack(side="left")
         ttk.Button(b, text="Επεξεργασία γραμμής", command=self.on_edit_cell).pack(side="left", padx=6)
-        ttk.Button(b, text="Αρχικοποίηση Παραμέτρων", command=self.reset_fields).pack(side="left")
+        ttk.Button(b, text="Αρχικοποίηση", command=self.reset_fields).pack(side="left")
         # Ο πίνακας φτιάχνεται ΜΕΣΑ στο πλαίσιό του: αλλιώς μένει από κάτω του
         # στη σειρά σχεδίασης και δεν φαίνεται καθόλου.
         tree_box = ttk.Frame(f)
@@ -1397,9 +1402,13 @@ class App(tk.Tk):
         sb.pack(side="right", fill="y")
         self.tree.pack(side="left", fill="both", expand=True)
 
-        for pname in load_config().get("profiles", {}):
-            ttk.Button(b, text=pname.split(" (")[0].replace("T-Scale · ", ""),
-                       command=lambda n=pname: self.load_profile(n)).pack(side="left", padx=6)
+        ttk.Label(b, text="Προφίλ ζυγού:").pack(side="left", padx=(16, 4))
+        names = list(self.cfg.get("profiles", {}))
+        self.v_profile = tk.StringVar(value=names[0] if names else "")
+        ttk.Combobox(b, textvariable=self.v_profile, values=names, state="readonly",
+                     width=32).pack(side="left")
+        ttk.Button(b, text="Φόρτωση",
+                   command=lambda: self.load_profile(self.v_profile.get())).pack(side="left", padx=6)
         ttk.Button(b, text="Δοκιμή · προεπισκόπηση", style="Accent.TButton",
                    command=self.preview_csv).pack(side="right")
 
