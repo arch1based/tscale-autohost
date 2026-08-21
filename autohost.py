@@ -3,10 +3,10 @@
 Aftomati enimerosi zygon (ICSautoScaleUpdater) - daemon gia Windows.
 
 Roi ergasias:
-  Βήμα 0 : parakolouthisi tou arxeiou pou vgazei to ERP -> dimiourgia host1/host2
-  Βήμα 1 : metatropi (CNV script) me kanones pou fainontai kai allazoun apo to GUI
-  Βήμα 2 : eksagogi product.csv me pinaka parametron (thesi / mikos pediou)
-  Βήμα 3 : ekkinisi tou AutoProcess gia X deuterolepta
+  Vima 1 : parakolouthisi tou arxeiou pou vgazei to ERP -> dimiourgia host1/host2
+  Vima 2 : metatropi (CNV script) me kanones pou fainontai kai allazoun apo to GUI
+  Vima 3 : eksagogi arxeiou proionton (product.csv i .txt)
+  Vima 4 : ekkinisi tou AutoProcess gia X deuterolepta
 """
 
 import os
@@ -233,14 +233,14 @@ def save_config(cfg):
 # --------------------------------------------------------------------------
 def make_hosts(src, out_dir, log):
     if not src or not os.path.isfile(src):
-        raise StepError("Βήμα 0", "Δεν βρέθηκε το αρχείο του ERP.", src)
+        raise StepError("Βήμα 1", "Δεν βρέθηκε το αρχείο του ERP.", src)
     if not out_dir:
         out_dir = os.path.dirname(src)
     if not os.path.isdir(out_dir):
         try:
             os.makedirs(out_dir)
         except Exception as exc:
-            raise StepError("Βήμα 0", "Αδυναμία δημιουργίας φακέλου εξόδου.",
+            raise StepError("Βήμα 1", "Αδυναμία δημιουργίας φακέλου εξόδου.",
                             "%s\n%s" % (out_dir, exc))
 
     ext = os.path.splitext(src)[1] or ".txt"
@@ -250,7 +250,7 @@ def make_hosts(src, out_dir, log):
         try:
             shutil.copyfile(src, dst)
         except Exception as exc:
-            raise StepError("Βήμα 0", "Αδυναμία εγγραφής του %s." % os.path.basename(dst),
+            raise StepError("Βήμα 1", "Αδυναμία εγγραφής του %s." % os.path.basename(dst),
                             "%s\n%s" % (dst, exc))
         made.append(dst)
         log("  -> %s" % dst)
@@ -313,7 +313,13 @@ def parse_step1_script(text, host1, one_based=True):
             rules["input"] = host1 if val.upper() == "<HOST1>" else val
         elif up.startswith("OUTPUTFL") or up.startswith("OUTPUTFILE"):
             val = line.split("=", 1)[1].strip()
-            rules["output"] = out_default if val.upper() == "<OUT1>" else val
+            if val.upper() == "<OUT1>":
+                rules["output"] = out_default
+            elif os.path.dirname(val):
+                rules["output"] = val                     # πλήρης διαδρομή
+            else:
+                # σκέτο όνομα αρχείου -> στον ίδιο φάκελο με το host1
+                rules["output"] = os.path.join(os.path.dirname(host1), val)
         elif up == "CNV2WIN":
             rules["cnv2win"] = True
         elif up == "CNV2DOS":
@@ -329,8 +335,8 @@ def parse_step1_script(text, host1, one_based=True):
             if len(nums) >= 2:
                 rules["descript"] = (int(nums[0]), int(nums[1]))
         else:
-            raise StepError("Βήμα 1", "Άγνωστη εντολή στο script: %s" % line,
-                            "Έλεγξε τη γραμμή στο πλαίσιο «Κανόνες Βήματος 1».")
+            raise StepError("Βήμα 2", "Άγνωστη εντολή στο script: %s" % line,
+                            "Έλεγξε τη γραμμή στο πλαίσιο «Κανόνες Βήματος 2».")
 
     if not rules["input"]:
         rules["input"] = host1
@@ -345,12 +351,12 @@ def run_step1(cfg, host1, log):
     src, dst = rules["input"], rules["output"]
 
     if not os.path.isfile(src):
-        raise StepError("Βήμα 1", "Δεν βρέθηκε το αρχείο εισόδου του Βήματος 1.", src)
+        raise StepError("Βήμα 2", "Δεν βρέθηκε το αρχείο εισόδου του Βήματος 2.", src)
 
     try:
         raw = open(src, "rb").read()
     except Exception as exc:
-        raise StepError("Βήμα 1", "Αδυναμία ανάγνωσης του αρχείου εισόδου.",
+        raise StepError("Βήμα 2", "Αδυναμία ανάγνωσης του αρχείου εισόδου.",
                         "%s\n%s" % (src, exc))
 
     detected = detect_codepage(raw)
@@ -366,7 +372,7 @@ def run_step1(cfg, host1, log):
     try:
         lines = raw.decode(src_enc, "replace").splitlines()
     except Exception as exc:
-        raise StepError("Βήμα 1", "Αδυναμία ανάγνωσης του αρχείου εισόδου.",
+        raise StepError("Βήμα 2", "Αδυναμία ανάγνωσης του αρχείου εισόδου.",
                         "%s\n%s" % (src, exc))
 
     if rules["skip"]:
@@ -400,7 +406,7 @@ def run_step1(cfg, host1, log):
         with open(dst, "w", encoding=dst_enc, errors="replace", newline="\r\n") as fh:
             fh.write("\n".join(out_lines) + ("\n" if out_lines else ""))
     except Exception as exc:
-        raise StepError("Βήμα 1", "Αδυναμία εγγραφής του αρχείου εξόδου.",
+        raise StepError("Βήμα 2", "Αδυναμία εγγραφής του αρχείου εξόδου.",
                         "%s\n%s" % (dst, exc))
 
     log("  -> %s (%d γραμμές, %d αγνοήθηκαν)" % (dst, len(out_lines), dropped))
@@ -408,16 +414,16 @@ def run_step1(cfg, host1, log):
     exe = (cfg.get("step1_external_exe") or "").strip()
     if exe:
         if not os.path.isfile(exe):
-            raise StepError("Βήμα 1", "Δεν βρέθηκε το εξωτερικό πρόγραμμα μετατροπής.", exe)
+            raise StepError("Βήμα 2", "Δεν βρέθηκε το εξωτερικό πρόγραμμα μετατροπής.", exe)
         cfg_file = os.path.join(os.path.dirname(dst), "cnv_script.txt")
         with open(cfg_file, "w", encoding="cp1253", errors="replace") as fh:
             fh.write(text.replace("<HOST1>", host1).replace("<OUT1>", dst))
         try:
             res = subprocess.run([exe, cfg_file], capture_output=True, timeout=120)
         except Exception as exc:
-            raise StepError("Βήμα 1", "Αποτυχία εκτέλεσης του εξωτερικού προγράμματος.", str(exc))
+            raise StepError("Βήμα 2", "Αποτυχία εκτέλεσης του εξωτερικού προγράμματος.", str(exc))
         if res.returncode != 0:
-            raise StepError("Βήμα 1", "Το εξωτερικό πρόγραμμα επέστρεψε σφάλμα (%d)." % res.returncode,
+            raise StepError("Βήμα 2", "Το εξωτερικό πρόγραμμα επέστρεψε σφάλμα (%d)." % res.returncode,
                             (res.stderr or res.stdout or b"").decode("cp1253", "replace"))
     return dst
 
@@ -431,10 +437,11 @@ def run_step2(cfg, fallback_input, log):
     log("  <- είσοδος: %s%s" % (src, "" if chosen else "  (αυτόματα από το προηγούμενο βήμα)"))
     dst = (cfg.get("step2_output") or "").strip()
     if not dst:
-        dst = os.path.join(os.path.dirname(src), "product.csv")
+        ext = ".csv" if cfg.get("step2_format", "csv") in ("csv", "semicolon") else ".txt"
+        dst = os.path.join(os.path.dirname(src), "product" + ext)
     if not src or not os.path.isfile(src):
-        raise StepError("Βήμα 2", "Δεν βρέθηκε το αρχείο εισόδου (host).",
-                        "Διαδρομή: %s\nΔιάλεξε αρχείο εισόδου στην καρτέλα «3 · product.csv» ή άφησέ το "
+        raise StepError("Βήμα 3", "Δεν βρέθηκε το αρχείο εισόδου (host).",
+                        "Διαδρομή: %s\nΔιάλεξε αρχείο εισόδου στην καρτέλα «Βήμα 3» ή άφησέ το "
                         "κενό για να χρησιμοποιηθεί αυτόματα το host1 του φακέλου εξόδου." % src)
 
     out_dir = os.path.dirname(dst)
@@ -442,16 +449,16 @@ def run_step2(cfg, fallback_input, log):
         try:
             os.makedirs(out_dir)
         except Exception as exc:
-            raise StepError("Βήμα 2", "Δεν υπάρχει ο φάκελος εξόδου και δεν μπόρεσε να δημιουργηθεί.",
+            raise StepError("Βήμα 3", "Δεν υπάρχει ο φάκελος εξόδου και δεν μπόρεσε να δημιουργηθεί.",
                             "%s\n%s" % (out_dir, exc))
 
     fields = [f for f in cfg.get("step2_fields", []) if f.get("enabled")]
     if not fields:
-        raise StepError("Βήμα 2", "Δεν είναι επιλεγμένο κανένα πεδίο στον πίνακα παραμέτρων.",
+        raise StepError("Βήμα 3", "Δεν είναι επιλεγμένο κανένα πεδίο στον πίνακα παραμέτρων.",
                         "Τσέκαρε τουλάχιστον ένα πεδίο στη στήλη «Για έξοδο».")
     for f in fields:
         if int(f.get("len") or 0) <= 0:
-            raise StepError("Βήμα 2", "Το πεδίο «%s» είναι επιλεγμένο αλλά έχει Μήκος = 0." % f["name"],
+            raise StepError("Βήμα 3", "Το πεδίο «%s» είναι επιλεγμένο αλλά έχει Μήκος = 0." % f["name"],
                             "Βάλε Μήκος Πεδίου > 0 ή ξε-τσέκαρέ το.")
 
     off = 1 if cfg.get("step2_onebased", True) else 0
@@ -462,7 +469,7 @@ def run_step2(cfg, fallback_input, log):
         with open(src, "r", encoding=enc, errors="replace") as fh:
             lines = fh.read().splitlines()
     except Exception as exc:
-        raise StepError("Βήμα 2", "Αδυναμία ανάγνωσης του host αρχείου.", "%s\n%s" % (src, exc))
+        raise StepError("Βήμα 3", "Αδυναμία ανάγνωσης του host αρχείου.", "%s\n%s" % (src, exc))
 
     rows = []
     for line in lines[start_line - 1:]:
@@ -479,17 +486,31 @@ def run_step2(cfg, fallback_input, log):
         rows.append(row)
 
     if not rows:
-        raise StepError("Βήμα 2", "Το host αρχείο δεν περιέχει γραμμές δεδομένων.",
+        raise StepError("Βήμα 3", "Το host αρχείο δεν περιέχει γραμμές δεδομένων.",
                         "Αρχείο: %s\nΓραμμή έναρξης: %d" % (src, start_line))
 
+    fmt = cfg.get("step2_format", "csv")
     try:
-        with open(dst, "w", encoding=enc, errors="replace", newline="") as fh:
-            w = csv.writer(fh, delimiter=cfg.get("step2_delimiter", ",") or ",")
-            if cfg.get("step2_write_header", True):
-                w.writerow([f["name"] for f in fields])
-            w.writerows(rows)
+        if fmt == "fixed":
+            # σταθερό πλάτος: κάθε πεδίο γεμίζει το δικό του μήκος
+            with open(dst, "w", encoding=enc, errors="replace", newline="\r\n") as fh:
+                if cfg.get("step2_write_header", True):
+                    fh.write("".join(f["name"][:int(f["len"])].ljust(int(f["len"]))
+                                     for f in fields) + "\n")
+                for row in rows:
+                    fh.write("".join(v[:int(f["len"])].ljust(int(f["len"]))
+                                     for v, f in zip(row, fields)) + "\n")
+        else:
+            delim = {"csv": ",", "tab": "\t", "semicolon": ";"}.get(
+                fmt, cfg.get("step2_delimiter", ",") or ",")
+            with open(dst, "w", encoding=enc, errors="replace", newline="") as fh:
+                w = csv.writer(fh, delimiter=delim)
+                if cfg.get("step2_write_header", True):
+                    w.writerow([f["name"] for f in fields])
+                w.writerows(rows)
     except Exception as exc:
-        raise StepError("Βήμα 2", "Αδυναμία εγγραφής του product.csv.", "%s\n%s" % (dst, exc))
+        raise StepError("Βήμα 3", "Αδυναμία εγγραφής του αρχείου προϊόντων.",
+                        "%s\n%s" % (dst, exc))
 
     log("  -> %s (%d εγγραφές, %d πεδία)" % (dst, len(rows), len(fields)))
     return dst
@@ -502,11 +523,11 @@ def run_step3(cfg, log, stop_event=None):
     exe = (cfg.get("step3_exe") or "").strip()
     secs = int(cfg.get("step3_seconds", 120) or 120)
     if not exe or not os.path.isfile(exe):
-        raise StepError("Βήμα 3", "Δεν βρέθηκε το πρόγραμμα AutoProcess.", exe)
+        raise StepError("Βήμα 4", "Δεν βρέθηκε το πρόγραμμα AutoProcess.", exe)
     try:
         proc = subprocess.Popen([exe], cwd=os.path.dirname(exe))
     except Exception as exc:
-        raise StepError("Βήμα 3", "Αδυναμία εκκίνησης του AutoProcess.", "%s\n%s" % (exe, exc))
+        raise StepError("Βήμα 4", "Αδυναμία εκκίνησης του AutoProcess.", "%s\n%s" % (exe, exc))
 
     log("  -> Το AutoProcess τρέχει για %d δευτερόλεπτα..." % secs)
     deadline = time.time() + secs
@@ -526,7 +547,7 @@ def run_step3(cfg, log, stop_event=None):
                 proc.kill()
             log("  -> Το AutoProcess έκλεισε μετά τα %d δευτερόλεπτα." % secs)
         except Exception as exc:
-            raise StepError("Βήμα 3", "Αδυναμία τερματισμού του AutoProcess.", str(exc))
+            raise StepError("Βήμα 4", "Αδυναμία τερματισμού του AutoProcess.", str(exc))
 
 
 # --------------------------------------------------------------------------
@@ -561,31 +582,31 @@ def archive_run(cfg, files, log):
 def run_pipeline(cfg, log, stop_event=None):
     log("=== Έναρξη διαδικασίας %s ===" % datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
     host1, host2 = make_hosts(cfg.get("watch_file"), cfg.get("output_dir"), log)
-    log("Βήμα 0: δημιουργήθηκαν host1/host2. OK")
+    log("Βήμα 1: δημιουργήθηκαν host1/host2. OK")
     produced = [cfg.get("watch_file"), host1, host2]
 
     current = host1
     if cfg.get("step1_enabled"):
         current = run_step1(cfg, host1, log)
         produced.append(current)
-        log("Βήμα 1: μετατροπή. OK")
+        log("Βήμα 2: μετατροπή. OK")
     else:
-        log("Βήμα 1: απενεργοποιημένο.")
+        log("Βήμα 2: απενεργοποιημένο.")
 
     if cfg.get("step2_enabled"):
         produced.append(run_step2(cfg, current, log))
-        log("Βήμα 2: product.csv. OK")
+        log("Βήμα 3: product.csv. OK")
     else:
-        log("Βήμα 2: απενεργοποιημένο.")
+        log("Βήμα 3: απενεργοποιημένο.")
 
     if cfg.get("backup_enabled", True):
         archive_run(cfg, produced, log)
 
     if cfg.get("step3_enabled"):
         run_step3(cfg, log, stop_event)
-        log("Βήμα 3: AutoProcess. OK")
+        log("Βήμα 4: AutoProcess. OK")
     else:
-        log("Βήμα 3: απενεργοποιημένο.")
+        log("Βήμα 4: απενεργοποιημένο.")
 
     log("=== Ολοκληρώθηκε με επιτυχία ===")
 
@@ -737,10 +758,10 @@ class App(tk.Tk):
         self.tab1 = ttk.Frame(nb, style="Card.TFrame", padding=16)
         self.tab2 = ttk.Frame(nb, style="Card.TFrame", padding=16)
         self.tab3 = ttk.Frame(nb, style="Card.TFrame", padding=16)
-        nb.add(self.tab0, text="  1 · Αρχείο ERP  ")
-        nb.add(self.tab1, text="  2 · Πρώτο βήμα  ")
-        nb.add(self.tab2, text="  3 · product.csv  ")
-        nb.add(self.tab3, text="  4 · AutoProcess  ")
+        nb.add(self.tab0, text="  Βήμα 1 · Αρχείο ERP  ")
+        nb.add(self.tab1, text="  Βήμα 2 · Μετατροπή  ")
+        nb.add(self.tab2, text="  Βήμα 3 · Αρχείο προϊόντων  ")
+        nb.add(self.tab3, text="  Βήμα 4 · AutoProcess  ")
 
         self._build_tab0()
         self._build_tab1()
@@ -837,7 +858,7 @@ class App(tk.Tk):
     def _build_tab1(self):
         f = self.tab1
         self.v_s1 = tk.BooleanVar()
-        ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Πρώτου Βήματος", variable=self.v_s1).pack(anchor="w")
+        ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 2 — Μετατροπή αρχείου", variable=self.v_s1).pack(anchor="w")
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Οι κανόνες είναι σε απλό κείμενο για να τους αλλάζεις ανά ζυγαριά.\n"
                        "<HOST1> = το host1 που μόλις δημιουργήθηκε, <OUT1> = αυτόματο όνομα εξόδου.\n"
@@ -854,7 +875,7 @@ class App(tk.Tk):
     def _build_tab2(self):
         f = self.tab2
         self.v_s2 = tk.BooleanVar()
-        ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση δημιουργίας product.csv", variable=self.v_s2).pack(anchor="w")
+        ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 3 — Αρχείο προϊόντων", variable=self.v_s2).pack(anchor="w")
 
         g = ttk.Frame(f)
         g.pack(fill="x", pady=6)
@@ -880,10 +901,19 @@ class App(tk.Tk):
         self.v_delim = tk.StringVar(value=",")
         ttk.Label(o, text="Γραμμή έναρξης:").pack(side="left")
         ttk.Entry(o, textvariable=self.v_start, width=5).pack(side="left", padx=4)
-        ttk.Label(o, text="Διαχωριστικό:").pack(side="left", padx=(12, 0))
-        ttk.Entry(o, textvariable=self.v_delim, width=3).pack(side="left", padx=4)
+        ttk.Checkbutton(o, text="Γράψε γραμμή επικεφαλίδων", variable=self.v_header).pack(side="left", padx=(12, 0))
+
+        fmt = ttk.Frame(f)
+        fmt.pack(fill="x", pady=(6, 2))
+        ttk.Label(fmt, text="Μορφή αρχείου:").pack(side="left")
+        self.v_format = tk.StringVar(value="csv")
+        for val, txt in (("csv", "CSV για T-Scale (κόμμα)"),
+                         ("semicolon", "CSV με ερωτηματικό (;)"),
+                         ("tab", "TXT με Tab"),
+                         ("fixed", "TXT σταθερού πλάτους")):
+            ttk.Radiobutton(fmt, text=txt, value=val, variable=self.v_format,
+                            command=self.on_format_change).pack(side="left", padx=(10, 0))
         ttk.Checkbutton(o, text="Θέση 1 = πρώτος χαρακτήρας", variable=self.v_onebased).pack(side="left", padx=12)
-        ttk.Checkbutton(o, text="Γράψε γραμμή επικεφαλίδων", variable=self.v_header).pack(side="left")
 
         cols = ("name", "out", "pos", "len", "extra")
         self.tree = ttk.Treeview(f, columns=cols, show="headings", height=11, selectmode="browse")
@@ -910,7 +940,7 @@ class App(tk.Tk):
     def _build_tab3(self):
         f = self.tab3
         self.v_s3 = tk.BooleanVar()
-        ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση AutoProcess", variable=self.v_s3).pack(anchor="w")
+        ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 4 — AutoProcess", variable=self.v_s3).pack(anchor="w")
         g = ttk.Frame(f)
         g.pack(fill="x", pady=8)
         self.v_s3exe = tk.StringVar()
@@ -1074,6 +1104,7 @@ class App(tk.Tk):
         self.v_onebased.set(bool(c.get("step2_onebased", True)))
         self.v_header.set(bool(c.get("step2_write_header", True)))
         self.v_delim.set(c.get("step2_delimiter", ","))
+        self.v_format.set(c.get("step2_format", "csv"))
         self.v_s3.set(bool(c.get("step3_enabled", True)))
         self.v_s3exe.set(c.get("step3_exe", ""))
         self.v_s3sec.set(str(c.get("step3_seconds", 120)))
@@ -1122,6 +1153,7 @@ class App(tk.Tk):
         c["step2_onebased"] = self.v_onebased.get()
         c["step2_write_header"] = self.v_header.get()
         c["step2_delimiter"] = self.v_delim.get() or ","
+        c["step2_format"] = self.v_format.get()
         c["step3_enabled"] = self.v_s3.get()
         c["step3_exe"] = self.v_s3exe.get().strip()
         try:
@@ -1136,6 +1168,16 @@ class App(tk.Tk):
         self.log("Οι ρυθμίσεις αποθηκεύτηκαν: %s" % CONFIG_PATH)
 
     # ---------------- πίνακας παραμέτρων ----------------
+    def on_format_change(self):
+        """Αλλάζει την κατάληξη του αρχείου εξόδου ώστε να ταιριάζει με τη μορφή."""
+        want = ".csv" if self.v_format.get() in ("csv", "semicolon") else ".txt"
+        cur = self.v_s2out.get().strip()
+        if cur:
+            base, ext = os.path.splitext(cur)
+            if ext.lower() in (".csv", ".txt") and ext.lower() != want:
+                self.v_s2out.set(base + want)
+                self.log("Το αρχείο εξόδου έγινε %s" % os.path.basename(base + want))
+
     def _sel(self):
         sel = self.tree.selection()
         if not sel:

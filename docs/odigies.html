@@ -45,23 +45,25 @@ code { background: #eef3f8; padding: 0 3px; border-radius: 2px; font-size: 7.6pt
     <table>
       <tr><th style="width:14px">#</th><th>Βήμα</th><th>Τι κάνει</th></tr>
       <tr><td>1</td><td><b>Αντιγραφή</b></td><td>Φτιάχνει host1 και host2, ένα για κάθε ζυγαριά</td></tr>
-      <tr><td>2</td><td><b>Μετατροπή</b></td><td>Διορθώνει το αρχείο για τη ζυγαριά</td></tr>
-      <tr><td>3</td><td><b>product.csv</b></td><td>Βγάζει το αρχείο προϊόντων</td></tr>
+      <tr><td>2</td><td><b>Μετατροπή</b></td><td>Διορθώνει το host1 → βγάζει το host1_cnv</td></tr>
+      <tr><td>3</td><td><b>Προϊόντα</b></td><td>Βγάζει product.csv ή product.txt</td></tr>
       <tr><td>4</td><td><b>AutoProcess</b></td><td>Στέλνει τα δεδομένα στους ζυγούς</td></tr>
     </table>
   </div>
 
   <h2>Ρύθμιση — μία φορά στην αρχή</h2>
   <div class="card">
-    <div><span class="step">Καρτέλα 1 · Αρχείο ERP</span><br>
+    <div><span class="step">Βήμα 1 · Αρχείο ERP</span><br>
     Δείξε το αρχείο που βγάζει το ERP (π.χ. <code>C:\HOST.txt</code>) και τον φάκελο
     εξόδου (π.χ. <code>C:\TEST</code>).</div>
-    <div style="margin-top:4px"><span class="step">Καρτέλα 2 · Πρώτο βήμα</span><br>
+    <div style="margin-top:4px"><span class="step">Βήμα 2 · Μετατροπή</span><br>
     Άφησέ το τσεκαρισμένο. <b>Μην αλλάξεις τους κανόνες</b> στο μαύρο πλαίσιο.</div>
-    <div style="margin-top:4px"><span class="step">Καρτέλα 3 · product.csv</span><br>
+    <div style="margin-top:4px"><span class="step">Βήμα 3 · Αρχείο προϊόντων</span><br>
     Άφησε κενό το «Αρχείο εισόδου». Στο «Να δημιουργείται εδώ» διάλεξε φάκελο και όνομα —
-    το αρχείο <b>δεν χρειάζεται να υπάρχει</b>. Πάτα «Δοκιμή · προεπισκόπηση» για έλεγχο.</div>
-    <div style="margin-top:4px"><span class="step">Καρτέλα 4 · AutoProcess</span><br>
+    το αρχείο <b>δεν χρειάζεται να υπάρχει</b>. Πάτα «Δοκιμή · προεπισκόπηση» για έλεγχο.
+    Στη <b>Μορφή αρχείου</b> διάλεξε CSV για T-Scale ή TXT για άλλου τύπου ζυγαριές —
+    η κατάληξη αλλάζει μόνη της.</div>
+    <div style="margin-top:4px"><span class="step">Βήμα 4 · AutoProcess</span><br>
     Δείξε πού είναι το AutoProcess.exe. Ανοίγει 2 λεπτά και κλείνει μόνο του.</div>
     <div style="margin-top:5px" class="big">Τέλος: «Αποθήκευση ρυθμίσεων»</div>
   </div>
@@ -97,10 +99,10 @@ code { background: #eef3f8; padding: 0 3px; border-radius: 2px; font-size: 7.6pt
     Το πρόγραμμα λέει πάντα <b>σε ποιο βήμα</b> και <b>γιατί</b>.
     <table>
       <tr><th>Μήνυμα</th><th>Τι κάνεις</th></tr>
-      <tr><td>Δεν βρέθηκε το αρχείο του ERP</td><td>Ξαναδιάλεξέ το στην καρτέλα 1</td></tr>
-      <tr><td>Δεν είναι επιλεγμένο κανένα πεδίο</td><td>Καρτέλα 3: τσέκαρε πεδία (πλήκτρο Space)</td></tr>
+      <tr><td>Δεν βρέθηκε το αρχείο του ERP</td><td>Ξαναδιάλεξέ το στην Βήμα 1</td></tr>
+      <tr><td>Δεν είναι επιλεγμένο κανένα πεδίο</td><td>Βήμα 3: τσέκαρε πεδία (πλήκτρο Space)</td></tr>
       <tr><td>Το πεδίο X έχει Μήκος = 0</td><td>Διπλό κλικ στη γραμμή, βάλε μήκος</td></tr>
-      <tr><td>Δεν βρέθηκε το AutoProcess</td><td>Ξαναδιάλεξέ το στην καρτέλα 4</td></tr>
+      <tr><td>Δεν βρέθηκε το AutoProcess</td><td>Ξαναδιάλεξέ το στην Βήμα 4</td></tr>
       <tr><td>Αδυναμία εγγραφής…</td><td>Κλειδωμένος φάκελος ή γεμάτος δίσκος</td></tr>
     </table>
     Αν συνέβη ενώ ήταν κρυμμένο, βγαίνει ειδοποίηση κάτω δεξιά.

@@ -15,6 +15,7 @@
   "step2_startline": 1,
   "step2_onebased": true,
   "step2_delimiter": ",",
+  "step2_format": "csv",
   "step2_write_header": true,
   "step2_fields": [
     {
