@@ -61,6 +61,18 @@ def claim_single_instance():
         return False
 
 
+def wake_running_instance(timeout=3.0):
+    """Λέει στο αντίγραφο που ήδη τρέχει να εμφανιστεί. True αν απάντησε."""
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", SINGLETON_PORT), timeout) as c:
+            c.sendall(b"SHOW")
+            c.settimeout(timeout)
+            return c.recv(16) == b"OK"
+    except Exception:
+        return False
+
+
 def _config_dir():
     """Μόνιμος φάκελος ρυθμίσεων — επιβιώνει από κάθε νέο build του exe."""
     base = os.environ.get("APPDATA") or os.path.expanduser("~/.config")
@@ -916,6 +928,44 @@ class App(tk.Tk):
             messagebox.showerror(APP_NAME, exc.full())
 
     # ---------------- περιοχή ειδοποιήσεων (κάτω δεξιά) ----------------
+    def listen_for_wakeups(self):
+        """Ακούει άλλα αντίγραφα που ζητούν να εμφανιστεί το παράθυρο.
+
+        Το tkinter δεν είναι thread-safe: το νήμα σηκώνει μόνο σημαία και το
+        παράθυρο εμφανίζεται από το κύριο νήμα στο _poll_wake.
+        """
+        sk = _singleton_sock
+        if sk is None:
+            return
+        self._wake_requested = False
+
+        def loop():
+            while True:
+                try:
+                    conn, _ = sk.accept()
+                except OSError:
+                    return
+                try:
+                    if conn.recv(16) == b"SHOW":
+                        conn.sendall(b"OK")
+                        self._wake_requested = True
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+        threading.Thread(target=loop, daemon=True).start()
+        self._poll_wake()
+
+    def _poll_wake(self):
+        if getattr(self, "_wake_requested", False):
+            self._wake_requested = False
+            self.show_window()
+        self.after(400, self._poll_wake)
+
     def setup_tray(self):
         self.tray = None
         try:
@@ -938,7 +988,10 @@ class App(tk.Tk):
 
     def hide_to_tray(self):
         if getattr(self, "tray", None) is None:
+            # χωρίς pystray δεν υπάρχει εικονίδιο κάτω δεξιά· ελαχιστοποίηση στη
+            # γραμμή εργασιών, ώστε να μη μείνει ποτέ αόρατο και αβρισκούμενο
             self.iconify()
+            self.log("Ελαχιστοποιήθηκε στη γραμμή εργασιών (λείπει το pystray).")
             return
         self.withdraw()
         self.log("Το πρόγραμμα συνεχίζει κάτω δεξιά στην περιοχή ειδοποιήσεων.")
@@ -1341,18 +1394,23 @@ if __name__ == "__main__":
     import sys
 
     if not claim_single_instance():
+        # τρέχει ήδη: φέρ' το μπροστά αντί να ανοίξει δεύτερο
+        if wake_running_instance():
+            sys.exit(0)
         root = tk.Tk()
         root.withdraw()
-        messagebox.showinfo(
+        messagebox.showwarning(
             APP_NAME,
-            "Το %s τρέχει ήδη.\n\nΘα το βρεις κάτω δεξιά στην περιοχή ειδοποιήσεων "
-            "(διπλό κλικ στο εικονίδιο ICS)." % APP_NAME)
+            "Το %s τρέχει ήδη αλλά δεν απαντά.\n\n"
+            "Κλείσ' το από τη Διαχείριση Εργασιών (Ctrl+Shift+Esc → AutoHost.exe → "
+            "Τερματισμός εργασίας) και ξανάνοιξέ το." % APP_NAME)
         root.destroy()
         sys.exit(0)
 
     purge_old_logs()
     write_log("=== Εκκίνηση %s (%s) ===" % (APP_NAME, APP_VERSION))
     app = App()
+    app.listen_for_wakeups()
     app.setup_tray()
     if app.tray is None:
         app.log("Προσοχή: λείπει το pystray/Pillow — δεν υπάρχει εικονίδιο κάτω δεξιά "
