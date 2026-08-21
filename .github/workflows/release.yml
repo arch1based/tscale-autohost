@@ -30,23 +30,27 @@ jobs:
       - name: Έκδοση PyInstaller
         run: pyinstaller --version
 
-      - name: Build exe
+      # onedir και όχι onefile: το onefile ξεπακετάρει σε %TEMP% και ξαναξεκινά
+      # τον εαυτό του, που τα antivirus μπλοκάρουν («Failed to load Python DLL»,
+      # «Security validation failure»). Το onedir τρέχει κατευθείαν από τον φάκελο.
+      - name: Build
         run: >
-          pyinstaller --noconfirm --onefile --windowed --name ICSautoScaleUpdater
+          pyinstaller --noconfirm --onedir --windowed --name ICSautoScaleUpdater
           --icon logo.ico
           --add-data "config_default.json;."
           --add-data "logo.png;."
           --add-data "logo.ico;."
           autohost.py
 
-      - name: Έλεγχος ότι βγήκε το exe
+      - name: Έλεγχος και συμπίεση
         shell: pwsh
         run: |
-          $exe = "dist\ICSautoScaleUpdater.exe"
+          $exe = "dist\ICSautoScaleUpdater\ICSautoScaleUpdater.exe"
           if (-not (Test-Path $exe)) { throw "Δεν βρέθηκε το $exe" }
-          $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
-          Write-Host "OK: $exe ($mb MB)"
-          if ($mb -lt 5) { throw "Το exe είναι ύποπτα μικρό ($mb MB)" }
+          Compress-Archive -Path "dist\ICSautoScaleUpdater\*" -DestinationPath "ICSautoScaleUpdater.zip" -Force
+          $mb = [math]::Round((Get-Item "ICSautoScaleUpdater.zip").Length / 1MB, 1)
+          Write-Host "OK: ICSautoScaleUpdater.zip ($mb MB)"
+          if ($mb -lt 5) { throw "Το zip είναι ύποπτα μικρό ($mb MB)" }
 
       - name: Σημειώσεις έκδοσης από το VERSION
         shell: pwsh
@@ -57,6 +61,6 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/ICSautoScaleUpdater.exe
+          files: ICSautoScaleUpdater.zip
           body_path: notes.txt
           name: Έκδοση ${{ github.ref_name }}

@@ -27,12 +27,12 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.0.4"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.0.5"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
 UPDATE_API_URL = "https://api.github.com/repos/arch1based/tscale-autohost/releases/latest"
-UPDATE_ASSET = "ICSautoScaleUpdater.exe"
+UPDATE_ASSET = "ICSautoScaleUpdater.zip"
 # Κωδικός τεχνικού για ενημέρωση (αποτρέπει να την τρέξει προσωπικό του καταστήματος).
 # Είναι φραγμός κατά λάθους χειρισμού, όχι κρυπτογραφική ασφάλεια.
 UPDATE_PASSWORD_SHA256 = "e78f27ab3ef177a9926e6b90e572b9853ce6cf4d87512836e9ae85807ec9d7fe"
@@ -252,46 +252,70 @@ def fetch_latest_version(timeout=8):
     return lines[0], "\n".join(lines[1:]), ""
 
 
-def download_update(url, dest, timeout=120, log=None):
-    """Κατεβάζει το νέο exe σε προσωρινό αρχείο και επιστρέφει τη διαδρομή του."""
+def download_update(url, dest, timeout=300, log=None):
+    """Κατεβάζει το zip της νέας έκδοσης και το ελέγχει πριν χρησιμοποιηθεί."""
     data = _get(url, timeout, binary=True)
-    if len(data) < 1024 * 1024:               # ένα onefile exe είναι πολλά MB
+    if len(data) < 1024 * 1024:
         raise ValueError("το αρχείο που κατέβηκε είναι πολύ μικρό (%d bytes)" % len(data))
-    if data[:2] != b"MZ":                     # υπογραφή εκτελέσιμου των Windows
-        raise ValueError("το αρχείο που κατέβηκε δεν είναι εκτελέσιμο των Windows")
+    if data[:2] != b"PK":                      # υπογραφή zip
+        raise ValueError("το αρχείο που κατέβηκε δεν είναι zip")
     with open(dest, "wb") as fh:
         fh.write(data)
+    import zipfile
+    with zipfile.ZipFile(dest) as z:
+        if z.testzip() is not None:
+            raise ValueError("το zip είναι κατεστραμμένο")
+        names = z.namelist()
+    if not any(n.lower().endswith(APP_ID.lower() + ".exe") for n in names):
+        raise ValueError("το πακέτο δεν περιέχει το %s.exe" % APP_ID)
     if log:
-        log("  -> κατέβηκε: %s (%.1f MB)" % (dest, len(data) / 1048576.0))
+        log("  -> κατέβηκε: %.1f MB, %d αρχεία" % (len(data) / 1048576.0, len(names)))
     return dest
 
 
-def install_update_and_restart(new_exe):
-    """Αντικαθιστά το τρέχον exe και ξαναξεκινά.
+def extract_update(zip_path, target_dir, log=None):
+    """Ξεπακετάρει τη νέα έκδοση σε προσωρινό φάκελο."""
+    import zipfile
+    shutil.rmtree(target_dir, ignore_errors=True)
+    os.makedirs(target_dir, exist_ok=True)
+    with zipfile.ZipFile(zip_path) as z:
+        z.extractall(target_dir)
+    exe = os.path.join(target_dir, APP_ID + ".exe")
+    if not os.path.isfile(exe):
+        raise ValueError("δεν βρέθηκε το %s.exe μέσα στο πακέτο" % APP_ID)
+    if log:
+        log("  -> ξεπακετάρισμα: %s" % target_dir)
+    return target_dir
 
-    Το ίδιο το exe δεν μπορεί να γράψει πάνω στον εαυτό του όσο τρέχει, οπότε
-    ένα μικρό .bat περιμένει να κλείσει, κάνει την αντικατάσταση και το ανοίγει ξανά.
-    Οι ρυθμίσεις δεν αγγίζονται: ζουν στο %APPDATA%, όχι δίπλα στο exe.
+
+def install_update_and_restart(new_dir):
+    """Αντιγράφει τη νέα έκδοση πάνω από την τρέχουσα και ξαναξεκινά.
+
+    Η εφαρμογή δεν μπορεί να γράψει πάνω στα δικά της αρχεία όσο τρέχει, οπότε
+    ένα .bat περιμένει να κλείσει, αντιγράφει και την ξανανοίγει. Οι ρυθμίσεις
+    ζουν στο %APPDATA% και δεν αγγίζονται.
     """
     cur = sys.executable
-    backup = cur + ".old"
-    bat = os.path.join(os.environ.get("TEMP") or os.path.dirname(cur),
-                       "%s_update.bat" % APP_ID)
-    script = """@echo off
-chcp 65001 >nul
-echo Ενημέρωση σε εξέλιξη, περιμένετε...
-:wait
-tasklist /FI "IMAGENAME eq {name}" 2>nul | find /I "{name}" >nul
-if not errorlevel 1 (
-  timeout /t 1 /nobreak >nul
-  goto wait
-)
-if exist "{backup}" del /q "{backup}"
-move /y "{cur}" "{backup}" >nul
-move /y "{new}" "{cur}" >nul
-start "" "{cur}"
-del /q "%~f0"
-""".format(name=os.path.basename(cur), cur=cur, new=new_exe, backup=backup)
+    app_dir = os.path.dirname(cur)
+    bat = os.path.join(os.environ.get("TEMP") or app_dir, "%s_update.bat" % APP_ID)
+    script = ("@echo off\n"
+              "chcp 65001 >nul\n"
+              ":wait\n"
+              'tasklist /FI "IMAGENAME eq {name}" 2>nul | find /I "{name}" >nul\n'
+              "if not errorlevel 1 (\n"
+              "  timeout /t 1 /nobreak >nul\n"
+              "  goto wait\n"
+              ")\n"
+              'xcopy "{new}\\*" "{app}\\" /E /I /Y >nul\n'
+              "if errorlevel 1 (\n"
+              "  echo Η αντιγραφή απέτυχε — η παλιά έκδοση παραμένει.\n"
+              "  pause\n"
+              "  exit /b 1\n"
+              ")\n"
+              'start "" "{exe}"\n'
+              'rmdir /s /q "{new}"\n'
+              'del /q "%~f0"\n').format(name=os.path.basename(cur), new=new_dir,
+                                        app=app_dir, exe=cur)
     with open(bat, "w", encoding="cp1253", errors="replace") as fh:
         fh.write(script)
     subprocess.Popen(["cmd", "/c", bat], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -1530,11 +1554,15 @@ class App(tk.Tk):
             self.log("Η παρακολούθηση σταμάτησε για την ενημέρωση.")
         self.set_status("Λήψη ενημέρωσης…", COLORS["brand"])
         self._download_result = None
-        dest = os.path.join(os.path.dirname(sys.executable), APP_ID + ".new.exe")
+        tmp = os.environ.get("TEMP") or os.path.dirname(sys.executable)
+        dest = os.path.join(tmp, APP_ID + "_new.zip")
+        self._new_dir = os.path.join(tmp, APP_ID + "_new")
 
         def job():
             try:
-                download_update(url, dest, log=lambda m: self.after(0, self.log, m))
+                log = lambda m: self.after(0, self.log, m)
+                download_update(url, dest, log=log)
+                extract_update(dest, self._new_dir, log=log)
                 self._download_result = ("ok", "")
             except Exception as exc:
                 self._download_result = ("err", str(exc))
@@ -1557,6 +1585,7 @@ class App(tk.Tk):
                 os.remove(dest)
             except OSError:
                 pass
+            shutil.rmtree(getattr(self, "_new_dir", "") or "", ignore_errors=True)
             messagebox.showerror(
                 APP_NAME,
                 "Η λήψη της ενημέρωσης απέτυχε.\n\n%s\n\nΤο πρόγραμμα δεν άλλαξε "
@@ -1567,7 +1596,7 @@ class App(tk.Tk):
         write_log("=== Ενημέρωση %s -> %s ===" % (APP_BUILD, latest))
         try:
             save_config(self.collect())
-            install_update_and_restart(dest)
+            install_update_and_restart(self._new_dir)
         except Exception as exc:
             messagebox.showerror(APP_NAME, "Η εγκατάσταση απέτυχε.\n\n%s" % exc)
             return

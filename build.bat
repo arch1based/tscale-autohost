@@ -22,7 +22,7 @@ if exist ICSautoScaleUpdater.spec del /q ICSautoScaleUpdater.spec
 if exist AutoHost.spec del /q AutoHost.spec
 
 echo [4/4] Build...
-pyinstaller --noconfirm --onefile --windowed --name ICSautoScaleUpdater ^
+pyinstaller --noconfirm --onedir --windowed --name ICSautoScaleUpdater ^
   --icon logo.ico ^
   --add-data "config_default.json;." ^
   --add-data "logo.png;." ^
@@ -32,7 +32,7 @@ if errorlevel 1 goto :builderror
 
 echo.
 echo ============================================
-echo   ETOIMO: dist\ICSautoScaleUpdater.exe
+echo   ETOIMO: dist\ICSautoScaleUpdater\ICSautoScaleUpdater.exe
 echo ============================================
 echo.
 choice /c YN /n /m "Na anoixei o fakelos dist? (Y/N) "
