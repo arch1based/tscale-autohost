@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.2.2"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.3.0"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -103,6 +103,11 @@ LEGACY_CONFIGS = (
     os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~/.config"),
                  "ICS", "TScaleAutoHost", "autohost_config.json"),
 )
+USER_PROFILES_PATH = os.path.join(CONFIG_DIR, "profiles.json")
+PROFILE_KEYS = ("step2_format", "step2_delimiter", "step2_trailing_delim", "step2_quotes",
+                "step2_in_encoding", "step2_out_encoding", "step2_final_newline",
+                "step2_write_header", "step2_sanitize", "step2_dedupe",
+                "step2_positions_bytes", "step2_startline", "step2_onebased")
 LOG_DIR = os.path.join(CONFIG_DIR, "logs")
 LOG_KEEP_DAYS = 30
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -344,8 +349,24 @@ def load_config():
             pass
     # Τα προφίλ ανήκουν στην έκδοση: αλλιώς μια παλιά αποθήκευση θα έκρυβε
     # για πάντα τα καινούρια.
-    cfg["profiles"] = builtin_profiles
+    cfg["profiles"] = dict(builtin_profiles)
+    for name, entry in load_user_profiles().items():
+        cfg["profiles"]["★ " + name] = entry          # τα δικά μας πρώτα-πρώτα ξεχωριστά
     return cfg
+
+
+def load_user_profiles():
+    """Προφίλ που έφτιαξε ο τεχνικός — ξεχωριστά από τα ενσωματωμένα."""
+    try:
+        with open(USER_PROFILES_PATH, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def save_user_profiles(profiles):
+    with open(USER_PROFILES_PATH, "w", encoding="utf-8") as fh:
+        json.dump(profiles, fh, indent=2, ensure_ascii=False)
 
 
 def migrate_config(cfg, saved):
@@ -1271,6 +1292,10 @@ class App(tk.Tk):
         ttk.Button(bk, text="Άνοιγμα backup", style="Ghost.TButton",
                    command=self.open_backup).pack(side="left", padx=10)
 
+        self.v_popup = tk.BooleanVar(value=False)
+        ttk.Checkbutton(bk, text="Μήνυμα στο τέλος κάθε εκτέλεσης", variable=self.v_popup
+                        ).pack(side="left", padx=14)
+
         self.v_boot = tk.BooleanVar(value=autostart_enabled())
         ttk.Checkbutton(f, variable=self.v_boot, command=self.on_boot_toggle,
                         text="Εκκίνηση με τα Windows — ξεκινά ελαχιστοποιημένο "
@@ -1405,10 +1430,14 @@ class App(tk.Tk):
         ttk.Label(b, text="Προφίλ ζυγού:").pack(side="left", padx=(16, 4))
         names = list(self.cfg.get("profiles", {}))
         self.v_profile = tk.StringVar(value=names[0] if names else "")
-        ttk.Combobox(b, textvariable=self.v_profile, values=names, state="readonly",
-                     width=32).pack(side="left")
+        self.cmb_profile = ttk.Combobox(b, textvariable=self.v_profile, values=names,
+                                        state="readonly", width=30)
+        self.cmb_profile.pack(side="left")
         ttk.Button(b, text="Φόρτωση",
                    command=lambda: self.load_profile(self.v_profile.get())).pack(side="left", padx=6)
+        ttk.Button(b, text="Αποθήκευση ως…", command=self.save_profile).pack(side="left")
+        ttk.Button(b, text="Διαγραφή", style="Ghost.TButton",
+                   command=self.delete_profile).pack(side="left", padx=4)
         ttk.Button(b, text="Δοκιμή · προεπισκόπηση", style="Accent.TButton",
                    command=self.preview_csv).pack(side="right")
 
@@ -1571,6 +1600,7 @@ class App(tk.Tk):
         self.v_poll.set(str(c.get("poll_seconds", 3)))
         self.v_auto.set(bool(c.get("auto_run", False)))
         self.v_backup.set(bool(c.get("backup_enabled", True)))
+        self.v_popup.set(bool(c.get("show_success_popup", False)))
         self.v_keep.set(str(c.get("backup_keep", 3)))
         self.v_s1.set(bool(c.get("step1_enabled", True)))
         self.txt_s1.delete("1.0", "end")
@@ -1624,6 +1654,7 @@ class App(tk.Tk):
             c["poll_seconds"] = 3
         c["auto_run"] = self.v_auto.get()
         c["backup_enabled"] = self.v_backup.get()
+        c["show_success_popup"] = self.v_popup.get()
         try:
             c["backup_keep"] = max(1, int(self.v_keep.get()))
         except ValueError:
@@ -1731,8 +1762,7 @@ class App(tk.Tk):
 
     def load_profile(self, name):
         """Έτοιμο σετ θέσεων/μηκών για γνωστό τύπο αρχείου."""
-        with open(DEFAULT_PATH, "r", encoding="utf-8") as fh:
-            profiles = json.load(fh).get("profiles", {})
+        profiles = self.cfg.get("profiles", {})     # ενσωματωμένα + του τεχνικού
         if name not in profiles:
             messagebox.showerror(APP_NAME, "Δεν βρέθηκε το προφίλ «%s»." % name)
             return
@@ -1745,6 +1775,52 @@ class App(tk.Tk):
         self.cfg.update(settings)
         self._load_into_widgets()
         self.log("Φορτώθηκε το προφίλ: %s%s" % (name, " (μαζί με τη μορφή αρχείου)" if settings else ""))
+
+    def refresh_profiles(self, select=None):
+        names = list(self.cfg.get("profiles", {}))
+        self.cmb_profile.configure(values=names)
+        if select and select in names:
+            self.v_profile.set(select)
+
+    def save_profile(self):
+        """Αποθηκεύει τις τρέχουσες ρυθμίσεις ως προφίλ πελάτη."""
+        from tkinter import simpledialog
+        cur = self.v_profile.get().replace("★ ", "")
+        name = simpledialog.askstring(APP_NAME, "Όνομα προφίλ (π.χ. όνομα πελάτη):",
+                                      initialvalue=cur, parent=self)
+        if not name:
+            return
+        name = name.strip().replace("★", "").strip()
+        self.collect()
+        profiles = load_user_profiles()
+        if name in profiles and not messagebox.askyesno(
+                APP_NAME, "Το προφίλ «%s» υπάρχει ήδη. Να αντικατασταθεί;" % name):
+            return
+        profiles[name] = {
+            "settings": {k: self.cfg.get(k) for k in PROFILE_KEYS},
+            "fields": [dict(f) for f in self.cfg.get("step2_fields", [])],
+        }
+        save_user_profiles(profiles)
+        self.cfg["profiles"]["★ " + name] = profiles[name]
+        self.refresh_profiles("★ " + name)
+        self.log("Αποθηκεύτηκε το προφίλ «%s» (%s)" % (name, USER_PROFILES_PATH))
+
+    def delete_profile(self):
+        name = self.v_profile.get()
+        if not name.startswith("★ "):
+            messagebox.showinfo(APP_NAME, "Τα ενσωματωμένα προφίλ δεν διαγράφονται.\n\n"
+                                          "Διαγράφονται μόνο όσα έχεις αποθηκεύσει εσύ "
+                                          "(σημειωμένα με ★).")
+            return
+        plain = name[2:]
+        if not messagebox.askyesno(APP_NAME, "Να διαγραφεί το προφίλ «%s»;" % plain):
+            return
+        profiles = load_user_profiles()
+        profiles.pop(plain, None)
+        save_user_profiles(profiles)
+        self.cfg["profiles"].pop(name, None)
+        self.refresh_profiles(list(self.cfg["profiles"])[0])
+        self.log("Διαγράφηκε το προφίλ «%s»" % plain)
 
     def reset_fields(self):
         if not messagebox.askyesno(APP_NAME, "Επαναφορά όλων των παραμέτρων στις αρχικές τιμές;"):
@@ -2050,8 +2126,12 @@ class App(tk.Tk):
     def _done_ok(self, silent):
         self.pending_error = None
         self.set_status("Επιτυχία", COLORS["ok"])
-        if not silent:
-            messagebox.showinfo(APP_NAME, "Η ενημέρωση των ζυγών ολοκληρώθηκε με επιτυχία.")
+        # Ξέρουμε ότι ολοκληρώθηκε η δική μας ροή· αν ο ζυγός δέχτηκε τα δεδομένα
+        # το λέει το log της εφαρμογής του ζυγού, όχι εμείς.
+        if not silent and self.cfg.get("show_success_popup"):
+            messagebox.showinfo(APP_NAME, "Τα βήματα ολοκληρώθηκαν και η εφαρμογή του ζυγού "
+                                          "εκτελέστηκε.\n\nΑν η μεταφορά πέτυχε, φαίνεται στο "
+                                          "log της εφαρμογής του ζυγού.")
 
     def _done_err(self, text, silent):
         self.set_status("Σφάλμα", COLORS["err"])

@@ -482,5 +482,6 @@
       ]
     }
   },
-  "step2_final_newline": true
+  "step2_final_newline": true,
+  "show_success_popup": false
 }
