@@ -21,6 +21,8 @@
   "step2_positions_bytes": false,
   "step2_trailing_delim": true,
   "step2_quotes": false,
+  "step2_sanitize": true,
+  "step2_dedupe": false,
   "step2_write_header": true,
   "step2_fields": [
     {

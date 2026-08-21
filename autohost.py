@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.0.8"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.0.9"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -664,6 +664,32 @@ def run_step2(cfg, fallback_input, log):
             row.append(val)
         rows.append(row)
 
+    fmt_delim = {"csv": ",", "tab": "\t", "semicolon": ";"}.get(
+        cfg.get("step2_format", "csv"), cfg.get("step2_delimiter", ",") or ",")
+    if cfg.get("step2_sanitize", True) and not cfg.get("step2_quotes") \
+            and cfg.get("step2_format") != "fixed":
+        # Οι ζυγοί δεν καταλαβαίνουν εισαγωγικά: ένα κόμμα μέσα σε περιγραφή
+        # (π.χ. «ΧΑΛΒΑΣ 2,5KG») θα μετατόπιζε όλα τα επόμενα πεδία.
+        hit = 0
+        for row in rows:
+            for i, v in enumerate(row):
+                if fmt_delim in v:
+                    row[i] = v.replace(fmt_delim, " ")
+                    hit += 1
+        if hit:
+            log("  (καθαρίστηκαν %d πεδία που περιείχαν «%s»)"
+                % (hit, "TAB" if fmt_delim == "\t" else fmt_delim))
+
+    if cfg.get("step2_dedupe") and rows:
+        before = len(rows)
+        keep = {}
+        for row in rows:
+            keep[row[0]] = row                     # κρατά την τελευταία εγγραφή
+        rows = list(keep.values())
+        if before != len(rows):
+            log("  (αφαιρέθηκαν %d διπλοεγγραφές, έμειναν %d κωδικοί)"
+                % (before - len(rows), len(rows)))
+
     if not rows:
         raise StepError("Βήμα 3", "Το host αρχείο δεν περιέχει γραμμές δεδομένων.",
                         "Αρχείο: %s\nΓραμμή έναρξης: %d" % (src, start_line))
@@ -1147,6 +1173,15 @@ class App(tk.Tk):
                         variable=self.v_tail).pack(side="left")
         ttk.Checkbutton(extra, text="Εισαγωγικά όπου χρειάζεται (πρότυπο CSV)",
                         variable=self.v_quotes).pack(side="left", padx=14)
+
+        extra2 = ttk.Frame(f)
+        extra2.pack(fill="x", pady=(0, 2))
+        self.v_sanitize = tk.BooleanVar(value=True)
+        self.v_dedupe = tk.BooleanVar(value=False)
+        ttk.Checkbutton(extra2, text="Καθάρισε το διαχωριστικό μέσα στις περιγραφές",
+                        variable=self.v_sanitize).pack(side="left")
+        ttk.Checkbutton(extra2, text="Μία εγγραφή ανά κωδικό (κρατά την τελευταία)",
+                        variable=self.v_dedupe).pack(side="left", padx=14)
         ttk.Checkbutton(o, text="Θέση 1 = πρώτος χαρακτήρας", variable=self.v_onebased).pack(side="left", padx=12)
 
 
@@ -1378,6 +1413,8 @@ class App(tk.Tk):
         self.v_bytes.set(bool(c.get("step2_positions_bytes", False)))
         self.v_tail.set(bool(c.get("step2_trailing_delim", False)))
         self.v_quotes.set(bool(c.get("step2_quotes", False)))
+        self.v_sanitize.set(bool(c.get("step2_sanitize", True)))
+        self.v_dedupe.set(bool(c.get("step2_dedupe", False)))
         self.v_s3.set(bool(c.get("step3_enabled", True)))
         self.v_s3exe.set(c.get("step3_exe", ""))
         self.v_s3sec.set(str(c.get("step3_seconds", 120)))
@@ -1433,6 +1470,8 @@ class App(tk.Tk):
         c["step2_positions_bytes"] = self.v_bytes.get()
         c["step2_trailing_delim"] = self.v_tail.get()
         c["step2_quotes"] = self.v_quotes.get()
+        c["step2_sanitize"] = self.v_sanitize.get()
+        c["step2_dedupe"] = self.v_dedupe.get()
         c["step3_enabled"] = self.v_s3.get()
         c["step3_exe"] = self.v_s3exe.get().strip()
         try:
