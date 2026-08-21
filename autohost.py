@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.0.1"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.0.2"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -1045,8 +1045,19 @@ class App(tk.Tk):
                             command=self.on_format_change).pack(side="left", padx=(10, 0))
         ttk.Checkbutton(o, text="Θέση 1 = πρώτος χαρακτήρας", variable=self.v_onebased).pack(side="left", padx=12)
 
+
+        b = ttk.Frame(f)
+        b.pack(side="bottom", fill="x", pady=(6, 0))
+        ttk.Button(b, text="Εναλλαγή ✓ (ή Space)", command=self.toggle_field).pack(side="left")
+        ttk.Button(b, text="Επεξεργασία γραμμής", command=self.on_edit_cell).pack(side="left", padx=6)
+        ttk.Button(b, text="Αρχικοποίηση Παραμέτρων", command=self.reset_fields).pack(side="left")
+        # Ο πίνακας φτιάχνεται ΜΕΣΑ στο πλαίσιό του: αλλιώς μένει από κάτω του
+        # στη σειρά σχεδίασης και δεν φαίνεται καθόλου.
+        tree_box = ttk.Frame(f)
+        tree_box.pack(fill="x", pady=4)
         cols = ("name", "out", "pos", "len", "extra")
-        self.tree = ttk.Treeview(f, columns=cols, show="headings", height=8, selectmode="browse")
+        self.tree = ttk.Treeview(tree_box, columns=cols, show="headings",
+                                 height=8, selectmode="browse")
         for c, t, w in (("name", "Περιγραφή", 220), ("out", "Για έξοδο σε αρχείο", 140),
                         ("pos", "Από Θέση", 90), ("len", "Μήκος Πεδίου", 110),
                         ("extra", "Εξτρα περιγραφή", 200)):
@@ -1054,19 +1065,10 @@ class App(tk.Tk):
             self.tree.column(c, width=w, anchor="w")
         self.tree.bind("<Double-1>", self.on_edit_cell)
         self.tree.bind("<space>", lambda e: self.toggle_field())
-
-        b = ttk.Frame(f)
-        b.pack(side="bottom", fill="x", pady=(6, 0))
-        ttk.Button(b, text="Εναλλαγή ✓ (ή Space)", command=self.toggle_field).pack(side="left")
-        ttk.Button(b, text="Επεξεργασία γραμμής", command=self.on_edit_cell).pack(side="left", padx=6)
-        ttk.Button(b, text="Αρχικοποίηση Παραμέτρων", command=self.reset_fields).pack(side="left")
-        tree_box = ttk.Frame(f)
-        tree_box.pack(fill="x", pady=4)
-        self.tree.master = tree_box
         sb = ttk.Scrollbar(tree_box, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
-        self.tree.pack(in_=tree_box, side="left", fill="x", expand=True)
+        self.tree.pack(side="left", fill="both", expand=True)
 
         for pname in load_config().get("profiles", {}):
             ttk.Button(b, text="Προφίλ: %s" % pname.split(" (")[0],
