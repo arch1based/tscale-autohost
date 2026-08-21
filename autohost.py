@@ -1393,25 +1393,29 @@ class App(tk.Tk):
 if __name__ == "__main__":
     import sys
 
-    if not claim_single_instance():
-        # τρέχει ήδη: φέρ' το μπροστά αντί να ανοίξει δεύτερο
-        if wake_running_instance():
-            sys.exit(0)
-        root = tk.Tk()
-        root.withdraw()
-        messagebox.showwarning(
-            APP_NAME,
-            "Το %s τρέχει ήδη αλλά δεν απαντά.\n\n"
-            "Κλείσ' το από τη Διαχείριση Εργασιών (Ctrl+Shift+Esc → AutoHost.exe → "
-            "Τερματισμός εργασίας) και ξανάνοιξέ το." % APP_NAME)
-        root.destroy()
+    # Ζωντανό αντίγραφο; Φέρ' το μπροστά και μην ανοίξεις δεύτερο.
+    if wake_running_instance():
         sys.exit(0)
+
+    # Αλλιώς ξεκινάμε κανονικά. Αν η θύρα κρατιέται από παλιά έκδοση ή άλλο
+    # πρόγραμμα, ΔΕΝ μπλοκάρουμε τον χρήστη — απλώς χάνεται η προστασία διπλού
+    # αντιγράφου γι' αυτή τη φορά και το γράφουμε στο log.
+    singleton = claim_single_instance()
+    startup_warning = None
+    if not singleton:
+        startup_warning = (
+            "Η θύρα ελέγχου διπλού αντιγράφου είναι κατειλημμένη — πιθανότατα τρέχει "
+            "παλιότερη έκδοση του AutoHost.\nΑν βλέπεις δύο εικονίδια, κλείσε το παλιό: "
+            "Ctrl+Shift+Esc → AutoHost.exe → Τερματισμός εργασίας.")
 
     purge_old_logs()
     write_log("=== Εκκίνηση %s (%s) ===" % (APP_NAME, APP_VERSION))
     app = App()
-    app.listen_for_wakeups()
+    if singleton:
+        app.listen_for_wakeups()
     app.setup_tray()
+    if startup_warning:
+        app.log("Προσοχή: " + startup_warning.replace("\n", " "))
     if app.tray is None:
         app.log("Προσοχή: λείπει το pystray/Pillow — δεν υπάρχει εικονίδιο κάτω δεξιά "
                 "(pip install pystray Pillow).")
