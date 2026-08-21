@@ -503,23 +503,54 @@ def run_step3(cfg, log, stop_event=None):
 # --------------------------------------------------------------------------
 # Oli i roi
 # --------------------------------------------------------------------------
+def archive_run(cfg, files, log):
+    """Κρατάει αντίγραφο των αρχείων της εκτέλεσης σε φάκελο backup."""
+    keep = max(1, int(cfg.get("backup_keep", 3) or 3))
+    root = os.path.join(cfg.get("output_dir") or os.path.dirname(cfg.get("watch_file", "")),
+                        "backup")
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    dest = os.path.join(root, stamp)
+    try:
+        os.makedirs(dest, exist_ok=True)
+        n = 0
+        for f in files:
+            if f and os.path.isfile(f):
+                shutil.copy2(f, os.path.join(dest, os.path.basename(f)))
+                n += 1
+        log("  -> backup: %s (%d αρχεία)" % (dest, n))
+
+        # κράτα μόνο τις τελευταίες `keep` εκτελέσεις
+        runs = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)))
+        for old_run in runs[:-keep]:
+            shutil.rmtree(os.path.join(root, old_run), ignore_errors=True)
+            log("  -> διαγράφηκε παλιό backup: %s" % old_run)
+    except Exception as exc:
+        # το backup δεν πρέπει ποτέ να ρίξει την ενημέρωση των ζυγών
+        log("  Προσοχή: απέτυχε η αρχειοθέτηση (%s)" % exc)
+
+
 def run_pipeline(cfg, log, stop_event=None):
     log("=== Έναρξη διαδικασίας %s ===" % datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
-    host1, _host2 = make_hosts(cfg.get("watch_file"), cfg.get("output_dir"), log)
+    host1, host2 = make_hosts(cfg.get("watch_file"), cfg.get("output_dir"), log)
     log("Βήμα 0: δημιουργήθηκαν host1/host2. OK")
+    produced = [cfg.get("watch_file"), host1, host2]
 
     current = host1
     if cfg.get("step1_enabled"):
         current = run_step1(cfg, host1, log)
+        produced.append(current)
         log("Βήμα 1: μετατροπή. OK")
     else:
         log("Βήμα 1: απενεργοποιημένο.")
 
     if cfg.get("step2_enabled"):
-        run_step2(cfg, current, log)
+        produced.append(run_step2(cfg, current, log))
         log("Βήμα 2: product.csv. OK")
     else:
         log("Βήμα 2: απενεργοποιημένο.")
+
+    if cfg.get("backup_enabled", True):
+        archive_run(cfg, produced, log)
 
     if cfg.get("step3_enabled"):
         run_step3(cfg, log, stop_event)
@@ -754,6 +785,16 @@ class App(tk.Tk):
         ttk.Entry(row, textvariable=self.v_poll, width=6).pack(side="left", padx=6)
         ttk.Checkbutton(row, text="Αυτόματη έναρξη παρακολούθησης με το άνοιγμα",
                         variable=self.v_auto).pack(side="left", padx=12)
+        bk = ttk.Frame(f)
+        bk.grid(row=6, column=0, columnspan=3, sticky="w", pady=(2, 0))
+        self.v_backup = tk.BooleanVar(value=True)
+        self.v_keep = tk.StringVar(value="3")
+        ttk.Checkbutton(bk, text="Κράτα αντίγραφα των τελευταίων", variable=self.v_backup).pack(side="left")
+        ttk.Entry(bk, textvariable=self.v_keep, width=4).pack(side="left", padx=5)
+        ttk.Label(bk, text="εκτελέσεων στον φάκελο backup").pack(side="left")
+        ttk.Button(bk, text="Άνοιγμα backup", style="Ghost.TButton",
+                   command=self.open_backup).pack(side="left", padx=10)
+
         self.v_boot = tk.BooleanVar(value=autostart_enabled())
         ttk.Checkbutton(f, variable=self.v_boot, command=self.on_boot_toggle,
                         text="Εκκίνηση με τα Windows — ξεκινά ελαχιστοποιημένο "
@@ -762,7 +803,7 @@ class App(tk.Tk):
         ttk.Label(f, style="Hint.TLabel", wraplength=880, justify="left",
                   text="Μόλις αλλάξει το αρχείο του ERP, δημιουργούνται αυτόματα τα host1.<κατάληξη> και "
                        "host2.<κατάληξη> στον φάκελο εξόδου και ξεκινούν τα ενεργοποιημένα βήματα."
-                  ).grid(row=5, column=0, columnspan=3, sticky="w", pady=10)
+                  ).grid(row=7, column=0, columnspan=3, sticky="w", pady=10)
 
     def _build_tab1(self):
         f = self.tab1
@@ -945,6 +986,8 @@ class App(tk.Tk):
         self.v_outdir.set(c.get("output_dir", ""))
         self.v_poll.set(str(c.get("poll_seconds", 3)))
         self.v_auto.set(bool(c.get("auto_run", False)))
+        self.v_backup.set(bool(c.get("backup_enabled", True)))
+        self.v_keep.set(str(c.get("backup_keep", 3)))
         self.v_s1.set(bool(c.get("step1_enabled", True)))
         self.txt_s1.delete("1.0", "end")
         self.txt_s1.insert("1.0", c.get("step1_script", ""))
@@ -986,6 +1029,11 @@ class App(tk.Tk):
         except ValueError:
             c["poll_seconds"] = 3
         c["auto_run"] = self.v_auto.get()
+        c["backup_enabled"] = self.v_backup.get()
+        try:
+            c["backup_keep"] = max(1, int(self.v_keep.get()))
+        except ValueError:
+            c["backup_keep"] = 3
         c["step1_enabled"] = self.v_s1.get()
         c["step1_script"] = self.txt_s1.get("1.0", "end").rstrip() + "\n"
         c["step1_external_exe"] = self.v_s1exe.get().strip()
@@ -1105,6 +1153,18 @@ class App(tk.Tk):
         d = self.v_outdir.get().strip() or os.path.dirname(self.v_watch.get().strip())
         if not d or not os.path.isdir(d):
             messagebox.showinfo(APP_NAME, "Διάλεξε πρώτα φάκελο εξόδου στην 1η καρτέλα.")
+            return
+        try:
+            os.startfile(d)                                  # Windows
+        except AttributeError:
+            subprocess.Popen(["xdg-open", d])
+
+    def open_backup(self):
+        base = self.v_outdir.get().strip() or os.path.dirname(self.v_watch.get().strip())
+        d = os.path.join(base, "backup") if base else ""
+        if not d or not os.path.isdir(d):
+            messagebox.showinfo(APP_NAME, "Δεν υπάρχει ακόμη φάκελος backup — "
+                                          "θα δημιουργηθεί στην πρώτη εκτέλεση.")
             return
         try:
             os.startfile(d)                                  # Windows

@@ -3,6 +3,8 @@
   "output_dir": "",
   "poll_seconds": 3,
   "auto_run": false,
+  "backup_enabled": true,
+  "backup_keep": 3,
   "step1_enabled": true,
   "step2_enabled": true,
   "step3_enabled": true,
