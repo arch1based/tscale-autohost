@@ -720,9 +720,9 @@ class App(tk.Tk):
             pass
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         w = min(1040, sw - 60)
-        h = min(760, sh - 100)                  # να μη μπαίνει κάτω από τη γραμμή εργασιών
+        h = min(900, sh - 90)                  # να μη μπαίνει κάτω από τη γραμμή εργασιών
         self.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 3)))
-        self.minsize(880, 560)
+        self.minsize(760, 460)
         self.cfg = load_config()
         self.worker = None
         self.stop_event = threading.Event()
@@ -810,6 +810,38 @@ class App(tk.Tk):
         st.configure("Vertical.TScrollbar", background="#cfd9e5", troughcolor=C["bg"],
                      borderwidth=0, arrowcolor=C["muted"])
 
+    def _scrollable(self, parent):
+        """Επιστρέφει frame μέσα σε καμβά με κύλιση.
+
+        Σε μικρή οθόνη το περιεχόμενο των καρτελών δεν χωρούσε και κοβόταν·
+        έτσι ό,τι δεν φαίνεται το φτάνεις με τη ροδέλα ή τη μπάρα.
+        """
+        canvas = tk.Canvas(parent, highlightthickness=0, bg=COLORS["card"], bd=0)
+        sb = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        inner = ttk.Frame(canvas, style="Card.TFrame", padding=(14, 8))
+        win = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def on_inner(_e=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def on_canvas(e):
+            canvas.itemconfigure(win, width=e.width)
+
+        inner.bind("<Configure>", on_inner)
+        canvas.bind("<Configure>", on_canvas)
+
+        def wheel(e):
+            delta = -1 if getattr(e, "num", 0) == 5 or getattr(e, "delta", 0) < 0 else 1
+            canvas.yview_scroll(-delta, "units")
+
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            canvas.bind_all(seq, lambda e, c=canvas: wheel(e) if str(c) in str(e.widget) or True else None)
+        return inner
+
     def _console(self, parent, height, font):
         box = scrolledtext.ScrolledText(
             parent, height=height, font=font, background=COLORS["console"],
@@ -849,14 +881,13 @@ class App(tk.Tk):
         tk.Frame(self, height=3, bg=COLORS["brand"], bd=0).pack(fill="x")
 
         nb = ttk.Notebook(self)
-        self.tab0 = ttk.Frame(nb, style="Card.TFrame", padding=16)
-        self.tab1 = ttk.Frame(nb, style="Card.TFrame", padding=16)
-        self.tab2 = ttk.Frame(nb, style="Card.TFrame", padding=16)
-        self.tab3 = ttk.Frame(nb, style="Card.TFrame", padding=16)
-        nb.add(self.tab0, text="  Βήμα 1 · Αρχείο ERP  ")
-        nb.add(self.tab1, text="  Βήμα 2 · Μετατροπή  ")
-        nb.add(self.tab2, text="  Βήμα 3 · Αρχείο προϊόντων  ")
-        nb.add(self.tab3, text="  Βήμα 4 · Εφαρμογή ζυγού  ")
+        pages = []
+        for title in ("  Βήμα 1 · Αρχείο ERP  ", "  Βήμα 2 · Μετατροπή  ",
+                      "  Βήμα 3 · Αρχείο προϊόντων  ", "  Βήμα 4 · Εφαρμογή ζυγού  "):
+            page = ttk.Frame(nb, style="Card.TFrame")
+            nb.add(page, text=title)
+            pages.append(self._scrollable(page))
+        self.tab0, self.tab1, self.tab2, self.tab3 = pages
 
         self._build_tab0()
         self._build_tab1()
@@ -891,7 +922,7 @@ class App(tk.Tk):
         tools.pack(side="right", padx=(0, 6))
         self.menu_tools = menu
 
-        self.txt_log = self._console(self, 9, ("Consolas", 9))
+        self.txt_log = self._console(self, 5, ("Consolas", 9))
         self.txt_log.pack(side="bottom", fill="x", padx=12, pady=(0, 8))
         for tag, col in (("ok", "#4ade80"), ("err", "#f87171"),
                          ("info", COLORS["console_fg"]), ("dim", "#7b8ca3")):
@@ -970,8 +1001,8 @@ class App(tk.Tk):
                        "Εντολές: INPUTFIL= / OUTPUTFL= / CNV2WIN / CNV2DOS / UPPERCASE / SKIPLINE=n / "
                        "PADLINE=n / DESCRIPT=θέση μήκος / IFEXISTn=θέση=[τιμή] THEN=[τιμή ή -1]"
                   ).pack(anchor="w", pady=6)
-        self.txt_s1 = self._console(f, 11, ("Consolas", 10))
-        self.txt_s1.pack(fill="both", expand=True)
+        self.txt_s1 = self._console(f, 8, ("Consolas", 10))
+        self.txt_s1.pack(fill="x")
         g = ttk.Frame(f)
         g.pack(fill="x", pady=8)
         self.v_s1exe = tk.StringVar()
@@ -989,15 +1020,9 @@ class App(tk.Tk):
         self._pick_row(g, "Αρχείο εισόδου — άφησέ το κενό:", self.v_s2in, "file", 0)
         self._pick_row(g, "Να δημιουργείται εδώ:", self.v_s2out, "save", 1)
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Με κενό αρχείο εισόδου παίρνει αυτόματα ό,τι έβγαλε το προηγούμενο βήμα: "
-                       "την έξοδο του Βήματος 1 αν είναι ενεργό, αλλιώς το host1. Συμπλήρωσέ το "
-                       "μόνο αν θέλεις να διαβάζει κάποιο άλλο, συγκεκριμένο αρχείο."
+                  text="Κενή είσοδος = παίρνει ό,τι έβγαλε το προηγούμενο βήμα (έξοδος Βήματος 2, "
+                       "αλλιώς host1). Το αρχείο εξόδου φτιάχνεται μόνο του — δεν χρειάζεται να υπάρχει."
                   ).pack(anchor="w", pady=(0, 4))
-        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Το product.csv δεν χρειάζεται να υπάρχει — διάλεξε απλώς φάκελο και όνομα και "
-                       "θα δημιουργείται (και θα αντικαθίσταται) σε κάθε ενημέρωση. Αν το αφήσεις κενό, "
-                       "μπαίνει ως product.csv δίπλα στο αρχείο εισόδου.").pack(anchor="w", pady=(0, 4))
-
         o = ttk.Frame(f)
         o.pack(fill="x", pady=4)
         self.v_start = tk.StringVar(value="1")
@@ -1021,21 +1046,28 @@ class App(tk.Tk):
         ttk.Checkbutton(o, text="Θέση 1 = πρώτος χαρακτήρας", variable=self.v_onebased).pack(side="left", padx=12)
 
         cols = ("name", "out", "pos", "len", "extra")
-        self.tree = ttk.Treeview(f, columns=cols, show="headings", height=11, selectmode="browse")
+        self.tree = ttk.Treeview(f, columns=cols, show="headings", height=8, selectmode="browse")
         for c, t, w in (("name", "Περιγραφή", 220), ("out", "Για έξοδο σε αρχείο", 140),
                         ("pos", "Από Θέση", 90), ("len", "Μήκος Πεδίου", 110),
                         ("extra", "Εξτρα περιγραφή", 200)):
             self.tree.heading(c, text=t)
             self.tree.column(c, width=w, anchor="w")
-        self.tree.pack(fill="both", expand=True, pady=6)
         self.tree.bind("<Double-1>", self.on_edit_cell)
         self.tree.bind("<space>", lambda e: self.toggle_field())
 
         b = ttk.Frame(f)
-        b.pack(fill="x")
+        b.pack(side="bottom", fill="x", pady=(6, 0))
         ttk.Button(b, text="Εναλλαγή ✓ (ή Space)", command=self.toggle_field).pack(side="left")
         ttk.Button(b, text="Επεξεργασία γραμμής", command=self.on_edit_cell).pack(side="left", padx=6)
         ttk.Button(b, text="Αρχικοποίηση Παραμέτρων", command=self.reset_fields).pack(side="left")
+        tree_box = ttk.Frame(f)
+        tree_box.pack(fill="x", pady=4)
+        self.tree.master = tree_box
+        sb = ttk.Scrollbar(tree_box, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self.tree.pack(in_=tree_box, side="left", fill="x", expand=True)
+
         for pname in load_config().get("profiles", {}):
             ttk.Button(b, text="Προφίλ: %s" % pname.split(" (")[0],
                        command=lambda n=pname: self.load_profile(n)).pack(side="left", padx=6)
