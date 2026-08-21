@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.1.0"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.1.1"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -567,6 +567,8 @@ XFORMS = {
     "upper": "ΚΕΦΑΛΑΙΑ",
     "nospace": "χωρίς διπλά κενά",
     "strip0": "χωρίς μηδενικά μπροστά",
+    "cents2comma": "λεπτά → τιμή με κόμμα (00315 → 3,15)",
+    "cents2dot": "λεπτά → τιμή με τελεία (00315 → 3.15)",
 }
 
 
@@ -586,6 +588,12 @@ def apply_xform(value, kind):
         return " ".join(value.split())
     if kind == "strip0":
         return value.lstrip("0") or "0"
+    if kind in ("cents2comma", "cents2dot"):
+        digits = "".join(ch for ch in value if ch.isdigit())
+        if not digits:
+            return value
+        whole, cents = str(int(digits) // 100), "%02d" % (int(digits) % 100)
+        return whole + ("," if kind == "cents2comma" else ".") + cents
     return value
 
 

@@ -416,6 +416,69 @@
           "xform": ""
         }
       ]
+    },
+    "ICS host 76 χαρ. → T-Scale 6 στήλες": {
+      "settings": {
+        "step2_format": "semicolon",
+        "step2_delimiter": ";",
+        "step2_trailing_delim": false,
+        "step2_quotes": false,
+        "step2_out_encoding": "utf-8",
+        "step2_final_newline": false,
+        "step2_write_header": true,
+        "step2_sanitize": true,
+        "step2_dedupe": true
+      },
+      "fields": [
+        {
+          "name": "ProductNumber",
+          "enabled": true,
+          "pos": 2,
+          "len": 5,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "ProductName",
+          "enabled": true,
+          "pos": 7,
+          "len": 40,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "Price",
+          "enabled": true,
+          "pos": 64,
+          "len": 5,
+          "extra": "",
+          "xform": "cents2comma"
+        },
+        {
+          "name": "BarCode",
+          "enabled": true,
+          "pos": 69,
+          "len": 8,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "Abbr",
+          "enabled": true,
+          "pos": 7,
+          "len": 40,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "DivisionCode",
+          "enabled": true,
+          "pos": 0,
+          "len": 0,
+          "extra": "",
+          "xform": ""
+        }
+      ]
     }
   },
   "step2_final_newline": true
