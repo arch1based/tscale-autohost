@@ -42,7 +42,20 @@ COLORS = {
 
 APP_VENDOR = "ICS — ΚΑΡΑΦΥΛΛΗΣ ΣΥΣΤΗΜΑΤΑ ΠΛΗΡΟΦΟΡΙΚΗΣ"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(APP_DIR, "autohost_config.json")
+def _config_dir():
+    """Μόνιμος φάκελος ρυθμίσεων — επιβιώνει από κάθε νέο build του exe."""
+    base = os.environ.get("APPDATA") or os.path.expanduser("~/.config")
+    d = os.path.join(base, "ICS", "TScaleAutoHost")
+    try:
+        os.makedirs(d, exist_ok=True)
+        return d
+    except Exception:
+        return APP_DIR
+
+
+CONFIG_DIR = _config_dir()
+CONFIG_PATH = os.path.join(CONFIG_DIR, "autohost_config.json")
+LEGACY_CONFIG = os.path.join(APP_DIR, "autohost_config.json")
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_NAME = "TScaleAutoHost"
 DEFAULT_PATH = os.path.join(APP_DIR, "config_default.json")
@@ -117,10 +130,16 @@ def autostart_enabled():
 def load_config():
     with open(DEFAULT_PATH, "r", encoding="utf-8") as fh:
         cfg = json.load(fh)
-    if os.path.exists(CONFIG_PATH):
+    # παλιές ρυθμίσεις δίπλα στο exe -> μεταφορά στον μόνιμο φάκελο
+    path = CONFIG_PATH
+    if not os.path.exists(CONFIG_PATH) and os.path.exists(LEGACY_CONFIG):
+        path = LEGACY_CONFIG
+    if os.path.exists(path):
         try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
+            with open(path, "r", encoding="utf-8") as fh:
                 cfg.update(json.load(fh))
+            if path is LEGACY_CONFIG:
+                save_config(cfg)
         except Exception:
             pass
     return cfg
@@ -627,6 +646,8 @@ class App(tk.Tk):
                    command=self.quit_app).pack(side="right")
         ttk.Button(bar, text="Ελαχιστοποίηση κάτω δεξιά", style="Ghost.TButton",
                    command=self.hide_to_tray).pack(side="right")
+        ttk.Button(bar, text="Άνοιγμα φακέλου εξόδου", style="Ghost.TButton",
+                   command=self.open_out_dir).pack(side="right")
         ttk.Button(bar, text="Καθαρισμός", style="Ghost.TButton",
                    command=lambda: self.txt_log.delete("1.0", "end")).pack(side="right")
 
@@ -926,7 +947,7 @@ class App(tk.Tk):
 
     def on_save(self):
         save_config(self.collect())
-        self.log("Οι ρυθμίσεις αποθηκεύτηκαν στο %s" % CONFIG_PATH)
+        self.log("Οι ρυθμίσεις αποθηκεύτηκαν: %s" % CONFIG_PATH)
 
     # ---------------- πίνακας παραμέτρων ----------------
     def _sel(self):
@@ -1016,6 +1037,16 @@ class App(tk.Tk):
     def set_status(self, text, color):
         self.status.configure(text=text, foreground=color)
         self.status_dot.itemconfigure(self._dot, fill=color)
+
+    def open_out_dir(self):
+        d = self.v_outdir.get().strip() or os.path.dirname(self.v_watch.get().strip())
+        if not d or not os.path.isdir(d):
+            messagebox.showinfo(APP_NAME, "Διάλεξε πρώτα φάκελο εξόδου στην 1η καρτέλα.")
+            return
+        try:
+            os.startfile(d)                                  # Windows
+        except AttributeError:
+            subprocess.Popen(["xdg-open", d])
 
     def log(self, msg):
         stamp = datetime.datetime.now().strftime("%H:%M:%S")
