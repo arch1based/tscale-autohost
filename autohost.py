@@ -11,6 +11,8 @@ Roi ergasias:
 
 import os
 import re
+import sys
+import hashlib
 import csv
 import json
 import time
@@ -29,6 +31,11 @@ APP_BUILD = "1.0.0"                        # σύγκριση για ενημε�
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
+UPDATE_API_URL = "https://api.github.com/repos/arch1based/tscale-autohost/releases/latest"
+UPDATE_ASSET = "ICSautoScaleUpdater.exe"
+# Κωδικός τεχνικού για ενημέρωση (αποτρέπει να την τρέξει προσωπικό του καταστήματος).
+# Είναι φραγμός κατά λάθους χειρισμού, όχι κρυπτογραφική ασφάλεια.
+UPDATE_PASSWORD_SHA256 = "e78f27ab3ef177a9926e6b90e572b9853ce6cf4d87512836e9ae85807ec9d7fe"
 COLORS = {
     "bg":      "#eef2f7",   # φόντο παραθύρου
     "card":    "#ffffff",   # κάρτες / καρτέλες
@@ -126,14 +133,13 @@ class StepError(Exception):
 # --------------------------------------------------------------------------
 def resource(name):
     """Diadromi porou, kai otan trexei os PyInstaller onefile."""
-    base = getattr(__import__("sys"), "_MEIPASS", APP_DIR)
+    base = getattr(sys, "_MEIPASS", APP_DIR)
     p = os.path.join(base, name)
     return p if os.path.exists(p) else os.path.join(APP_DIR, name)
 
 
 def exe_command():
     """I entoli pou ksekinaei tin efarmogi elachistopoiimeni."""
-    import sys
     if getattr(sys, "frozen", False):
         return '"%s" --tray' % sys.executable
     pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
@@ -216,17 +222,79 @@ def parse_version(text):
     return tuple(parts)
 
 
-def fetch_latest_version(timeout=6):
-    """Επιστρέφει (έκδοση, σημειώσεις) από το GitHub. Σφάλμα -> εξαίρεση."""
+def _get(url, timeout, binary=False):
     import urllib.request
-    req = urllib.request.Request(UPDATE_VERSION_URL,
-                                 headers={"User-Agent": APP_ID, "Cache-Control": "no-cache"})
+    req = urllib.request.Request(url, headers={"User-Agent": APP_ID,
+                                               "Cache-Control": "no-cache"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        text = resp.read().decode("utf-8", "replace")
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+        data = resp.read()
+    return data if binary else data.decode("utf-8", "replace")
+
+
+def fetch_latest_version(timeout=8):
+    """(έκδοση, σημειώσεις, url_του_exe). Προτιμά το τελευταίο GitHub Release."""
+    try:
+        rel = json.loads(_get(UPDATE_API_URL, timeout))
+        version = (rel.get("tag_name") or "").lstrip("vV")
+        notes = (rel.get("body") or "").strip()
+        exe_url = ""
+        for asset in rel.get("assets", []):
+            if asset.get("name", "").lower() == UPDATE_ASSET.lower():
+                exe_url = asset.get("browser_download_url", "")
+                break
+        if version:
+            return version, notes, exe_url
+    except Exception:
+        pass                                  # χωρίς release, πέφτουμε στο VERSION
+    lines = [l.strip() for l in _get(UPDATE_VERSION_URL, timeout).splitlines() if l.strip()]
     if not lines:
         raise ValueError("κενή απάντηση")
-    return lines[0], "\n".join(lines[1:])
+    return lines[0], "\n".join(lines[1:]), ""
+
+
+def download_update(url, dest, timeout=120, log=None):
+    """Κατεβάζει το νέο exe σε προσωρινό αρχείο και επιστρέφει τη διαδρομή του."""
+    data = _get(url, timeout, binary=True)
+    if len(data) < 1024 * 1024:               # ένα onefile exe είναι πολλά MB
+        raise ValueError("το αρχείο που κατέβηκε είναι πολύ μικρό (%d bytes)" % len(data))
+    if data[:2] != b"MZ":                     # υπογραφή εκτελέσιμου των Windows
+        raise ValueError("το αρχείο που κατέβηκε δεν είναι εκτελέσιμο των Windows")
+    with open(dest, "wb") as fh:
+        fh.write(data)
+    if log:
+        log("  -> κατέβηκε: %s (%.1f MB)" % (dest, len(data) / 1048576.0))
+    return dest
+
+
+def install_update_and_restart(new_exe):
+    """Αντικαθιστά το τρέχον exe και ξαναξεκινά.
+
+    Το ίδιο το exe δεν μπορεί να γράψει πάνω στον εαυτό του όσο τρέχει, οπότε
+    ένα μικρό .bat περιμένει να κλείσει, κάνει την αντικατάσταση και το ανοίγει ξανά.
+    Οι ρυθμίσεις δεν αγγίζονται: ζουν στο %APPDATA%, όχι δίπλα στο exe.
+    """
+    cur = sys.executable
+    backup = cur + ".old"
+    bat = os.path.join(os.environ.get("TEMP") or os.path.dirname(cur),
+                       "%s_update.bat" % APP_ID)
+    script = """@echo off
+chcp 65001 >nul
+echo Ενημέρωση σε εξέλιξη, περιμένετε...
+:wait
+tasklist /FI "IMAGENAME eq {name}" 2>nul | find /I "{name}" >nul
+if not errorlevel 1 (
+  timeout /t 1 /nobreak >nul
+  goto wait
+)
+if exist "{backup}" del /q "{backup}"
+move /y "{cur}" "{backup}" >nul
+move /y "{new}" "{cur}" >nul
+start "" "{cur}"
+del /q "%~f0"
+""".format(name=os.path.basename(cur), cur=cur, new=new_exe, backup=backup)
+    with open(bat, "w", encoding="cp1253", errors="replace") as fh:
+        fh.write(script)
+    subprocess.Popen(["cmd", "/c", bat], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
 def load_config():
@@ -1310,13 +1378,49 @@ class App(tk.Tk):
         except AttributeError:
             subprocess.Popen(["xdg-open", d])
 
-    # ---------------- ενημέρωση (μόνο χειροκίνητα) ----------------
+    # ---------------- ενημέρωση (μόνο χειροκίνητα, με κωδικό) ----------------
+    def ask_password(self):
+        """Κωδικός τεχνικού. Φραγμός κατά λάθους χειρισμού, όχι ασφάλεια."""
+        win = tk.Toplevel(self)
+        win.title("Κωδικός τεχνικού")
+        win.transient(self)
+        win.grab_set()
+        win.resizable(False, False)
+        ttk.Label(win, text="Η ενημέρωση γίνεται μόνο από τεχνικό της ICS.",
+                  style="Hint.TLabel", wraplength=320).grid(row=0, column=0, columnspan=2,
+                                                            padx=14, pady=(14, 6), sticky="w")
+        ttk.Label(win, text="Κωδικός:").grid(row=1, column=0, padx=(14, 4), pady=6, sticky="w")
+        var = tk.StringVar()
+        ent = ttk.Entry(win, textvariable=var, show="●", width=18)
+        ent.grid(row=1, column=1, padx=(0, 14), pady=6, sticky="w")
+        ent.focus_set()
+        result = {"ok": False}
+
+        def ok(*_):
+            if hashlib.sha256(var.get().strip().encode()).hexdigest() == UPDATE_PASSWORD_SHA256:
+                result["ok"] = True
+                win.destroy()
+            else:
+                messagebox.showerror(APP_NAME, "Λάθος κωδικός.", parent=win)
+                var.set("")
+                ent.focus_set()
+
+        btns = ttk.Frame(win)
+        btns.grid(row=2, column=0, columnspan=2, padx=14, pady=(4, 14), sticky="e")
+        ttk.Button(btns, text="Άκυρο", command=win.destroy).pack(side="right", padx=(6, 0))
+        ttk.Button(btns, text="OK", style="Accent.TButton", command=ok).pack(side="right")
+        ent.bind("<Return>", ok)
+        self.wait_window(win)
+        return result["ok"]
+
     def check_update(self):
         """Ρωτάει το GitHub αν υπάρχει νεότερη έκδοση.
 
         Τρέχει σε ξεχωριστό νήμα με timeout: αν δεν υπάρχει internet ή αργεί ο
         server, η εφαρμογή συνεχίζει κανονικά — δεν κολλάει ποτέ.
         """
+        if not self.ask_password():
+            return
         self.btn_update.config(text="Έλεγχος…", state="disabled")
         self._update_result = None
 
@@ -1324,7 +1428,7 @@ class App(tk.Tk):
             try:
                 self._update_result = ("ok",) + fetch_latest_version()
             except Exception as exc:
-                self._update_result = ("err", str(exc), "")
+                self._update_result = ("err", str(exc), "", "")
 
         threading.Thread(target=job, daemon=True).start()
         self.after(300, self._poll_update)
@@ -1336,28 +1440,93 @@ class App(tk.Tk):
             return
         self._update_result = None
         self.btn_update.config(text="Έλεγχος ενημέρωσης", state="normal")
-        kind, a, b = res
+        kind, latest, notes, exe_url = res
 
         if kind == "err":
-            self.log("Ο έλεγχος ενημέρωσης απέτυχε: %s" % a)
+            self.log("Ο έλεγχος ενημέρωσης απέτυχε: %s" % latest)
             messagebox.showwarning(
                 APP_NAME,
                 "Δεν ήταν δυνατός ο έλεγχος για ενημέρωση.\n\n%s\n\n"
                 "Έλεγξε τη σύνδεση στο internet και ξαναδοκίμασε. Το πρόγραμμα "
-                "συνεχίζει να δουλεύει κανονικά." % a)
+                "συνεχίζει να δουλεύει κανονικά." % latest)
             return
 
-        latest, notes = a, b
         self.log("Έλεγχος ενημέρωσης: εγκατεστημένη %s, διαθέσιμη %s" % (APP_BUILD, latest))
         if parse_version(latest) <= parse_version(APP_BUILD):
             messagebox.showinfo(APP_NAME, "Έχεις την τελευταία έκδοση (%s)." % APP_BUILD)
             return
 
-        msg = ("Υπάρχει νεότερη έκδοση!\n\nΕγκατεστημένη: %s\nΔιαθέσιμη: %s\n\n%s\n\n"
-               "Να ανοίξω τη σελίδα λήψης;" % (APP_BUILD, latest, notes or ""))
-        if messagebox.askyesno(APP_NAME, msg):
+        frozen = getattr(sys, "frozen", False)
+        if not (frozen and exe_url):
+            messagebox.showinfo(
+                APP_NAME,
+                "Υπάρχει νεότερη έκδοση: %s (έχεις %s)\n\n%s\n\n"
+                "Η αυτόματη εγκατάσταση δεν είναι διαθέσιμη εδώ — κάνε ενημέρωση "
+                "χειροκίνητα από το GitHub." % (latest, APP_BUILD, notes or ""))
             import webbrowser
             webbrowser.open(UPDATE_PAGE_URL)
+            return
+
+        if not messagebox.askyesno(
+                APP_NAME,
+                "Υπάρχει νεότερη έκδοση!\n\nΕγκατεστημένη: %s\nΔιαθέσιμη: %s\n\n%s\n\n"
+                "Να γίνει τώρα η ενημέρωση; Το πρόγραμμα θα κλείσει για λίγα δευτερόλεπτα "
+                "και θα ξανανοίξει μόνο του.\nΟι ρυθμίσεις σου διατηρούνται."
+                % (APP_BUILD, latest, notes or "")):
+            return
+
+        self.install_update(exe_url, latest)
+
+    def install_update(self, url, latest):
+        if self.watching:
+            self.toggle_watch()
+            self.log("Η παρακολούθηση σταμάτησε για την ενημέρωση.")
+        self.btn_update.config(text="Λήψη…", state="disabled")
+        self.set_status("Λήψη ενημέρωσης…", COLORS["brand"])
+        self._download_result = None
+        dest = os.path.join(os.path.dirname(sys.executable), APP_ID + ".new.exe")
+
+        def job():
+            try:
+                download_update(url, dest, log=lambda m: self.after(0, self.log, m))
+                self._download_result = ("ok", "")
+            except Exception as exc:
+                self._download_result = ("err", str(exc))
+
+        threading.Thread(target=job, daemon=True).start()
+        self.after(500, lambda: self._poll_download(dest, latest))
+
+    def _poll_download(self, dest, latest):
+        res = getattr(self, "_download_result", None)
+        if res is None:
+            self.after(500, lambda: self._poll_download(dest, latest))
+            return
+        self._download_result = None
+        self.btn_update.config(text="Έλεγχος ενημέρωσης", state="normal")
+        kind, err = res
+
+        if kind == "err":
+            self.set_status("Σφάλμα", COLORS["err"])
+            self.log("ΣΦΑΛΜΑ -> Η λήψη της ενημέρωσης απέτυχε: %s" % err)
+            try:
+                os.remove(dest)
+            except OSError:
+                pass
+            messagebox.showerror(
+                APP_NAME,
+                "Η λήψη της ενημέρωσης απέτυχε.\n\n%s\n\nΤο πρόγραμμα δεν άλλαξε "
+                "καθόλου και συνεχίζει με την έκδοση %s." % (err, APP_BUILD))
+            return
+
+        self.log("Εγκατάσταση έκδοσης %s και επανεκκίνηση…" % latest)
+        write_log("=== Ενημέρωση %s -> %s ===" % (APP_BUILD, latest))
+        try:
+            save_config(self.collect())
+            install_update_and_restart(dest)
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, "Η εγκατάσταση απέτυχε.\n\n%s" % exc)
+            return
+        self.quit_app()
 
     def open_backup(self):
         base = self.v_outdir.get().strip() or os.path.dirname(self.v_watch.get().strip())
@@ -1538,8 +1707,6 @@ class App(tk.Tk):
 
 
 if __name__ == "__main__":
-    import sys
-
     # Ζωντανό αντίγραφο; Φέρ' το μπροστά και μην ανοίξεις δεύτερο.
     if wake_running_instance():
         sys.exit(0)
