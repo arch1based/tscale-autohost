@@ -85,8 +85,8 @@
   "step3_exe": "",
   "step3_seconds": 120,
   "step3_kill": true,
-  "src_encoding": "cp1253",
-  "dst_encoding": "cp1253",
+  "src_encoding": "auto",
+  "dst_encoding": "auto",
   "profiles": {
     "T-Scale · 6 στήλες (AutoProcess Κύπρου)": {
       "settings": {

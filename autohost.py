@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.1.1"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.2.0"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -488,15 +488,22 @@ def run_step1(cfg, host1, log):
                         "%s\n%s" % (src, exc))
 
     detected = detect_codepage(raw)
+    # Προεπιλογή: διάβασε και γράψε στην ΙΔΙΑ κωδικοσελίδα που έχει το αρχείο.
+    # (Παλιότερα υπέθετε cp1253 και κατέστρεφε τα ελληνικά σε αρχεία UTF-8,
+    #  μετατοπίζοντας και τις θέσεις των πεδίων στο επόμενο βήμα.)
+    src_enc = cfg.get("src_encoding") or "auto"
+    dst_enc = cfg.get("dst_encoding") or "auto"
+    if src_enc == "auto":
+        src_enc = detected
     if rules["cnv2win"]:
-        src_enc, dst_enc = detected, "cp1253"
+        dst_enc = "cp1253"
     elif rules["cnv2dos"]:
-        src_enc, dst_enc = detected, "cp737"
-    else:
-        src_enc = cfg.get("src_encoding", "cp1253")
-        dst_enc = cfg.get("dst_encoding", "cp1253")
+        dst_enc = "cp737"
+    elif dst_enc == "auto":
+        dst_enc = src_enc
     if src_enc != detected:
         log("  (σημείωση) το αρχείο μοιάζει %s, διαβάζεται ως %s" % (detected, src_enc))
+    log("  κωδικοσελίδα: %s → %s" % (src_enc, dst_enc))
     try:
         lines = raw.decode(src_enc, "replace").splitlines()
     except Exception as exc:
@@ -806,6 +813,130 @@ def archive_run(cfg, files, log):
         log("  Προσοχή: απέτυχε η αρχειοθέτηση (%s)" % exc)
 
 
+def _show(text, width=100):
+    """Κάνει ορατά τα κρυφά: CRLF, κενά στο τέλος."""
+    t = text.replace("\r", "<CR>").replace("\n", "<LF>")
+    return (t[:width] + "…") if len(t) > width else t
+
+
+def build_preview(cfg):
+    """Τρέχει όλα τα βήματα σε προσωρινό φάκελο και επιστρέφει αναλυτική αναφορά.
+
+    Δεν αγγίζει τα πραγματικά αρχεία και δεν ανοίγει την εφαρμογή του ζυγού.
+    """
+    out = []
+    add = out.append
+    tmp = os.path.join(CONFIG_DIR, "preview")
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp, exist_ok=True)
+
+    add("ΠΡΟΕΠΙΣΚΟΠΗΣΗ — τίποτα δεν στέλνεται, τα αρχεία γράφονται σε προσωρινό φάκελο")
+    add("=" * 78)
+
+    # ---------------- Βήμα 1 ----------------
+    src = cfg.get("watch_file")
+    add("\nΒΗΜΑ 1 · Αρχείο ERP → host1 / host2")
+    add("-" * 78)
+    if not src or not os.path.isfile(src):
+        add("  ΣΦΑΛΜΑ: δεν βρέθηκε το αρχείο του ERP: %s" % src)
+        return "\n".join(out)
+    raw = open(src, "rb").read()
+    add("  αρχείο   : %s" % src)
+    add("  μέγεθος  : %d bytes | κωδικοσελίδα: %s | CRLF: %d | LF μόνο: %d"
+        % (len(raw), detect_codepage(raw), raw.count(b"\r\n"),
+           raw.count(b"\n") - raw.count(b"\r\n")))
+    host1, _h2 = make_hosts(src, tmp, lambda m: None)
+    add("  δημιουργήθηκαν: host1 / host2 (αντίγραφα, χωρίς αλλαγές)")
+    lines_in = raw.decode(detect_codepage(raw), "replace").splitlines()
+    for i, l in enumerate(lines_in[:2]):
+        add("  γραμμή %d (%d χαρ.): %s" % (i + 1, len(l), _show(l)))
+
+    # ---------------- Βήμα 2 ----------------
+    current = host1
+    add("\nΒΗΜΑ 2 · Μετατροπή")
+    add("-" * 78)
+    if not cfg.get("step1_enabled"):
+        add("  απενεργοποιημένο — το Βήμα 3 θα διαβάσει το host1")
+    else:
+        rules = parse_step1_script(cfg.get("step1_script", ""), host1)
+        add("  κανόνες: CNV2WIN=%s | SKIPLINE=%s | PADLINE=%s | αντικαταστάσεις: %d"
+            % (rules["cnv2win"], rules["skip"], rules["pad"], len(rules["ifexist"])))
+        for pos, val, then in rules["ifexist"]:
+            add("    στη θέση %d: «%s» → «%s»" % (pos, val, then))
+        before = lines_in[0] if lines_in else ""
+        current = run_step1(dict(cfg, step1_external_exe=""), host1, lambda m: None)
+        after_raw = open(current, "rb").read()
+        after = after_raw.decode(detect_codepage(after_raw), "replace").splitlines()
+        add("  έξοδος   : %s" % os.path.basename(current))
+        add("  πριν     : %s" % _show(before))
+        add("  μετά     : %s" % _show(after[0] if after else ""))
+        if before == (after[0] if after else ""):
+            add("  (καμία αλλαγή στην πρώτη γραμμή)")
+
+    # ---------------- Βήμα 3 ----------------
+    add("\nΒΗΜΑ 3 · Αρχείο προϊόντων")
+    add("-" * 78)
+    if not cfg.get("step2_enabled"):
+        add("  απενεργοποιημένο")
+        return "\n".join(out)
+
+    ext = ".csv" if cfg.get("step2_format", "csv") in ("csv", "semicolon") else ".txt"
+    cfg2 = dict(cfg, step2_output=os.path.join(tmp, "product" + ext))
+    logs = []
+    dst = run_step2(cfg2, current, logs.append)
+    for l in logs:
+        add("  " + l.strip())
+
+    # ανάλυση πεδίων στην πρώτη γραμμή δεδομένων
+    src_lines = open(current, "rb").read()
+    enc = cfg.get("step2_in_encoding") or "auto"
+    enc = detect_codepage(src_lines) if enc == "auto" else enc
+    body = src_lines.decode(enc, "replace").splitlines()
+    start = max(1, int(cfg.get("step2_startline", 1) or 1))
+    sample = body[start - 1] if len(body) >= start else ""
+    off = 1 if cfg.get("step2_onebased", True) else 0
+    add("\n  πώς κόβεται η γραμμή %d (μήκος %d χαρακτήρες):" % (start, len(sample)))
+    add("  %-16s %5s %5s  %-24s %s" % ("ΠΕΔΙΟ", "ΘΕΣΗ", "ΜΗΚΟΣ", "ΤΙ ΚΟΒΕΙ", "ΜΕΤΑ ΤΗ ΜΕΤΑΤΡΟΠΗ"))
+    for f in cfg.get("step2_fields", []):
+        if not f.get("enabled"):
+            continue
+        pos, ln = int(f.get("pos") or 0) - off, int(f.get("len") or 0)
+        rawv = sample[pos:pos + ln] if ln > 0 and pos >= 0 else ""
+        val = apply_xform(rawv.strip(), f.get("xform", ""))
+        if not val and str(f.get("extra", "")).strip():
+            val = str(f["extra"]).strip()
+        note = "" if ln > 0 else "(σταθερή στήλη)"
+        add("  %-16s %5s %5s  %-24s %s %s" % (f["name"], f.get("pos"), f.get("len"),
+                                              "«%s»" % rawv, "«%s»" % val, note))
+
+    # ---------------- το τελικό αρχείο ----------------
+    d = open(dst, "rb").read()
+    add("\n  ΤΕΛΙΚΟ ΑΡΧΕΙΟ: %s" % cfg.get("step2_output") or dst)
+    add("  μέγεθος: %d bytes | κωδικοσελίδα: %s | CRLF: %d | BOM: %s"
+        % (len(d), cfg.get("step2_out_encoding", "cp1253"), d.count(b"\r\n"),
+           d[:3] == b"\xef\xbb\xbf"))
+    txt = d.decode(cfg.get("step2_out_encoding", "cp1253"), "replace")
+    for i, l in enumerate(txt.split("\r\n")[:4]):
+        add("  %s %s" % ("επικεφαλίδα:" if i == 0 else "γραμμή %d:   " % i, _show(l)))
+    add("  τελευταία bytes: %r" % d[-24:])
+    delim = {"csv": ",", "tab": "\t", "semicolon": ";"}.get(cfg.get("step2_format", "csv"), ",")
+    counts = sorted({l.count(delim) for l in txt.split("\r\n") if l})
+    add("  διαχωριστικά ανά γραμμή: %s %s" % (counts,
+        "OK — σταθερή δομή" if len(counts) == 1 else "ΠΡΟΣΟΧΗ: ανομοιόμορφες γραμμές!"))
+
+    # ---------------- Βήμα 4 ----------------
+    add("\nΒΗΜΑ 4 · Εφαρμογή ζυγού")
+    add("-" * 78)
+    if not cfg.get("step3_enabled"):
+        add("  απενεργοποιημένο")
+    else:
+        exe = cfg.get("step3_exe", "")
+        add("  θα εκτελεστεί: %s" % exe)
+        add("  υπάρχει: %s | διάρκεια: %s δευτ." % (os.path.isfile(exe), cfg.get("step3_seconds")))
+    add("\n(τα αρχεία της προεπισκόπησης: %s)" % tmp)
+    return "\n".join(out)
+
+
 def run_pipeline(cfg, log, stop_event=None):
     log("=== Έναρξη διαδικασίας %s ===" % datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
     host1, host2 = make_hosts(cfg.get("watch_file"), cfg.get("output_dir"), log)
@@ -1030,8 +1161,9 @@ class App(tk.Tk):
         bar.pack(side="bottom", fill="x")
         ttk.Button(bar, text="▶  Εκτέλεση τώρα", style="Accent.TButton",
                    command=self.run_once).pack(side="left")
+        ttk.Button(bar, text="🔍  Προεπισκόπηση", command=self.show_preview).pack(side="left", padx=8)
         self.btn_watch = ttk.Button(bar, text="●  Έναρξη παρακολούθησης", command=self.toggle_watch)
-        self.btn_watch.pack(side="left", padx=8)
+        self.btn_watch.pack(side="left")
         ttk.Button(bar, text="Αποθήκευση ρυθμίσεων", command=self.on_save).pack(side="left")
         ttk.Button(bar, text="Έξοδος", style="Ghost.TButton",
                    command=self.quit_app).pack(side="right")
@@ -1779,6 +1911,55 @@ class App(tk.Tk):
             messagebox.showerror(APP_NAME, "Η εγκατάσταση απέτυχε.\n\n%s" % exc)
             return
         self.quit_app()
+
+    def show_preview(self):
+        """Δείχνει βήμα-βήμα τι θα γίνει, χωρίς να σταλεί τίποτα στους ζυγούς."""
+        self.collect()
+        save_config(self.cfg)
+        try:
+            report = build_preview(self.cfg)
+        except StepError as exc:
+            messagebox.showerror(APP_NAME, exc.full())
+            return
+        except Exception:
+            messagebox.showerror(APP_NAME, "Απρόσμενο σφάλμα στην προεπισκόπηση:\n\n"
+                                 + traceback.format_exc())
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Προεπισκόπηση βημάτων — %s" % APP_NAME)
+        win.geometry("980x640")
+        try:
+            win.iconbitmap(resource("logo.ico"))
+        except Exception:
+            pass
+        box = self._console(win, 30, ("Consolas", 9))
+        box.pack(fill="both", expand=True, padx=10, pady=10)
+        box.insert("1.0", report)
+        box.configure(state="disabled")
+
+        bar = ttk.Frame(win, style="Bar.TFrame", padding=8)
+        bar.pack(fill="x")
+
+        def copy():
+            self.clipboard_clear()
+            self.clipboard_append(report)
+            messagebox.showinfo(APP_NAME, "Η αναφορά αντιγράφηκε — μπορείς να την επικολλήσεις.",
+                                parent=win)
+
+        ttk.Button(bar, text="Αντιγραφή αναφοράς", style="Accent.TButton",
+                   command=copy).pack(side="left")
+        ttk.Button(bar, text="Άνοιγμα φακέλου προεπισκόπησης", style="Ghost.TButton",
+                   command=lambda: self._open(os.path.join(CONFIG_DIR, "preview"))).pack(side="left", padx=8)
+        ttk.Button(bar, text="Κλείσιμο", style="Ghost.TButton",
+                   command=win.destroy).pack(side="right")
+
+    @staticmethod
+    def _open(path):
+        try:
+            os.startfile(path)                               # Windows
+        except AttributeError:
+            subprocess.Popen(["xdg-open", path])
 
     def open_backup(self):
         base = self.v_outdir.get().strip() or os.path.dirname(self.v_watch.get().strip())
