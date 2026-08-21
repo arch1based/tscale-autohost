@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-T-Scale AUTO HOST - daemon me grafiko perivallon gia Windows.
+Aftomati enimerosi zygon (ICSautoScaleUpdater) - daemon gia Windows.
 
 Roi ergasias:
   Βήμα 0 : parakolouthisi tou arxeiou pou vgazei to ERP -> dimiourgia host1/host2
@@ -23,8 +23,9 @@ import datetime
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
-APP_NAME = "T-Scale AUTO HOST"
-APP_VERSION = "έκδοση 1.0 — Θεσσαλονίκη, Αύγουστος 2026"
+APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
+APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
+APP_VERSION = "ICSautoScaleUpdater · έκδοση 1.0 — Θεσσαλονίκη, Αύγουστος 2026"
 COLORS = {
     "bg":      "#eef2f7",   # φόντο παραθύρου
     "card":    "#ffffff",   # κάρτες / καρτέλες
@@ -76,7 +77,7 @@ def wake_running_instance(timeout=3.0):
 def _config_dir():
     """Μόνιμος φάκελος ρυθμίσεων — επιβιώνει από κάθε νέο build του exe."""
     base = os.environ.get("APPDATA") or os.path.expanduser("~/.config")
-    d = os.path.join(base, "ICS", "TScaleAutoHost")
+    d = os.path.join(base, "ICS", APP_ID)
     try:
         os.makedirs(d, exist_ok=True)
         return d
@@ -87,10 +88,16 @@ def _config_dir():
 CONFIG_DIR = _config_dir()
 CONFIG_PATH = os.path.join(CONFIG_DIR, "autohost_config.json")
 LEGACY_CONFIG = os.path.join(APP_DIR, "autohost_config.json")
+LEGACY_CONFIGS = (
+    LEGACY_CONFIG,
+    os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~/.config"),
+                 "ICS", "TScaleAutoHost", "autohost_config.json"),
+)
 LOG_DIR = os.path.join(CONFIG_DIR, "logs")
 LOG_KEEP_DAYS = 30
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-RUN_NAME = "TScaleAutoHost"
+RUN_NAME = APP_ID
+LEGACY_RUN_NAMES = ("TScaleAutoHost",)
 DEFAULT_PATH = os.path.join(APP_DIR, "config_default.json")
 
 
@@ -139,6 +146,11 @@ def set_autostart(enable):
         raise StepError("Εκκίνηση", "Η αυτόματη εκκίνηση υποστηρίζεται μόνο στα Windows.", "")
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_ALL_ACCESS) as k:
+            for old_name in LEGACY_RUN_NAMES:    # παλιό όνομα προγράμματος
+                try:
+                    winreg.DeleteValue(k, old_name)
+                except FileNotFoundError:
+                    pass
             if enable:
                 winreg.SetValueEx(k, RUN_NAME, 0, winreg.REG_SZ, exe_command())
             else:
@@ -162,7 +174,7 @@ def autostart_enabled():
 
 def log_path(day=None):
     day = day or datetime.date.today()
-    return os.path.join(LOG_DIR, "autohost-%s.log" % day.isoformat())
+    return os.path.join(LOG_DIR, "%s-%s.log" % (APP_ID, day.isoformat()))
 
 
 def write_log(msg):
@@ -181,7 +193,7 @@ def purge_old_logs():
     try:
         limit = time.time() - LOG_KEEP_DAYS * 86400
         for name in os.listdir(LOG_DIR):
-            if not name.startswith("autohost-") or not name.endswith(".log"):
+            if not name.endswith(".log"):
                 continue
             f = os.path.join(LOG_DIR, name)
             if os.path.getmtime(f) < limit:
@@ -195,14 +207,17 @@ def load_config():
         cfg = json.load(fh)
     # παλιές ρυθμίσεις δίπλα στο exe -> μεταφορά στον μόνιμο φάκελο
     path = CONFIG_PATH
-    if not os.path.exists(CONFIG_PATH) and os.path.exists(LEGACY_CONFIG):
-        path = LEGACY_CONFIG
+    if not os.path.exists(path):
+        for legacy in LEGACY_CONFIGS:
+            if os.path.exists(legacy):
+                path = legacy
+                break
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 cfg.update(json.load(fh))
-            if path is LEGACY_CONFIG:
-                save_config(cfg)
+            if path != CONFIG_PATH:
+                save_config(cfg)                 # μεταφορά στο νέο σημείο
         except Exception:
             pass
     return cfg
@@ -1413,7 +1428,7 @@ if __name__ == "__main__":
         startup_warning = (
             "Η θύρα ελέγχου διπλού αντιγράφου είναι κατειλημμένη — πιθανότατα τρέχει "
             "παλιότερη έκδοση του AutoHost.\nΑν βλέπεις δύο εικονίδια, κλείσε το παλιό: "
-            "Ctrl+Shift+Esc → AutoHost.exe → Τερματισμός εργασίας.")
+            "Ctrl+Shift+Esc → %s.exe → Τερματισμός εργασίας." % APP_ID)
 
     purge_old_logs()
     write_log("=== Εκκίνηση %s (%s) ===" % (APP_NAME, APP_VERSION))

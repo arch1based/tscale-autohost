@@ -1,4 +1,6 @@
-# T-Scale AUTO HOST
+# Αυτόματη ενημέρωση ζυγών
+
+`ICSautoScaleUpdater`
 
 **ICS — ΚΑΡΑΦΥΛΛΗΣ ΣΥΣΤΗΜΑΤΑ ΠΛΗΡΟΦΟΡΙΚΗΣ · Θεσσαλονίκη · έκδοση 1.0 · Αύγουστος 2026**
 
@@ -6,7 +8,7 @@
 τους ζυγούς T-Scale. Δουλεύει μόνο του στο παρασκήνιο: μόλις το ERP βγάλει καινούριο
 αρχείο, το πρόγραμμα το επεξεργάζεται και στέλνει τις νέες τιμές στους ζυγούς.
 
-📄 **[Οδηγός χρήσης σε PDF μιας σελίδας](docs/T-Scale_AUTO_HOST_odigies.pdf)** — για εκτύπωση και παράδοση στον πελάτη.
+📄 **[Οδηγός χρήσης σε PDF μιας σελίδας](docs/ICSautoScaleUpdater_odigies.pdf)** — για εκτύπωση και παράδοση στον πελάτη.
 
 ---
 
@@ -29,7 +31,7 @@
 
 ## Ξεκινώντας — μία φορά στην αρχή
 
-Άνοιξε το **AutoHost.exe**. Θα δεις τέσσερις καρτέλες. Συμπλήρωσέ τες με τη σειρά:
+Άνοιξε το **ICSautoScaleUpdater.exe**. Θα δεις τέσσερις καρτέλες. Συμπλήρωσέ τες με τη σειρά:
 
 ### Καρτέλα 1 · Αρχείο ERP
 - **Αρχείο που βγάζει το ERP** → πάτα «Αναζήτηση…» και δείξε το αρχείο (π.χ. `C:\HOST.txt`).
@@ -124,9 +126,9 @@
 ```
 python autohost.py
 ```
-Για .exe: τρέξε `build.bat` — φτιάχνει `dist\AutoHost.exe`, αυτόνομο, δεν χρειάζεται Python
+Για .exe: τρέξε `build.bat` — φτιάχνει `dist\ICSautoScaleUpdater.exe`, αυτόνομο, δεν χρειάζεται Python
 στο PC του πελάτη. Κλείνει μόνο του το παλιό exe και καθαρίζει τα προηγούμενα build.
-Αν δεις `PermissionError: dist\AutoHost.exe`, τρέχει ακόμα κάπου το exe.
+Αν δεις `PermissionError: dist\ICSautoScaleUpdater.exe`, τρέχει ακόμα κάπου το exe.
 
 ## Κανόνες Βήματος 1
 - `INPUTFIL=` / `OUTPUTFL=` (δέχονται `<HOST1>` και `<OUT1>`)
@@ -156,8 +158,8 @@ python autohost.py
 ## Πού αποθηκεύονται τα πάντα
 | Τι | Πού |
 |---|---|
-| Ρυθμίσεις | `%APPDATA%\ICS\TScaleAutoHost\autohost_config.json` |
-| Log (30 ημέρες) | `%APPDATA%\ICS\TScaleAutoHost\logs\autohost-ΗΗΗΗ-ΜΜ-ΗΗ.log` |
+| Ρυθμίσεις | `%APPDATA%\ICS\ICSautoScaleUpdater\autohost_config.json` |
+| Log (30 ημέρες) | `%APPDATA%\ICS\ICSautoScaleUpdater\logs\ICSautoScaleUpdater-ΗΗΗΗ-ΜΜ-ΗΗ.log` |
 | Backup (3 εκτελέσεις) | `<φάκελος εξόδου>\backup\ΗΗΗΗ-ΜΜ-ΗΗ_ΩΩΛΛΔΔ\` |
 | Αυτόματη εκκίνηση | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (χωρίς admin) |
 

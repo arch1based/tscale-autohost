@@ -1,14 +1,14 @@
 @echo off
 chcp 65001 >nul
-title AutoHost - build
+title ICSautoScaleUpdater - build
 echo ============================================
-echo   T-Scale AUTO HOST - dimiourgia AutoHost.exe
+echo   Aftomati enimerosi zygon - build
 echo ============================================
 echo.
 
-echo [1/4] Kleisimo tou AutoHost.exe an trexei...
+echo [1/4] Kleisimo tou programmatos an trexei...
+taskkill /F /IM ICSautoScaleUpdater.exe >nul 2>&1
 taskkill /F /IM AutoHost.exe >nul 2>&1
-if %errorlevel%==0 (echo      - to palio AutoHost.exe ekleise) else (echo      - den etrexe)
 timeout /t 2 /nobreak >nul
 
 echo [2/4] Egkatastasi vivliothikon...
@@ -18,10 +18,11 @@ if errorlevel 1 goto :pyerror
 echo [3/4] Katharismos palion build...
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
+if exist ICSautoScaleUpdater.spec del /q ICSautoScaleUpdater.spec
 if exist AutoHost.spec del /q AutoHost.spec
 
 echo [4/4] Build...
-pyinstaller --noconfirm --onefile --windowed --name AutoHost ^
+pyinstaller --noconfirm --onefile --windowed --name ICSautoScaleUpdater ^
   --icon logo.ico ^
   --add-data "config_default.json;." ^
   --add-data "logo.png;." ^
@@ -31,7 +32,7 @@ if errorlevel 1 goto :builderror
 
 echo.
 echo ============================================
-echo   ETOIMO: dist\AutoHost.exe
+echo   ETOIMO: dist\ICSautoScaleUpdater.exe
 echo ============================================
 echo.
 choice /c YN /n /m "Na anoixei o fakelos dist? (Y/N) "
@@ -48,7 +49,7 @@ goto :end
 :builderror
 echo.
 echo SFALMA sto build. Stile tis teleftaies grammes gia elegxo.
-echo An leei PermissionError: kleise to AutoHost.exe (kai to eikonidio kato dexia) kai xanatrexe.
+echo An leei PermissionError: kleise to ICSautoScaleUpdater.exe kai xanatrexe.
 
 :end
 pause
