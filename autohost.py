@@ -24,7 +24,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "T-Scale AUTO HOST"
-APP_VERSION = "έκδοση 1.0 — Αύγουστος 2026"
+APP_VERSION = "έκδοση 1.0 — Θεσσαλονίκη, Αύγουστος 2026"
 COLORS = {
     "bg":      "#eef2f7",   # φόντο παραθύρου
     "card":    "#ffffff",   # κάρτες / καρτέλες
