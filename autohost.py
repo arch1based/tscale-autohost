@@ -6,7 +6,7 @@ Roi ergasias:
   Vima 1 : parakolouthisi tou arxeiou pou vgazei to ERP -> dimiourgia host1/host2
   Vima 2 : metatropi (CNV script) me kanones pou fainontai kai allazoun apo to GUI
   Vima 3 : eksagogi arxeiou proionton (product.csv i .txt)
-  Vima 4 : ekkinisi tou AutoProcess gia X deuterolepta
+  Vima 4 : ekkinisi tis efarmogis tou zygou (AutoProcess i alli) gia X deuterolepta
 """
 
 import os
@@ -517,23 +517,23 @@ def run_step2(cfg, fallback_input, log):
 
 
 # --------------------------------------------------------------------------
-# VIMA 3 - AutoProcess
+# VIMA 4 - Efarmogi zygou (AutoProcess i antistoixi allou zygou)
 # --------------------------------------------------------------------------
 def run_step3(cfg, log, stop_event=None):
     exe = (cfg.get("step3_exe") or "").strip()
     secs = int(cfg.get("step3_seconds", 120) or 120)
     if not exe or not os.path.isfile(exe):
-        raise StepError("Βήμα 4", "Δεν βρέθηκε το πρόγραμμα AutoProcess.", exe)
+        raise StepError("Βήμα 4", "Δεν βρέθηκε η εφαρμογή του ζυγού.", exe)
     try:
         proc = subprocess.Popen([exe], cwd=os.path.dirname(exe))
     except Exception as exc:
-        raise StepError("Βήμα 4", "Αδυναμία εκκίνησης του AutoProcess.", "%s\n%s" % (exe, exc))
+        raise StepError("Βήμα 4", "Αδυναμία εκκίνησης της εφαρμογής του ζυγού.", "%s\n%s" % (exe, exc))
 
-    log("  -> Το AutoProcess τρέχει για %d δευτερόλεπτα..." % secs)
+    log("  -> %s: τρέχει για %d δευτερόλεπτα…" % (os.path.basename(exe), secs))
     deadline = time.time() + secs
     while time.time() < deadline:
         if proc.poll() is not None:
-            log("  -> Το AutoProcess τερμάτισε μόνο του (κωδικός %s)." % proc.returncode)
+            log("  -> %s: τερμάτισε μόνο του (κωδικός %s)." % (os.path.basename(exe), proc.returncode))
             return
         if stop_event is not None and stop_event.is_set():
             break
@@ -545,9 +545,9 @@ def run_step3(cfg, log, stop_event=None):
             time.sleep(1.5)
             if proc.poll() is None:
                 proc.kill()
-            log("  -> Το AutoProcess έκλεισε μετά τα %d δευτερόλεπτα." % secs)
+            log("  -> %s: έκλεισε μετά τα %d δευτερόλεπτα." % (os.path.basename(exe), secs))
         except Exception as exc:
-            raise StepError("Βήμα 4", "Αδυναμία τερματισμού του AutoProcess.", str(exc))
+            raise StepError("Βήμα 4", "Αδυναμία τερματισμού της εφαρμογής του ζυγού.", str(exc))
 
 
 # --------------------------------------------------------------------------
@@ -604,7 +604,7 @@ def run_pipeline(cfg, log, stop_event=None):
 
     if cfg.get("step3_enabled"):
         run_step3(cfg, log, stop_event)
-        log("Βήμα 4: AutoProcess. OK")
+        log("Βήμα 4: εφαρμογή ζυγού. OK")
     else:
         log("Βήμα 4: απενεργοποιημένο.")
 
@@ -761,7 +761,7 @@ class App(tk.Tk):
         nb.add(self.tab0, text="  Βήμα 1 · Αρχείο ERP  ")
         nb.add(self.tab1, text="  Βήμα 2 · Μετατροπή  ")
         nb.add(self.tab2, text="  Βήμα 3 · Αρχείο προϊόντων  ")
-        nb.add(self.tab3, text="  Βήμα 4 · AutoProcess  ")
+        nb.add(self.tab3, text="  Βήμα 4 · Εφαρμογή ζυγού  ")
 
         self._build_tab0()
         self._build_tab1()
@@ -940,19 +940,23 @@ class App(tk.Tk):
     def _build_tab3(self):
         f = self.tab3
         self.v_s3 = tk.BooleanVar()
-        ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 4 — AutoProcess", variable=self.v_s3).pack(anchor="w")
+        ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 4 — Εφαρμογή ζυγού", variable=self.v_s3).pack(anchor="w")
         g = ttk.Frame(f)
         g.pack(fill="x", pady=8)
         self.v_s3exe = tk.StringVar()
-        self._pick_row(g, "Εφαρμογή AutoProcess:", self.v_s3exe, "exe", 0)
+        self._pick_row(g, "Εφαρμογή ζυγού (π.χ. AutoProcess):", self.v_s3exe, "exe", 0)
         r = ttk.Frame(f)
         r.pack(fill="x")
         self.v_s3sec = tk.StringVar(value="120")
         self.v_s3kill = tk.BooleanVar(value=True)
         ttk.Label(r, text="Διάρκεια (δευτερόλεπτα):").pack(side="left")
         ttk.Entry(r, textvariable=self.v_s3sec, width=7).pack(side="left", padx=6)
-        ttk.Checkbutton(r, text="Κλείσε το αυτόματα όταν περάσει ο χρόνος",
+        ttk.Checkbutton(r, text="Κλείσε την αυτόματα όταν περάσει ο χρόνος",
                         variable=self.v_s3kill).pack(side="left", padx=12)
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Είναι το πρόγραμμα που στέλνει τα δεδομένα στη ζυγαριά. Για τους T-Scale "
+                       "είναι το AutoProcess, αλλά μπορείς να δείξεις οποιαδήποτε άλλη εφαρμογή "
+                       "αν ο ζυγός είναι διαφορετικού τύπου.").pack(anchor="w", pady=(8, 0))
 
     def _load_logo(self, height):
         try:
