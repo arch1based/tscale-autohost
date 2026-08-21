@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Δημοσίευση νέας έκδοσης: ανεβάζει τον αριθμό, χτίζει το exe, φτιάχνει GitHub Release.
+"""Δημοσίευση νέας έκδοσης.
 
-Χρήση (από Windows, με εγκατεστημένο gh):
-    python release.py 1.1.0 "Τι άλλαξε σε αυτή την έκδοση"
-    python release.py 1.1.0 "..." --dry-run      (χωρίς build/upload)
+Από οποιοδήποτε σύστημα (Linux/Mac/Windows) — το exe το χτίζει το GitHub Actions:
+    python3 release.py 1.1.0 "Τι άλλαξε"
+
+Από Windows, με τοπικό build και gh:
+    python release.py 1.1.0 "Τι άλλαξε" --local
+
+Χωρίς να αλλάξει τίποτα στο GitHub:
+    python3 release.py 1.1.0 "..." --dry-run
 """
 
 import io
@@ -51,7 +56,21 @@ def main():
 
     bump(version, notes)
     if dry:
-        print("--dry-run: σταματάω πριν από build και upload.")
+        print("--dry-run: σταματάω πριν από commit/push.")
+        return
+
+    run(["git", "add", "-A"])
+    run(["git", "commit", "-m", "Έκδοση %s" % version])
+    run(["git", "push", "origin", "main"])
+
+    if "--local" not in sys.argv:
+        # Το exe το χτίζει το GitHub Actions με το που ανέβει το tag.
+        run(["git", "tag", "-a", "v" + version, "-m", "Έκδοση %s" % version])
+        run(["git", "push", "origin", "v" + version])
+        print("\nΤο tag v%s ανέβηκε. Το GitHub χτίζει το exe (~3 λεπτά) και το ανεβάζει "
+              "στο Release." % version)
+        print("Παρακολούθηση:  gh run watch")
+        print("Έλεγχος:        gh release view v%s" % version)
         return
 
     run([os.path.join(HERE, "build.bat")], shell=True)
@@ -59,9 +78,6 @@ def main():
     if not os.path.isfile(exe):
         raise SystemExit("Δεν βρέθηκε το %s — απέτυχε το build;" % exe)
 
-    run(["git", "add", "-A"])
-    run(["git", "commit", "-m", "Έκδοση %s" % version])
-    run(["git", "push", "origin", "main"])
     run(["gh", "release", "create", "v" + version, exe,
          "--title", "Έκδοση %s" % version, "--notes", notes or "Νέα έκδοση"])
     print("\nΈτοιμο. Οι εγκαταστάσεις θα δουν την %s με το «Έλεγχος ενημέρωσης»." % version)

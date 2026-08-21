@@ -213,18 +213,19 @@ python autohost.py
 
 ## Έκδοση και ενημερώσεις
 
-### Δημοσίευση νέας έκδοσης (τεχνικός, από Windows)
+### Δημοσίευση νέας έκδοσης — από οποιοδήποτε σύστημα
+```
+python3 release.py 1.1.0 "Τι άλλαξε"
+```
+Ανεβάζει `VERSION` + `APP_BUILD`, κάνει commit/push και ανεβάζει tag `v1.1.0`. Το
+**GitHub Actions** (`.github/workflows/release.yml`) χτίζει το exe σε Windows runner και το
+ανεβάζει στο Release. **Δεν χρειάζεται μηχάνημα Windows.** Παρακολούθηση με `gh run watch`.
+
+### Δημοσίευση με τοπικό build (από Windows)
 ```
 publish.bat
 ```
-Ρωτάει αριθμό έκδοσης και τι άλλαξε, και μετά κάνει τα πάντα: ανεβάζει το `VERSION` και το
-`APP_BUILD`, χτίζει το exe, κάνει commit/push και δημιουργεί **GitHub Release** με το
-`ICSautoScaleUpdater.exe` σαν asset. Χρειάζεται εγκατεστημένο `gh` (`winget install GitHub.cli`).
-
-Ισοδύναμα από γραμμή εντολών:
-```
-python release.py 1.1.0 "Τι άλλαξε" 
-```
+ή `python release.py 1.1.0 "Τι άλλαξε" --local` — χτίζει τοπικά και ανεβάζει με `gh`.
 
 ### Πώς ενημερώνονται οι εγκαταστάσεις
 Ο τεχνικός πατάει **«Έλεγχος ενημέρωσης»**, δίνει τον κωδικό, και το πρόγραμμα:
