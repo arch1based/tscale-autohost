@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.0.5"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.0.6"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -394,7 +394,16 @@ def make_hosts(src, out_dir, log):
 # --------------------------------------------------------------------------
 
 def detect_codepage(raw):
-    """cp737 (DOS ελληνικά) ή cp1253 (Windows ελληνικά);"""
+    """Ποια κωδικοσελίδα έχει το αρχείο: utf-8-sig / utf-8 / cp737 / cp1253."""
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return "utf-8-sig"                    # UTF-8 με BOM
+    if not any(b > 0x7F for b in raw):
+        return "cp1253"                       # μόνο ASCII — αδιάφορο
+    try:
+        raw.decode("utf-8")                   # έγκυρο UTF-8 δεν είναι σύμπτωση
+        return "utf-8"
+    except UnicodeDecodeError:
+        pass
     dos = win = 0
     for b in raw:
         if 0x80 <= b <= 0xAF or 0xE0 <= b <= 0xF0:
@@ -582,13 +591,30 @@ def run_step2(cfg, fallback_input, log):
 
     off = 1 if cfg.get("step2_onebased", True) else 0
     start_line = max(1, int(cfg.get("step2_startline", 1) or 1))
-    enc = cfg.get("dst_encoding", "cp1253")
+    out_enc = cfg.get("step2_out_encoding") or cfg.get("dst_encoding", "cp1253")
 
     try:
-        with open(src, "r", encoding=enc, errors="replace") as fh:
-            lines = fh.read().splitlines()
+        with open(src, "rb") as fh:
+            raw = fh.read()
     except Exception as exc:
         raise StepError("Βήμα 3", "Αδυναμία ανάγνωσης του host αρχείου.", "%s\n%s" % (src, exc))
+
+    in_enc = cfg.get("step2_in_encoding") or "auto"
+    if in_enc == "auto":
+        in_enc = detect_codepage(raw)
+        log("  <- κωδικοσελίδα εισόδου: %s (αυτόματα)" % in_enc)
+    else:
+        log("  <- κωδικοσελίδα εισόδου: %s" % in_enc)
+
+    by_bytes = bool(cfg.get("step2_positions_bytes", False))
+    if by_bytes:
+        # Οι θέσεις μετρούν bytes: κόβουμε πρώτα και αποκωδικοποιούμε μετά.
+        head = 3 if in_enc == "utf-8-sig" else 0
+        lines = [ln[head:] if i == 0 else ln
+                 for i, ln in enumerate(raw.split(b"\n"))]
+        lines = [ln.rstrip(b"\r") for ln in lines]
+    else:
+        lines = raw.decode(in_enc, "replace").splitlines()
 
     rows = []
     for line in lines[start_line - 1:]:
@@ -598,7 +624,10 @@ def run_step2(cfg, fallback_input, log):
         for f in fields:
             pos = int(f.get("pos") or 0) - off
             ln = int(f.get("len") or 0)
-            val = line[pos:pos + ln].strip() if pos >= 0 else ""
+            val = line[pos:pos + ln] if pos >= 0 else line[:0]
+            if by_bytes:
+                val = val.decode(in_enc if in_enc != "utf-8-sig" else "utf-8", "replace")
+            val = val.strip()
             if not val and str(f.get("extra", "")).strip():
                 val = str(f["extra"]).strip()
             row.append(val)
@@ -612,7 +641,7 @@ def run_step2(cfg, fallback_input, log):
     try:
         if fmt == "fixed":
             # σταθερό πλάτος: κάθε πεδίο γεμίζει το δικό του μήκος
-            with open(dst, "w", encoding=enc, errors="replace", newline="\r\n") as fh:
+            with open(dst, "w", encoding=out_enc, errors="replace", newline="\r\n") as fh:
                 if cfg.get("step2_write_header", True):
                     fh.write("".join(f["name"][:int(f["len"])].ljust(int(f["len"]))
                                      for f in fields) + "\n")
@@ -622,7 +651,7 @@ def run_step2(cfg, fallback_input, log):
         else:
             delim = {"csv": ",", "tab": "\t", "semicolon": ";"}.get(
                 fmt, cfg.get("step2_delimiter", ",") or ",")
-            with open(dst, "w", encoding=enc, errors="replace", newline="") as fh:
+            with open(dst, "w", encoding=out_enc, errors="replace", newline="") as fh:
                 w = csv.writer(fh, delimiter=delim)
                 if cfg.get("step2_write_header", True):
                     w.writerow([f["name"] for f in fields])
@@ -631,7 +660,8 @@ def run_step2(cfg, fallback_input, log):
         raise StepError("Βήμα 3", "Αδυναμία εγγραφής του αρχείου προϊόντων.",
                         "%s\n%s" % (dst, exc))
 
-    log("  -> %s (%d εγγραφές, %d πεδία)" % (dst, len(rows), len(fields)))
+    log("  -> %s (%d εγγραφές, %d πεδία, κωδικοσελίδα %s)"
+        % (dst, len(rows), len(fields), out_enc))
     return dst
 
 
@@ -1079,6 +1109,27 @@ class App(tk.Tk):
         # στη σειρά σχεδίασης και δεν φαίνεται καθόλου.
         tree_box = ttk.Frame(f)
         tree_box.pack(fill="x", pady=4)
+
+        enc = ttk.Frame(f)
+        enc.pack(fill="x", pady=(6, 2))
+        ttk.Label(enc, text="Κωδικοσελίδα — είσοδος:").pack(side="left")
+        self.v_enc_in = tk.StringVar(value="auto")
+        ttk.Combobox(enc, textvariable=self.v_enc_in, width=12, state="readonly",
+                     values=("auto", "utf-8", "utf-8-sig", "cp1253", "cp737")
+                     ).pack(side="left", padx=6)
+        ttk.Label(enc, text="έξοδος:").pack(side="left", padx=(10, 0))
+        self.v_enc_out = tk.StringVar(value="cp1253")
+        ttk.Combobox(enc, textvariable=self.v_enc_out, width=12, state="readonly",
+                     values=("cp1253", "utf-8", "utf-8-sig", "cp737")
+                     ).pack(side="left", padx=6)
+        self.v_bytes = tk.BooleanVar(value=False)
+        ttk.Checkbutton(enc, text="Οι θέσεις μετρούν bytes (αρχεία UTF-8)",
+                        variable=self.v_bytes).pack(side="left", padx=12)
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="«auto» αναγνωρίζει μόνο του UTF-8 / Windows-1253 / DOS-737. Οι ζυγοί "
+                       "T-Scale θέλουν συνήθως Windows-1253 στην έξοδο."
+                  ).pack(anchor="w", pady=(0, 2))
+
         cols = ("name", "out", "pos", "len", "extra")
         self.tree = ttk.Treeview(tree_box, columns=cols, show="headings",
                                  height=8, selectmode="browse")
@@ -1272,6 +1323,9 @@ class App(tk.Tk):
         self.v_header.set(bool(c.get("step2_write_header", True)))
         self.v_delim.set(c.get("step2_delimiter", ","))
         self.v_format.set(c.get("step2_format", "csv"))
+        self.v_enc_in.set(c.get("step2_in_encoding", "auto"))
+        self.v_enc_out.set(c.get("step2_out_encoding", "cp1253"))
+        self.v_bytes.set(bool(c.get("step2_positions_bytes", False)))
         self.v_s3.set(bool(c.get("step3_enabled", True)))
         self.v_s3exe.set(c.get("step3_exe", ""))
         self.v_s3sec.set(str(c.get("step3_seconds", 120)))
@@ -1321,6 +1375,9 @@ class App(tk.Tk):
         c["step2_write_header"] = self.v_header.get()
         c["step2_delimiter"] = self.v_delim.get() or ","
         c["step2_format"] = self.v_format.get()
+        c["step2_in_encoding"] = self.v_enc_in.get()
+        c["step2_out_encoding"] = self.v_enc_out.get()
+        c["step2_positions_bytes"] = self.v_bytes.get()
         c["step3_enabled"] = self.v_s3.get()
         c["step3_exe"] = self.v_s3exe.get().strip()
         try:
