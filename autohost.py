@@ -334,7 +334,17 @@ def run_step2(cfg, fallback_input, log):
     if not dst:
         dst = os.path.join(os.path.dirname(src), "product.csv")
     if not src or not os.path.isfile(src):
-        raise StepError("Βήμα 2", "Δεν βρέθηκε το αρχείο εισόδου (host).", str(src))
+        raise StepError("Βήμα 2", "Δεν βρέθηκε το αρχείο εισόδου (host).",
+                        "Διαδρομή: %s\nΔιάλεξε αρχείο εισόδου στην καρτέλα «3 · product.csv» ή άφησέ το "
+                        "κενό για να χρησιμοποιηθεί αυτόματα το host1 του φακέλου εξόδου." % src)
+
+    out_dir = os.path.dirname(dst)
+    if out_dir and not os.path.isdir(out_dir):
+        try:
+            os.makedirs(out_dir)
+        except Exception as exc:
+            raise StepError("Βήμα 2", "Δεν υπάρχει ο φάκελος εξόδου και δεν μπόρεσε να δημιουργηθεί.",
+                            "%s\n%s" % (out_dir, exc))
 
     fields = [f for f in cfg.get("step2_fields", []) if f.get("enabled")]
     if not fields:
@@ -621,11 +631,22 @@ class App(tk.Tk):
 
         def pick():
             if kind == "dir":
-                p = filedialog.askdirectory()
+                p = filedialog.askdirectory(title="Διάλεξε φάκελο")
             elif kind == "exe":
-                p = filedialog.askopenfilename(filetypes=[("Εφαρμογή", "*.exe"), ("Όλα", "*.*")])
+                p = filedialog.askopenfilename(title="Διάλεξε εφαρμογή",
+                                               filetypes=[("Εφαρμογή", "*.exe"), ("Όλα", "*.*")])
+            elif kind == "save":
+                cur = var.get().strip()
+                p = filedialog.asksaveasfilename(
+                    title="Πού να δημιουργείται το αρχείο;",
+                    initialfile=os.path.basename(cur) or "product.csv",
+                    initialdir=os.path.dirname(cur) or self.v_outdir.get().strip() or None,
+                    defaultextension=".csv",
+                    confirmoverwrite=False,
+                    filetypes=[("CSV", "*.csv"), ("Όλα", "*.*")])
             else:
-                p = filedialog.askopenfilename(filetypes=[("Αρχεία δεδομένων", "*.txt *.csv"), ("Όλα", "*.*")])
+                p = filedialog.askopenfilename(title="Διάλεξε αρχείο",
+                                               filetypes=[("Αρχεία δεδομένων", "*.txt *.csv"), ("Όλα", "*.*")])
             if p:
                 var.set(os.path.normpath(p))
         ttk.Button(parent, text="Αναζήτηση…", style="Pick.TButton", command=pick).grid(row=r, column=2)
@@ -682,7 +703,11 @@ class App(tk.Tk):
         self.v_s2in = tk.StringVar()
         self.v_s2out = tk.StringVar()
         self._pick_row(g, "Αρχείο εισόδου (host):", self.v_s2in, "file", 0)
-        self._pick_row(g, "Αρχείο εξόδου (product.csv):", self.v_s2out, "file", 1)
+        self._pick_row(g, "Να δημιουργείται εδώ:", self.v_s2out, "save", 1)
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Το product.csv δεν χρειάζεται να υπάρχει — διάλεξε απλώς φάκελο και όνομα και "
+                       "θα δημιουργείται (και θα αντικαθίσταται) σε κάθε ενημέρωση. Αν το αφήσεις κενό, "
+                       "μπαίνει ως product.csv δίπλα στο αρχείο εισόδου.").pack(anchor="w", pady=(0, 4))
 
         o = ttk.Frame(f)
         o.pack(fill="x", pady=4)
@@ -713,6 +738,9 @@ class App(tk.Tk):
         ttk.Button(b, text="Εναλλαγή ✓ (ή Space)", command=self.toggle_field).pack(side="left")
         ttk.Button(b, text="Επεξεργασία γραμμής", command=self.on_edit_cell).pack(side="left", padx=6)
         ttk.Button(b, text="Αρχικοποίηση Παραμέτρων", command=self.reset_fields).pack(side="left")
+        for pname in load_config().get("profiles", {}):
+            ttk.Button(b, text="Προφίλ: %s" % pname.split(" (")[0],
+                       command=lambda n=pname: self.load_profile(n)).pack(side="left", padx=6)
         ttk.Button(b, text="Δοκιμή · προεπισκόπηση", style="Accent.TButton",
                    command=self.preview_csv).pack(side="right")
 
@@ -927,6 +955,19 @@ class App(tk.Tk):
             self.refresh_tree()
             self.tree.selection_set(str(i))
         ttk.Button(win, text="Καταχώρηση", command=ok).grid(row=5, column=1, sticky="e", padx=8, pady=10)
+
+    def load_profile(self, name):
+        """Έτοιμο σετ θέσεων/μηκών για γνωστό τύπο αρχείου."""
+        with open(DEFAULT_PATH, "r", encoding="utf-8") as fh:
+            profiles = json.load(fh).get("profiles", {})
+        if name not in profiles:
+            messagebox.showerror(APP_NAME, "Δεν βρέθηκε το προφίλ «%s»." % name)
+            return
+        if not messagebox.askyesno(APP_NAME, "Να αντικατασταθεί ο πίνακας με το προφίλ «%s»;" % name):
+            return
+        self.cfg["step2_fields"] = [dict(f) for f in profiles[name]]
+        self.refresh_tree()
+        self.log("Φορτώθηκε το προφίλ παραμέτρων: %s" % name)
 
     def reset_fields(self):
         if not messagebox.askyesno(APP_NAME, "Επαναφορά όλων των παραμέτρων στις αρχικές τιμές;"):
