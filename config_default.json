@@ -23,7 +23,7 @@
   "step2_trailing_delim": true,
   "step2_quotes": false,
   "step2_sanitize": true,
-  "step2_dedupe": false,
+  "step2_dedupe": true,
   "step2_write_header": true,
   "step2_fields": [
     {
@@ -32,7 +32,7 @@
       "pos": 2,
       "len": 5,
       "extra": "",
-      "xform": "digits"
+      "xform": ""
     },
     {
       "name": "ProductName",
@@ -56,14 +56,22 @@
       "pos": 64,
       "len": 5,
       "extra": "",
-      "xform": "comma2dot"
+      "xform": "cents2dot"
     },
     {
-      "name": "Category",
-      "enabled": false,
+      "name": "BarCode",
+      "enabled": true,
+      "pos": 69,
+      "len": 8,
+      "extra": "",
+      "xform": ""
+    },
+    {
+      "name": "Price Unit",
+      "enabled": true,
       "pos": 0,
       "len": 0,
-      "extra": "",
+      "extra": "0",
       "xform": ""
     },
     {
@@ -89,23 +97,28 @@
   "src_encoding": "auto",
   "dst_encoding": "auto",
   "profiles": {
-    "T-Scale · 6 στήλες (AutoProcess Κύπρου)": {
+    "ΕΛΛΗΝΙΚΑ · 8 στήλες, cp1253, τιμή με τελεία": {
       "settings": {
         "step2_format": "semicolon",
         "step2_delimiter": ";",
-        "step2_trailing_delim": false,
+        "step2_trailing_delim": true,
         "step2_quotes": false,
-        "step2_out_encoding": "utf-8",
-        "step2_final_newline": false,
+        "step2_in_encoding": "auto",
+        "step2_out_encoding": "cp1253",
+        "step2_final_newline": true,
         "step2_write_header": true,
-        "step2_sanitize": true
+        "step2_sanitize": true,
+        "step2_dedupe": true,
+        "step2_positions_bytes": false,
+        "step2_startline": 1,
+        "step2_onebased": true
       },
       "fields": [
         {
           "name": "ProductNumber",
           "enabled": true,
-          "pos": 1,
-          "len": 4,
+          "pos": 2,
+          "len": 5,
           "extra": "",
           "xform": ""
         },
@@ -118,19 +131,35 @@
           "xform": ""
         },
         {
+          "name": "NameSpell",
+          "enabled": true,
+          "pos": 7,
+          "len": 40,
+          "extra": "",
+          "xform": ""
+        },
+        {
           "name": "Price",
           "enabled": true,
           "pos": 64,
           "len": 5,
           "extra": "",
-          "xform": "dot2comma"
+          "xform": "cents2dot"
         },
         {
           "name": "BarCode",
           "enabled": true,
-          "pos": 1,
-          "len": 4,
+          "pos": 69,
+          "len": 8,
           "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "Price Unit",
+          "enabled": true,
+          "pos": 0,
+          "len": 0,
+          "extra": "0",
           "xform": ""
         },
         {
@@ -142,10 +171,10 @@
           "xform": ""
         },
         {
-          "name": "DivisionCode",
+          "name": "AbbrSpell",
           "enabled": true,
-          "pos": 0,
-          "len": 0,
+          "pos": 7,
+          "len": 40,
           "extra": "",
           "xform": ""
         }
@@ -424,8 +453,8 @@
         "step2_delimiter": ";",
         "step2_trailing_delim": false,
         "step2_quotes": false,
-        "step2_out_encoding": "utf-8",
-        "step2_final_newline": false,
+        "step2_out_encoding": "cp1253",
+        "step2_final_newline": true,
         "step2_write_header": true,
         "step2_sanitize": true,
         "step2_dedupe": true
@@ -453,13 +482,75 @@
           "pos": 64,
           "len": 5,
           "extra": "",
-          "xform": "cents2comma"
+          "xform": "cents2dot"
         },
         {
           "name": "BarCode",
           "enabled": true,
           "pos": 69,
           "len": 8,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "Abbr",
+          "enabled": true,
+          "pos": 7,
+          "len": 40,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "DivisionCode",
+          "enabled": true,
+          "pos": 0,
+          "len": 0,
+          "extra": "",
+          "xform": ""
+        }
+      ]
+    },
+    "T-Scale · 6 στήλες (Κύπρου, λατινικά)": {
+      "settings": {
+        "step2_format": "semicolon",
+        "step2_delimiter": ";",
+        "step2_trailing_delim": false,
+        "step2_quotes": false,
+        "step2_out_encoding": "utf-8",
+        "step2_final_newline": false,
+        "step2_write_header": true,
+        "step2_sanitize": true
+      },
+      "fields": [
+        {
+          "name": "ProductNumber",
+          "enabled": true,
+          "pos": 1,
+          "len": 4,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "ProductName",
+          "enabled": true,
+          "pos": 7,
+          "len": 40,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "Price",
+          "enabled": true,
+          "pos": 64,
+          "len": 5,
+          "extra": "",
+          "xform": "dot2comma"
+        },
+        {
+          "name": "BarCode",
+          "enabled": true,
+          "pos": 1,
+          "len": 4,
           "extra": "",
           "xform": ""
         },

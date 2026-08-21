@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.3.0"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.3.1"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -1408,8 +1408,9 @@ class App(tk.Tk):
         ttk.Checkbutton(enc, text="Οι θέσεις μετρούν bytes (αρχεία UTF-8)",
                         variable=self.v_bytes).pack(side="left", padx=12)
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="«auto» αναγνωρίζει μόνο του UTF-8 / Windows-1253 / DOS-737. Οι ζυγοί "
-                       "T-Scale θέλουν συνήθως Windows-1253 στην έξοδο."
+                  text="«auto» αναγνωρίζει μόνο του UTF-8 / Windows-1253 / DOS-737. "
+                       "ΠΡΟΣΟΧΗ: για ελληνικά η ΕΞΟΔΟΣ πρέπει να είναι cp1253 — με utf-8 ο "
+                       "ζυγός δείχνει ακαταλαβίστικους χαρακτήρες."
                   ).pack(anchor="w", pady=(0, 2))
 
         cols = ("name", "out", "pos", "len", "xform", "extra")
