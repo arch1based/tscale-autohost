@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.0.9"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.1.0"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -614,10 +614,10 @@ def run_step2(cfg, fallback_input, log):
     if not fields:
         raise StepError("Βήμα 3", "Δεν είναι επιλεγμένο κανένα πεδίο στον πίνακα παραμέτρων.",
                         "Τσέκαρε τουλάχιστον ένα πεδίο στη στήλη «Για έξοδο».")
-    for f in fields:
-        if int(f.get("len") or 0) <= 0:
-            raise StepError("Βήμα 3", "Το πεδίο «%s» είναι επιλεγμένο αλλά έχει Μήκος = 0." % f["name"],
-                            "Βάλε Μήκος Πεδίου > 0 ή ξε-τσέκαρέ το.")
+    constants = [f["name"] for f in fields if int(f.get("len") or 0) <= 0]
+    if constants:
+        # Μήκος 0 = στήλη σταθερής τιμής: γράφεται το «Εξτρα» (ή κενό).
+        log("  (σταθερές στήλες: %s)" % ", ".join(constants))
 
     off = 1 if cfg.get("step2_onebased", True) else 0
     start_line = max(1, int(cfg.get("step2_startline", 1) or 1))
@@ -719,10 +719,13 @@ def run_step2(cfg, fallback_input, log):
                         w.writerow(list(row) + ([""] if tail else []))
                 else:
                     # όπως το θέλουν οι ζυγοί: σκέτα πεδία, χωρίς εισαγωγικά
+                    out = []
                     if cfg.get("step2_write_header", True):
-                        fh.write(delim.join(f["name"] for f in fields) + tail + "\r\n")
-                    for row in rows:
-                        fh.write(delim.join(row) + tail + "\r\n")
+                        out.append(delim.join(f["name"] for f in fields) + tail)
+                    out.extend(delim.join(row) + tail for row in rows)
+                    fh.write("\r\n".join(out))
+                    if cfg.get("step2_final_newline", True):
+                        fh.write("\r\n")
     except Exception as exc:
         raise StepError("Βήμα 3", "Αδυναμία εγγραφής του αρχείου προϊόντων.",
                         "%s\n%s" % (dst, exc))
@@ -1182,6 +1185,9 @@ class App(tk.Tk):
                         variable=self.v_sanitize).pack(side="left")
         ttk.Checkbutton(extra2, text="Μία εγγραφή ανά κωδικό (κρατά την τελευταία)",
                         variable=self.v_dedupe).pack(side="left", padx=14)
+        self.v_finalnl = tk.BooleanVar(value=True)
+        ttk.Checkbutton(extra2, text="Αλλαγή γραμμής στο τέλος του αρχείου",
+                        variable=self.v_finalnl).pack(side="left")
         ttk.Checkbutton(o, text="Θέση 1 = πρώτος χαρακτήρας", variable=self.v_onebased).pack(side="left", padx=12)
 
 
@@ -1231,7 +1237,7 @@ class App(tk.Tk):
         self.tree.pack(side="left", fill="both", expand=True)
 
         for pname in load_config().get("profiles", {}):
-            ttk.Button(b, text="Προφίλ: %s" % pname.split(" (")[0],
+            ttk.Button(b, text=pname.split(" (")[0].replace("T-Scale · ", ""),
                        command=lambda n=pname: self.load_profile(n)).pack(side="left", padx=6)
         ttk.Button(b, text="Δοκιμή · προεπισκόπηση", style="Accent.TButton",
                    command=self.preview_csv).pack(side="right")
@@ -1415,6 +1421,7 @@ class App(tk.Tk):
         self.v_quotes.set(bool(c.get("step2_quotes", False)))
         self.v_sanitize.set(bool(c.get("step2_sanitize", True)))
         self.v_dedupe.set(bool(c.get("step2_dedupe", False)))
+        self.v_finalnl.set(bool(c.get("step2_final_newline", True)))
         self.v_s3.set(bool(c.get("step3_enabled", True)))
         self.v_s3exe.set(c.get("step3_exe", ""))
         self.v_s3sec.set(str(c.get("step3_seconds", 120)))
@@ -1472,6 +1479,7 @@ class App(tk.Tk):
         c["step2_quotes"] = self.v_quotes.get()
         c["step2_sanitize"] = self.v_sanitize.get()
         c["step2_dedupe"] = self.v_dedupe.get()
+        c["step2_final_newline"] = self.v_finalnl.get()
         c["step3_enabled"] = self.v_s3.get()
         c["step3_exe"] = self.v_s3exe.get().strip()
         try:
@@ -1560,9 +1568,13 @@ class App(tk.Tk):
             return
         if not messagebox.askyesno(APP_NAME, "Να αντικατασταθεί ο πίνακας με το προφίλ «%s»;" % name):
             return
-        self.cfg["step2_fields"] = [dict(f) for f in profiles[name]]
-        self.refresh_tree()
-        self.log("Φορτώθηκε το προφίλ παραμέτρων: %s" % name)
+        entry = profiles[name]
+        fields = entry.get("fields", entry) if isinstance(entry, dict) else entry
+        self.cfg["step2_fields"] = [dict(f) for f in fields]
+        settings = entry.get("settings", {}) if isinstance(entry, dict) else {}
+        self.cfg.update(settings)
+        self._load_into_widgets()
+        self.log("Φορτώθηκε το προφίλ: %s%s" % (name, " (μαζί με τη μορφή αρχείου)" if settings else ""))
 
     def reset_fields(self):
         if not messagebox.askyesno(APP_NAME, "Επαναφορά όλων των παραμέτρων στις αρχικές τιμές;"):
