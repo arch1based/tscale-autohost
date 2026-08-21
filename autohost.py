@@ -616,6 +616,10 @@ class App(tk.Tk):
         self.btn_watch = ttk.Button(bar, text="●  Έναρξη παρακολούθησης", command=self.toggle_watch)
         self.btn_watch.pack(side="left", padx=8)
         ttk.Button(bar, text="Αποθήκευση ρυθμίσεων", command=self.on_save).pack(side="left")
+        ttk.Button(bar, text="Έξοδος", style="Ghost.TButton",
+                   command=self.quit_app).pack(side="right")
+        ttk.Button(bar, text="Ελαχιστοποίηση κάτω δεξιά", style="Ghost.TButton",
+                   command=self.hide_to_tray).pack(side="right")
         ttk.Button(bar, text="Καθαρισμός", style="Ghost.TButton",
                    command=lambda: self.txt_log.delete("1.0", "end")).pack(side="right")
 
@@ -808,11 +812,19 @@ class App(tk.Tk):
         threading.Thread(target=self.tray.run, daemon=True).start()
 
     def hide_to_tray(self):
-        if getattr(self, "tray", None) is not None:
-            self.withdraw()
-            self.log("Το πρόγραμμα συνεχίζει κάτω δεξιά στην περιοχή ειδοποιήσεων.")
-        else:
+        if getattr(self, "tray", None) is None:
             self.iconify()
+            return
+        self.withdraw()
+        self.log("Το πρόγραμμα συνεχίζει κάτω δεξιά στην περιοχή ειδοποιήσεων.")
+        if not self.cfg.get("tray_hint_shown"):
+            self.cfg["tray_hint_shown"] = True
+            save_config(self.cfg)
+            try:
+                self.tray.notify("Συνεχίζει να δουλεύει εδώ κάτω δεξιά. "
+                                 "Διπλό κλικ για άνοιγμα.", APP_NAME)
+            except Exception:
+                pass
 
     def show_window(self):
         self.deiconify()
@@ -1086,21 +1098,33 @@ class App(tk.Tk):
                 time.sleep(0.5)
 
     def on_close(self):
-        """Το X ελαχιστοποιεί κάτω δεξιά όσο τρέχει η παρακολούθηση."""
+        """Το X ελαχιστοποιεί κάτω δεξιά — δεν κλείνει το πρόγραμμα."""
         try:
             save_config(self.collect())
         except Exception:
             pass
-        if self.watching and getattr(self, "tray", None) is not None:
+        if getattr(self, "tray", None) is not None:
             self.hide_to_tray()
-        else:
+            return
+        # χωρίς pystray δεν υπάρχει εικονίδιο κάτω δεξιά
+        if messagebox.askyesno(
+                APP_NAME,
+                "Να κλείσει τελείως το πρόγραμμα;\n\n"
+                "ΟΧΙ = ελαχιστοποιείται στη γραμμή εργασιών και συνεχίζει να δουλεύει.\n\n"
+                "(Για εικονίδιο κάτω δεξιά στην περιοχή ειδοποιήσεων χρειάζεται:\n"
+                "pip install pystray Pillow)"):
             self.quit_app()
+        else:
+            self.iconify()
 
 
 if __name__ == "__main__":
     import sys
     app = App()
     app.setup_tray()
+    if app.tray is None:
+        app.log("Προσοχή: λείπει το pystray/Pillow — δεν υπάρχει εικονίδιο κάτω δεξιά "
+                "(pip install pystray Pillow).")
     if "--tray" in sys.argv or "-t" in sys.argv:
         app.after(300, app.hide_to_tray)
         # με το boot ξεκινάει και η παρακολούθηση, ακόμη κι αν δεν είναι τσεκαρισμένο
