@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.2.0"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.2.1"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -334,12 +334,30 @@ def load_config():
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as fh:
-                cfg.update(json.load(fh))
-            if path != CONFIG_PATH:
-                save_config(cfg)                 # μεταφορά στο νέο σημείο
+                saved = json.load(fh)
+            cfg.update(saved)
+            migrated = migrate_config(cfg, saved)
+            if path != CONFIG_PATH or migrated:
+                save_config(cfg)                 # μεταφορά ή αναβάθμιση ρυθμίσεων
         except Exception:
             pass
     return cfg
+
+
+def migrate_config(cfg, saved):
+    """Αναβαθμίζει παλιές αποθηκευμένες ρυθμίσεις. True αν άλλαξε κάτι.
+
+    Οι ρυθμίσεις του χρήστη υπερισχύουν των προεπιλογών, οπότε μια παλιά τιμή
+    μπορεί να επιβιώσει μιας διόρθωσης — εδώ την ξαναφέρνουμε στη σειρά.
+    """
+    changed = False
+    if int(saved.get("config_version", 0)) < 2:
+        # Πριν την 1.2.0 το Βήμα 2 υπέθετε πάντα cp1253 και κατέστρεφε τα UTF-8.
+        cfg["src_encoding"] = "auto"
+        cfg["dst_encoding"] = "auto"
+        cfg["config_version"] = 2
+        changed = True
+    return changed
 
 
 def save_config(cfg):
@@ -864,7 +882,10 @@ def build_preview(cfg):
         for pos, val, then in rules["ifexist"]:
             add("    στη θέση %d: «%s» → «%s»" % (pos, val, then))
         before = lines_in[0] if lines_in else ""
-        current = run_step1(dict(cfg, step1_external_exe=""), host1, lambda m: None)
+        s1_logs = []
+        current = run_step1(dict(cfg, step1_external_exe=""), host1, s1_logs.append)
+        for l in s1_logs:
+            add("  " + l.strip())
         after_raw = open(current, "rb").read()
         after = after_raw.decode(detect_codepage(after_raw), "replace").splitlines()
         add("  έξοδος   : %s" % os.path.basename(current))

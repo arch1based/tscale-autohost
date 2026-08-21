@@ -1,4 +1,5 @@
 {
+  "config_version": 2,
   "watch_file": "",
   "output_dir": "",
   "poll_seconds": 3,
