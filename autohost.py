@@ -411,7 +411,9 @@ def run_step1(cfg, host1, log):
 # VIMA 2 - eksagogi product.csv apo arxeio statherou platous
 # --------------------------------------------------------------------------
 def run_step2(cfg, fallback_input, log):
-    src = (cfg.get("step2_input") or "").strip() or fallback_input
+    chosen = (cfg.get("step2_input") or "").strip()
+    src = chosen or fallback_input
+    log("  <- είσοδος: %s%s" % (src, "" if chosen else "  (αυτόματα από το προηγούμενο βήμα)"))
     dst = (cfg.get("step2_output") or "").strip()
     if not dst:
         dst = os.path.join(os.path.dirname(src), "product.csv")
@@ -843,8 +845,13 @@ class App(tk.Tk):
         g.pack(fill="x", pady=6)
         self.v_s2in = tk.StringVar()
         self.v_s2out = tk.StringVar()
-        self._pick_row(g, "Αρχείο εισόδου (host):", self.v_s2in, "file", 0)
+        self._pick_row(g, "Αρχείο εισόδου — άφησέ το κενό:", self.v_s2in, "file", 0)
         self._pick_row(g, "Να δημιουργείται εδώ:", self.v_s2out, "save", 1)
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Με κενό αρχείο εισόδου παίρνει αυτόματα ό,τι έβγαλε το προηγούμενο βήμα: "
+                       "την έξοδο του Βήματος 1 αν είναι ενεργό, αλλιώς το host1. Συμπλήρωσέ το "
+                       "μόνο αν θέλεις να διαβάζει κάποιο άλλο, συγκεκριμένο αρχείο."
+                  ).pack(anchor="w", pady=(0, 4))
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Το product.csv δεν χρειάζεται να υπάρχει — διάλεξε απλώς φάκελο και όνομα και "
                        "θα δημιουργείται (και θα αντικαθίσταται) σε κάθε ενημέρωση. Αν το αφήσεις κενό, "
