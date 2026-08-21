@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.0.7"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.0.8"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -559,6 +559,36 @@ def run_step1(cfg, host1, log):
 # --------------------------------------------------------------------------
 # VIMA 2 - eksagogi product.csv apo arxeio statherou platous
 # --------------------------------------------------------------------------
+XFORMS = {
+    "": "—",
+    "comma2dot": "κόμμα → τελεία (13,9 → 13.9)",
+    "dot2comma": "τελεία → κόμμα (13.9 → 13,9)",
+    "digits": "μόνο ψηφία",
+    "upper": "ΚΕΦΑΛΑΙΑ",
+    "nospace": "χωρίς διπλά κενά",
+    "strip0": "χωρίς μηδενικά μπροστά",
+}
+
+
+def apply_xform(value, kind):
+    """Μετατροπή τιμής πεδίου πριν γραφτεί στο αρχείο."""
+    if not kind:
+        return value
+    if kind == "comma2dot":
+        return value.replace(",", ".")
+    if kind == "dot2comma":
+        return value.replace(".", ",")
+    if kind == "digits":
+        return "".join(ch for ch in value if ch.isdigit())
+    if kind == "upper":
+        return value.upper()
+    if kind == "nospace":
+        return " ".join(value.split())
+    if kind == "strip0":
+        return value.lstrip("0") or "0"
+    return value
+
+
 def run_step2(cfg, fallback_input, log):
     chosen = (cfg.get("step2_input") or "").strip()
     src = chosen or fallback_input
@@ -628,6 +658,7 @@ def run_step2(cfg, fallback_input, log):
             if by_bytes:
                 val = val.decode(in_enc if in_enc != "utf-8-sig" else "utf-8", "replace")
             val = val.strip()
+            val = apply_xform(val, f.get("xform", ""))
             if not val and str(f.get("extra", "")).strip():
                 val = str(f["extra"]).strip()
             row.append(val)
@@ -1149,12 +1180,12 @@ class App(tk.Tk):
                        "T-Scale θέλουν συνήθως Windows-1253 στην έξοδο."
                   ).pack(anchor="w", pady=(0, 2))
 
-        cols = ("name", "out", "pos", "len", "extra")
+        cols = ("name", "out", "pos", "len", "xform", "extra")
         self.tree = ttk.Treeview(tree_box, columns=cols, show="headings",
                                  height=8, selectmode="browse")
-        for c, t, w in (("name", "Περιγραφή", 220), ("out", "Για έξοδο σε αρχείο", 140),
-                        ("pos", "Από Θέση", 90), ("len", "Μήκος Πεδίου", 110),
-                        ("extra", "Εξτρα περιγραφή", 200)):
+        for c, t, w in (("name", "Περιγραφή", 190), ("out", "Για έξοδο", 90),
+                        ("pos", "Από Θέση", 80), ("len", "Μήκος", 80),
+                        ("xform", "Μετατροπή", 190), ("extra", "Εξτρα", 130)):
             self.tree.heading(c, text=t)
             self.tree.column(c, width=w, anchor="w")
         self.tree.bind("<Double-1>", self.on_edit_cell)
@@ -1366,6 +1397,7 @@ class App(tk.Tk):
             self.tree.insert("", "end", iid=str(i), tags=tuple(tags),
                              values=(f["name"], "✓" if f.get("enabled") else "—",
                                      f.get("pos", 0) or "—", f.get("len", 0) or "—",
+                                     XFORMS.get(f.get("xform", ""), "—"),
                                      f.get("extra", "")))
 
     def collect(self):
@@ -1456,7 +1488,13 @@ class App(tk.Tk):
                                       ("len", "Μήκος Πεδίου"), ("extra", "Εξτρα περιγραφή"))):
             ttk.Label(win, text=lbl).grid(row=r, column=0, sticky="w", padx=8, pady=4)
             ttk.Entry(win, textvariable=vals[k], width=34).grid(row=r, column=1, padx=8, pady=4)
-        ttk.Checkbutton(win, text="Για έξοδο σε αρχείο", variable=en).grid(row=4, column=1, sticky="w", padx=8)
+        ttk.Label(win, text="Μετατροπή").grid(row=4, column=0, sticky="w", padx=8, pady=4)
+        labels = list(XFORMS.values())
+        keys = list(XFORMS.keys())
+        xf = tk.StringVar(value=XFORMS.get(f.get("xform", ""), "—"))
+        ttk.Combobox(win, textvariable=xf, values=labels, state="readonly",
+                     width=32).grid(row=4, column=1, padx=8, pady=4)
+        ttk.Checkbutton(win, text="Για έξοδο σε αρχείο", variable=en).grid(row=5, column=1, sticky="w", padx=8)
 
         def ok():
             try:
@@ -1468,10 +1506,11 @@ class App(tk.Tk):
             f["name"] = vals["name"].get().strip() or f["name"]
             f["extra"] = vals["extra"].get()
             f["enabled"] = en.get()
+            f["xform"] = keys[labels.index(xf.get())] if xf.get() in labels else ""
             win.destroy()
             self.refresh_tree()
             self.tree.selection_set(str(i))
-        ttk.Button(win, text="Καταχώρηση", command=ok).grid(row=5, column=1, sticky="e", padx=8, pady=10)
+        ttk.Button(win, text="Καταχώρηση", command=ok).grid(row=6, column=1, sticky="e", padx=8, pady=10)
 
     def load_profile(self, name):
         """Έτοιμο σετ θέσεων/μηκών για γνωστό τύπο αρχείου."""
