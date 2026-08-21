@@ -12,7 +12,7 @@ taskkill /F /IM AutoHost.exe >nul 2>&1
 timeout /t 2 /nobreak >nul
 
 echo [2/4] Egkatastasi vivliothikon...
-python -m pip install --upgrade --quiet pyinstaller pystray Pillow
+python -m pip install --upgrade --quiet "pyinstaller==6.21.0" pystray Pillow
 if errorlevel 1 goto :pyerror
 
 echo [3/4] Katharismos palion build...
