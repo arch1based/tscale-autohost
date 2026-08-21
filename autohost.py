@@ -874,15 +874,22 @@ class App(tk.Tk):
                    command=self.quit_app).pack(side="right")
         ttk.Button(bar, text="Ελαχιστοποίηση κάτω δεξιά", style="Ghost.TButton",
                    command=self.hide_to_tray).pack(side="right")
-        ttk.Button(bar, text="Άνοιγμα φακέλου εξόδου", style="Ghost.TButton",
-                   command=self.open_out_dir).pack(side="right")
-        ttk.Button(bar, text="Αρχείο log", style="Ghost.TButton",
-                   command=self.open_log_file).pack(side="right")
-        self.btn_update = ttk.Button(bar, text="Έλεγχος ενημέρωσης", style="Ghost.TButton",
-                                     command=self.check_update)
-        self.btn_update.pack(side="right")
-        ttk.Button(bar, text="Καθαρισμός", style="Ghost.TButton",
-                   command=lambda: self.txt_log.delete("1.0", "end")).pack(side="right")
+
+        # Τα δευτερεύοντα σε μενού: σε στενό παράθυρο τα κουμπιά της μπάρας
+        # δεν χωρούσαν και κόβονταν.
+        tools = ttk.Menubutton(bar, text="Εργαλεία  ▾", style="Ghost.TButton")
+        menu = tk.Menu(tools, tearoff=0)
+        menu.add_command(label="Άνοιγμα φακέλου εξόδου", command=self.open_out_dir)
+        menu.add_command(label="Άνοιγμα backup", command=self.open_backup)
+        menu.add_command(label="Αρχείο log", command=self.open_log_file)
+        menu.add_separator()
+        menu.add_command(label="Καθαρισμός οθόνης", command=lambda: self.txt_log.delete("1.0", "end"))
+        menu.add_separator()
+        menu.add_command(label="Έλεγχος ενημέρωσης…", command=self.check_update)
+        menu.add_command(label="Σχετικά", command=self.show_about)
+        tools["menu"] = menu
+        tools.pack(side="right", padx=(0, 6))
+        self.menu_tools = menu
 
         self.txt_log = self._console(self, 9, ("Consolas", 9))
         self.txt_log.pack(side="bottom", fill="x", padx=12, pady=(0, 8))
@@ -1413,6 +1420,12 @@ class App(tk.Tk):
         self.wait_window(win)
         return result["ok"]
 
+    def show_about(self):
+        messagebox.showinfo(
+            APP_NAME,
+            "%s\n%s\n\n%s\n\nΡυθμίσεις: %s\nLog: %s"
+            % (APP_NAME, APP_VERSION, APP_VENDOR, CONFIG_PATH, LOG_DIR))
+
     def check_update(self):
         """Ρωτάει το GitHub αν υπάρχει νεότερη έκδοση.
 
@@ -1421,7 +1434,7 @@ class App(tk.Tk):
         """
         if not self.ask_password():
             return
-        self.btn_update.config(text="Έλεγχος…", state="disabled")
+        self.set_status("Έλεγχος ενημέρωσης…", COLORS["brand"])
         self._update_result = None
 
         def job():
@@ -1439,7 +1452,7 @@ class App(tk.Tk):
             self.after(300, self._poll_update)
             return
         self._update_result = None
-        self.btn_update.config(text="Έλεγχος ενημέρωσης", state="normal")
+        self.set_status("Σε αναμονή", COLORS["muted"])
         kind, latest, notes, exe_url = res
 
         if kind == "err":
@@ -1481,7 +1494,6 @@ class App(tk.Tk):
         if self.watching:
             self.toggle_watch()
             self.log("Η παρακολούθηση σταμάτησε για την ενημέρωση.")
-        self.btn_update.config(text="Λήψη…", state="disabled")
         self.set_status("Λήψη ενημέρωσης…", COLORS["brand"])
         self._download_result = None
         dest = os.path.join(os.path.dirname(sys.executable), APP_ID + ".new.exe")
@@ -1502,7 +1514,6 @@ class App(tk.Tk):
             self.after(500, lambda: self._poll_download(dest, latest))
             return
         self._download_result = None
-        self.btn_update.config(text="Έλεγχος ενημέρωσης", state="normal")
         kind, err = res
 
         if kind == "err":
