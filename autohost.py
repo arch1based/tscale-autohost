@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.3.1"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.3.2"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -1152,13 +1152,55 @@ class App(tk.Tk):
             canvas.bind_all(seq, lambda e, c=canvas: wheel(e) if str(c) in str(e.widget) or True else None)
         return inner
 
+    def _add_edit_menu(self, widget):
+        """Δεξί κλικ + συντομεύσεις που δουλεύουν και σε ελληνική διάταξη.
+
+        Το Tk δένει τα Ctrl+C/V στο γράμμα, οπότε με ελληνικό πληκτρολόγιο
+        (ψ, χ, ω) δεν λειτουργούσαν καθόλου. Εδώ τα πιάνουμε από τον κωδικό
+        του πλήκτρου, ανεξάρτητα από τη γλώσσα.
+        """
+        menu = tk.Menu(widget, tearoff=0)
+        menu.add_command(label="Αποκοπή", command=lambda: widget.event_generate("<<Cut>>"))
+        menu.add_command(label="Αντιγραφή", command=lambda: widget.event_generate("<<Copy>>"))
+        menu.add_command(label="Επικόλληση", command=lambda: widget.event_generate("<<Paste>>"))
+        menu.add_separator()
+        menu.add_command(label="Επιλογή όλων",
+                         command=lambda: widget.event_generate("<<SelectAll>>"))
+
+        def popup(e):
+            try:
+                widget.focus_set()
+                menu.tk_popup(e.x_root, e.y_root)
+            finally:
+                menu.grab_release()
+
+        def ctrl(e):
+            key = (e.keysym or "").lower()
+            code = getattr(e, "keycode", 0)
+            action = None
+            if key == "c" or code in (67, 54):
+                action = "<<Copy>>"
+            elif key == "v" or code in (86, 55):
+                action = "<<Paste>>"
+            elif key == "x" or code in (88, 53):
+                action = "<<Cut>>"
+            elif key == "a" or code in (65, 38):
+                action = "<<SelectAll>>"
+            if action:
+                widget.event_generate(action)
+                return "break"
+
+        widget.bind("<Button-3>", popup)
+        widget.bind("<Control-KeyPress>", ctrl)
+        return widget
+
     def _console(self, parent, height, font):
         box = scrolledtext.ScrolledText(
             parent, height=height, font=font, background=COLORS["console"],
             foreground=COLORS["console_fg"], insertbackground=COLORS["console_fg"],
             relief="flat", borderwidth=0, padx=12, pady=10,
             selectbackground=COLORS["brand"])
-        return box
+        return self._add_edit_menu(box)
 
     # ---------------- layout ----------------
     def _build(self):
@@ -1219,7 +1261,7 @@ class App(tk.Tk):
 
         # Τα δευτερεύοντα σε μενού: σε στενό παράθυρο τα κουμπιά της μπάρας
         # δεν χωρούσαν και κόβονταν.
-        tools = ttk.Menubutton(bar, text="Εργαλεία  ▾", style="Ghost.TButton")
+        tools = ttk.Menubutton(bar, text="⚙  Εργαλεία  ▾", style="Ghost.TButton")
         menu = tk.Menu(tools, tearoff=0)
         menu.add_command(label="Άνοιγμα φακέλου εξόδου", command=self.open_out_dir)
         menu.add_command(label="Άνοιγμα backup", command=self.open_backup)
@@ -1243,7 +1285,8 @@ class App(tk.Tk):
 
     def _pick_row(self, parent, label, var, kind="file", r=0):
         ttk.Label(parent, text=label).grid(row=r, column=0, sticky="w", pady=3)
-        ttk.Entry(parent, textvariable=var, width=78).grid(row=r, column=1, sticky="we", padx=6)
+        self._add_edit_menu(ttk.Entry(parent, textvariable=var, width=78)
+                            ).grid(row=r, column=1, sticky="we", padx=6)
 
         def pick():
             if kind == "dir":
@@ -1314,7 +1357,9 @@ class App(tk.Tk):
                   text="Οι κανόνες είναι σε απλό κείμενο για να τους αλλάζεις ανά ζυγαριά.\n"
                        "<HOST1> = το host1 που μόλις δημιουργήθηκε, <OUT1> = αυτόματο όνομα εξόδου.\n"
                        "Εντολές: INPUTFIL= / OUTPUTFL= / CNV2WIN / CNV2DOS / UPPERCASE / SKIPLINE=n / "
-                       "PADLINE=n / DESCRIPT=θέση μήκος / IFEXISTn=θέση=[τιμή] THEN=[τιμή ή -1]"
+                       "PADLINE=n / DESCRIPT=θέση μήκος / IFEXISTn=θέση=[τιμή] THEN=[τιμή]\n"
+                       "Γράψε ελεύθερα όσες γραμμές θες. Δεξί κλικ για αντιγραφή/επικόλληση "
+                       "(δουλεύει και με ελληνικό πληκτρολόγιο)."
                   ).pack(anchor="w", pady=6)
         self.txt_s1 = self._console(f, 8, ("Consolas", 10))
         self.txt_s1.pack(fill="x")
@@ -1327,6 +1372,20 @@ class App(tk.Tk):
         f = self.tab2
         self.v_s2 = tk.BooleanVar()
         ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 3 — Αρχείο προϊόντων", variable=self.v_s2).pack(anchor="w")
+
+        prof = ttk.Frame(f)
+        prof.pack(fill="x", pady=(2, 6))
+        ttk.Label(prof, text="Προφίλ ζυγού:").pack(side="left")
+        names = list(self.cfg.get("profiles", {}))
+        self.v_profile = tk.StringVar(value=names[0] if names else "")
+        self.cmb_profile = ttk.Combobox(prof, textvariable=self.v_profile, values=names,
+                                        state="readonly", width=36)
+        self.cmb_profile.pack(side="left", padx=6)
+        ttk.Button(prof, text="Φόρτωση", style="Accent.TButton",
+                   command=lambda: self.load_profile(self.v_profile.get())).pack(side="left")
+        ttk.Button(prof, text="Αποθήκευση ως…", command=self.save_profile).pack(side="left", padx=6)
+        ttk.Button(prof, text="Διαγραφή", style="Ghost.TButton",
+                   command=self.delete_profile).pack(side="left")
 
         g = ttk.Frame(f)
         g.pack(fill="x", pady=6)
@@ -1428,17 +1487,6 @@ class App(tk.Tk):
         sb.pack(side="right", fill="y")
         self.tree.pack(side="left", fill="both", expand=True)
 
-        ttk.Label(b, text="Προφίλ ζυγού:").pack(side="left", padx=(16, 4))
-        names = list(self.cfg.get("profiles", {}))
-        self.v_profile = tk.StringVar(value=names[0] if names else "")
-        self.cmb_profile = ttk.Combobox(b, textvariable=self.v_profile, values=names,
-                                        state="readonly", width=30)
-        self.cmb_profile.pack(side="left")
-        ttk.Button(b, text="Φόρτωση",
-                   command=lambda: self.load_profile(self.v_profile.get())).pack(side="left", padx=6)
-        ttk.Button(b, text="Αποθήκευση ως…", command=self.save_profile).pack(side="left")
-        ttk.Button(b, text="Διαγραφή", style="Ghost.TButton",
-                   command=self.delete_profile).pack(side="left", padx=4)
         ttk.Button(b, text="Δοκιμή · προεπισκόπηση", style="Accent.TButton",
                    command=self.preview_csv).pack(side="right")
 
