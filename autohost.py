@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.4.4"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.5.0"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -394,7 +394,22 @@ def save_config(cfg):
 # --------------------------------------------------------------------------
 # VIMA 0 - host1 / host2
 # --------------------------------------------------------------------------
-def make_hosts(src, out_dir, log):
+def normalize_ext(value, fallback):
+    """«csv» / «.csv» / κενό -> έγκυρη κατάληξη αρχείου."""
+    ext = (value or "").strip()
+    if not ext:
+        return fallback
+    return ext if ext.startswith(".") else "." + ext
+
+
+def make_hosts(src, out_dir, log, cfg=None):
+    """Αντιγράφει το αρχείο του ERP σε host1 και host2.
+
+    Οι δύο ζυγαριές μπορεί να θέλουν διαφορετική κατάληξη: π.χ. host1.txt για
+    T-Scale και host2.csv για Ishida. Το περιεχόμενο είναι το ίδιο — αλλάζει
+    μόνο το όνομα, γιατί κάθε πρόγραμμα ψάχνει τη δική του κατάληξη.
+    """
+    cfg = cfg or {}
     if not src or not os.path.isfile(src):
         raise StepError("Βήμα 1", "Δεν βρέθηκε το αρχείο του ERP.", src)
     if not out_dir:
@@ -406,9 +421,11 @@ def make_hosts(src, out_dir, log):
             raise StepError("Βήμα 1", "Αδυναμία δημιουργίας φακέλου εξόδου.",
                             "%s\n%s" % (out_dir, exc))
 
-    ext = os.path.splitext(src)[1] or ".txt"
+    src_ext = os.path.splitext(src)[1] or ".txt"
+    exts = (normalize_ext(cfg.get("host1_ext"), src_ext),
+            normalize_ext(cfg.get("host2_ext"), src_ext))
     made = []
-    for name in ("host1", "host2"):
+    for name, ext in zip(("host1", "host2"), exts):
         dst = os.path.join(out_dir, name + ext)
         try:
             shutil.copyfile(src, dst)
@@ -947,7 +964,7 @@ def build_preview(cfg):
     add("  μέγεθος  : %d bytes | κωδικοσελίδα: %s | CRLF: %d | LF μόνο: %d"
         % (len(raw), detect_codepage(raw), raw.count(b"\r\n"),
            raw.count(b"\n") - raw.count(b"\r\n")))
-    host1, _h2 = make_hosts(src, tmp, lambda m: None)
+    host1, _h2 = make_hosts(src, tmp, lambda m: None, cfg)
     add("  δημιουργήθηκαν: host1 / host2 (αντίγραφα, χωρίς αλλαγές)")
     lines_in = raw.decode(detect_codepage(raw), "replace").splitlines()
     for i, l in enumerate(lines_in[:2]):
@@ -1063,7 +1080,7 @@ def build_preview(cfg):
 
 def run_pipeline(cfg, log, stop_event=None):
     log("=== Έναρξη διαδικασίας %s ===" % datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
-    host1, host2 = make_hosts(cfg.get("watch_file"), cfg.get("output_dir"), log)
+    host1, host2 = make_hosts(cfg.get("watch_file"), cfg.get("output_dir"), log, cfg)
     log("Βήμα 1: δημιουργήθηκαν host1/host2. OK")
     produced = [cfg.get("watch_file"), host1, host2]
 
@@ -1396,14 +1413,27 @@ class App(tk.Tk):
         self.v_auto = tk.BooleanVar()
         self._pick_row(f, "Αρχείο που βγάζει το ERP:", self.v_watch, "file", 0)
         self._pick_row(f, "Φάκελος εξόδου (host1 / host2):", self.v_outdir, "dir", 1)
+        ext = ttk.Frame(f)
+        ext.grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Label(ext, text="Κατάληξη:").pack(side="left")
+        ttk.Label(ext, text="host1", style="Hint.TLabel").pack(side="left", padx=(10, 2))
+        self.v_ext1 = tk.StringVar(value="")
+        self._add_edit_menu(ttk.Entry(ext, textvariable=self.v_ext1, width=6)).pack(side="left")
+        ttk.Label(ext, text="host2", style="Hint.TLabel").pack(side="left", padx=(12, 2))
+        self.v_ext2 = tk.StringVar(value="csv")
+        self._add_edit_menu(ttk.Entry(ext, textvariable=self.v_ext2, width=6)).pack(side="left")
+        ttk.Label(ext, style="Hint.TLabel",
+                  text="(κενό = ίδια με το αρχείο του ERP · π.χ. txt για T-Scale, csv για Ishida)"
+                  ).pack(side="left", padx=10)
+
         row = ttk.Frame(f)
-        row.grid(row=2, column=0, columnspan=3, sticky="w", pady=8)
+        row.grid(row=3, column=0, columnspan=3, sticky="w", pady=8)
         ttk.Label(row, text="Έλεγχος κάθε (δευτ.):").pack(side="left")
         ttk.Entry(row, textvariable=self.v_poll, width=6).pack(side="left", padx=6)
         ttk.Checkbutton(row, text="Αυτόματη έναρξη παρακολούθησης με το άνοιγμα",
                         variable=self.v_auto).pack(side="left", padx=12)
         bk = ttk.Frame(f)
-        bk.grid(row=6, column=0, columnspan=3, sticky="w", pady=(2, 0))
+        bk.grid(row=7, column=0, columnspan=3, sticky="w", pady=(2, 0))
         self.v_backup = tk.BooleanVar(value=True)
         self.v_keep = tk.StringVar(value="3")
         ttk.Checkbutton(bk, text="Κράτα αντίγραφα των τελευταίων", variable=self.v_backup).pack(side="left")
@@ -1420,11 +1450,11 @@ class App(tk.Tk):
         ttk.Checkbutton(f, variable=self.v_boot, command=self.on_boot_toggle,
                         text="Εκκίνηση με τα Windows — ξεκινά ελαχιστοποιημένο "
                              "στην περιοχή ειδοποιήσεων (κάτω δεξιά)"
-                        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(2, 0))
+                        ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(2, 0))
         ttk.Label(f, style="Hint.TLabel", wraplength=880, justify="left",
                   text="Μόλις αλλάξει το αρχείο του ERP, δημιουργούνται αυτόματα τα host1.<κατάληξη> και "
                        "host2.<κατάληξη> στον φάκελο εξόδου και ξεκινούν τα ενεργοποιημένα βήματα."
-                  ).grid(row=7, column=0, columnspan=3, sticky="w", pady=10)
+                  ).grid(row=8, column=0, columnspan=3, sticky="w", pady=10)
 
     def _build_tab1(self):
         f = self.tab1
@@ -1740,6 +1770,8 @@ class App(tk.Tk):
         c = self.cfg
         self.v_watch.set(c.get("watch_file", ""))
         self.v_outdir.set(c.get("output_dir", ""))
+        self.v_ext1.set(c.get("host1_ext", ""))
+        self.v_ext2.set(c.get("host2_ext", "csv"))
         self.v_poll.set(str(c.get("poll_seconds", 3)))
         self.v_auto.set(bool(c.get("auto_run", False)))
         self.v_backup.set(bool(c.get("backup_enabled", True)))
@@ -1794,6 +1826,8 @@ class App(tk.Tk):
         c = self.cfg
         c["watch_file"] = self.v_watch.get().strip()
         c["output_dir"] = self.v_outdir.get().strip()
+        c["host1_ext"] = self.v_ext1.get().strip()
+        c["host2_ext"] = self.v_ext2.get().strip()
         try:
             c["poll_seconds"] = max(1, int(self.v_poll.get()))
         except ValueError:

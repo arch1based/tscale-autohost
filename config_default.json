@@ -2,6 +2,8 @@
   "config_version": 2,
   "watch_file": "",
   "output_dir": "",
+  "host1_ext": "",
+  "host2_ext": "csv",
   "poll_seconds": 3,
   "auto_run": false,
   "backup_enabled": true,
