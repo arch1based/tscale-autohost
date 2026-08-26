@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.6.0"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.7.0"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -141,6 +141,68 @@ def resource(name):
     base = getattr(sys, "_MEIPASS", APP_DIR)
     p = os.path.join(base, name)
     return p if os.path.exists(p) else os.path.join(APP_DIR, name)
+
+
+RE_IP = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+
+
+def ip_xml_path(exe_path):
+    """Το ip.xml κάθεται δίπλα στο AutoProcess.exe."""
+    return os.path.join(os.path.dirname(exe_path), "ip.xml") if exe_path else ""
+
+
+def read_ips(exe_path):
+    """Διαβάζει τις IP των ζυγών από το ip.xml του AutoProcess."""
+    path = ip_xml_path(exe_path)
+    if not path or not os.path.isfile(path):
+        return []
+    try:
+        with open(path, "rb") as fh:
+            text = fh.read().decode("utf-8-sig", "replace")
+        return re.findall(r"<ip>\s*([^<\s]+)\s*</ip>", text)
+    except Exception:
+        return []
+
+
+def write_ips(exe_path, ips):
+    """Γράφει το ip.xml ακριβώς στη μορφή που περιμένει το AutoProcess.
+
+    Κρατάμε BOM + CRLF όπως το πρωτότυπο: το AutoProcess είναι .NET εφαρμογή
+    και δεν έχει νόημα να ρισκάρουμε διαφορετική μορφή για την ομορφιά.
+    """
+    path = ip_xml_path(exe_path)
+    if not path:
+        raise StepError("Βήμα 4", "Δεν έχει οριστεί η εφαρμογή του ζυγού.",
+                        "Διάλεξε πρώτα το AutoProcess.exe.")
+    bad = [ip for ip in ips if not RE_IP.match(ip)]
+    if bad:
+        raise StepError("Βήμα 4", "Μη έγκυρη διεύθυνση IP: %s" % ", ".join(bad),
+                        "Σωστή μορφή: 10.130.20.49")
+    body = "".join("  <ip>%s</ip>\r\n" % ip for ip in ips)
+    text = ('<?xml version="1.0" encoding="utf-8"?>\r\n<ips>\r\n%s</ips>' % body)
+    try:
+        with open(path, "wb") as fh:
+            fh.write(b"\xef\xbb\xbf" + text.encode("utf-8"))
+    except Exception as exc:
+        raise StepError("Βήμα 4", "Αδυναμία εγγραφής του ip.xml.", "%s\n%s" % (path, exc))
+    return path
+
+
+POLL_UNITS = {"δευτερόλεπτα": 1, "λεπτά": 60, "ώρες": 3600}
+
+
+def seconds_to_unit(secs):
+    """Δευτερόλεπτα -> (αριθμός, μονάδα) με τη μεγαλύτερη μονάδα που ταιριάζει ακριβώς."""
+    secs = max(1, int(secs or 1))
+    for name, mult in (("ώρες", 3600), ("λεπτά", 60)):
+        if secs % mult == 0:
+            return secs // mult, name
+    return secs, "δευτερόλεπτα"
+
+
+def parse_ips(text):
+    """«10.0.0.1, 10.0.0.2» -> λίστα IP."""
+    return [p.strip() for p in re.split(r"[,;\s]+", text or "") if p.strip()]
 
 
 def bundled_autoprocess():
@@ -892,6 +954,16 @@ def run_step3(cfg, log, stop_event=None):
     secs = int(cfg.get("step3_seconds", 120) or 120)
     if not exe or not os.path.isfile(exe):
         raise StepError("Βήμα 4", "Δεν βρέθηκε η εφαρμογή του ζυγού.", exe)
+
+    # Οι IP γράφονται λίγο πριν την εκκίνηση, ώστε να μη μείνει ποτέ το
+    # AutoProcess με παλιές διευθύνσεις επειδή ξεχάστηκε μια αποθήκευση.
+    ips = parse_ips(cfg.get("scale_ips", ""))
+    if ips:
+        current = read_ips(exe)
+        if current != ips:
+            write_ips(exe, ips)
+            log("  -> ενημερώθηκε το ip.xml: %s" % ", ".join(ips))
+
     try:
         proc = subprocess.Popen([exe], cwd=os.path.dirname(exe))
     except Exception as exc:
@@ -1089,6 +1161,11 @@ def build_preview(cfg):
         exe = cfg.get("step3_exe", "")
         add("  θα εκτελεστεί: %s" % exe)
         add("  υπάρχει: %s | διάρκεια: %s δευτ." % (os.path.isfile(exe), cfg.get("step3_seconds")))
+        wanted = parse_ips(cfg.get("scale_ips", ""))
+        current = read_ips(exe)
+        add("  IP ζυγών (ρύθμιση): %s" % (", ".join(wanted) or "—"))
+        add("  IP ζυγών (ip.xml):  %s%s" % (", ".join(current) or "—",
+            "" if not wanted or current == wanted else "  → θα ενημερωθεί πριν την αποστολή"))
     add("\n(τα αρχεία της προεπισκόπησης: %s)" % tmp)
     return "\n".join(out)
 
@@ -1443,9 +1520,16 @@ class App(tk.Tk):
 
         row = ttk.Frame(f)
         row.grid(row=3, column=0, columnspan=3, sticky="w", pady=8)
-        ttk.Label(row, text="Έλεγχος κάθε (δευτ.):").pack(side="left")
+        ttk.Label(row, text="Έλεγχος για νέο αρχείο κάθε:").pack(side="left")
         ttk.Entry(row, textvariable=self.v_poll, width=6).pack(side="left", padx=6)
-        ttk.Checkbutton(row, text="Αυτόματη έναρξη παρακολούθησης με το άνοιγμα",
+        self.v_poll_unit = tk.StringVar(value="δευτερόλεπτα")
+        ttk.Combobox(row, textvariable=self.v_poll_unit, width=13, state="readonly",
+                     values=("δευτερόλεπτα", "λεπτά", "ώρες")).pack(side="left")
+        self.lbl_poll = ttk.Label(row, style="Hint.TLabel")
+        self.lbl_poll.pack(side="left", padx=8)
+        for v in (self.v_poll, self.v_poll_unit):
+            v.trace_add("write", lambda *_: self.refresh_poll_hint())
+        ttk.Checkbutton(row, text="Αυτόματη έναρξη με το άνοιγμα",
                         variable=self.v_auto).pack(side="left", padx=12)
         bk = ttk.Frame(f)
         bk.grid(row=7, column=0, columnspan=3, sticky="w", pady=(2, 0))
@@ -1645,6 +1729,22 @@ class App(tk.Tk):
         self.btn_bundled.pack(side="left")
         self.lbl_bundled = ttk.Label(bundled, style="Hint.TLabel")
         self.lbl_bundled.pack(side="left", padx=10)
+
+        ipf = ttk.Frame(f)
+        ipf.pack(fill="x", pady=(10, 0))
+        ttk.Label(ipf, text="IP ζυγών:").pack(side="left")
+        self.v_ips = tk.StringVar()
+        self._add_edit_menu(ttk.Entry(ipf, textvariable=self.v_ips, width=40)).pack(side="left", padx=6)
+        ttk.Button(ipf, text="Αποθήκευση IP", style="Accent.TButton",
+                   command=self.save_ips).pack(side="left")
+        ttk.Button(ipf, text="Ανάγνωση από AutoProcess", style="Ghost.TButton",
+                   command=self.load_ips).pack(side="left", padx=6)
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Οι διευθύνσεις των ζυγών, χωρισμένες με κόμμα (π.χ. 10.130.20.49, "
+                       "10.130.20.46). Γράφονται στο ip.xml δίπλα στο AutoProcess — δεν "
+                       "χρειάζεται να το ανοίξεις με το χέρι. Αποθηκεύονται αυτόματα και "
+                       "πριν από κάθε εκτέλεση."
+                  ).pack(anchor="w", pady=(4, 0))
         r = ttk.Frame(f)
         r.pack(fill="x")
         self.v_s3sec = tk.StringVar(value="120")
@@ -1795,7 +1895,10 @@ class App(tk.Tk):
         self.v_outdir.set(c.get("output_dir", ""))
         self.v_ext1.set(c.get("host1_ext", ""))
         self.v_ext2.set(c.get("host2_ext", "csv"))
-        self.v_poll.set(str(c.get("poll_seconds", 3)))
+        n, unit = seconds_to_unit(c.get("poll_seconds", 3))
+        self.v_poll.set(str(n))
+        self.v_poll_unit.set(unit)
+        self.refresh_poll_hint()
         self.v_auto.set(bool(c.get("auto_run", False)))
         self.v_backup.set(bool(c.get("backup_enabled", True)))
         self.v_popup.set(bool(c.get("show_success_popup", False)))
@@ -1827,6 +1930,7 @@ class App(tk.Tk):
         self.v_s3exe.set(c.get("step3_exe", ""))
         self.v_s3sec.set(str(c.get("step3_seconds", 120)))
         self.v_s3kill.set(bool(c.get("step3_kill", True)))
+        self.v_ips.set(c.get("scale_ips", "") or ", ".join(read_ips(c.get("step3_exe", ""))))
         self.refresh_tree()
         self.refresh_bundled_hint()
         if self.v_auto.get():
@@ -1853,7 +1957,7 @@ class App(tk.Tk):
         c["host1_ext"] = self.v_ext1.get().strip()
         c["host2_ext"] = self.v_ext2.get().strip()
         try:
-            c["poll_seconds"] = max(1, int(self.v_poll.get()))
+            c["poll_seconds"] = self.poll_seconds()
         except ValueError:
             c["poll_seconds"] = 3
         c["auto_run"] = self.v_auto.get()
@@ -1894,10 +1998,12 @@ class App(tk.Tk):
         except ValueError:
             c["step3_seconds"] = 120
         c["step3_kill"] = self.v_s3kill.get()
+        c["scale_ips"] = self.v_ips.get().strip()
         return c
 
     def on_save(self):
         save_config(self.collect())
+        self.save_ips(silent=True)
         self.log("Οι ρυθμίσεις αποθηκεύτηκαν: %s" % CONFIG_PATH)
 
     # ---------------- πίνακας παραμέτρων ----------------
@@ -2117,6 +2223,39 @@ class App(tk.Tk):
         self.wait_window(win)
         return result["ok"]
 
+    def save_ips(self, silent=False):
+        """Γράφει τις IP στο ip.xml του AutoProcess."""
+        exe = self.v_s3exe.get().strip()
+        if not exe:
+            if not silent:
+                messagebox.showinfo(APP_NAME, "Διάλεξε πρώτα την εφαρμογή του ζυγού.")
+            return False
+        ips = parse_ips(self.v_ips.get())
+        if not ips:
+            if not silent:
+                messagebox.showinfo(APP_NAME, "Δώσε τουλάχιστον μία IP, π.χ. 10.130.20.49")
+            return False
+        try:
+            path = write_ips(exe, ips)
+        except StepError as exc:
+            if not silent:
+                messagebox.showerror(APP_NAME, exc.full())
+            return False
+        self.log("IP ζυγών (%s) -> %s" % (", ".join(ips), path))
+        if not silent:
+            messagebox.showinfo(APP_NAME, "Αποθηκεύτηκαν %d διευθύνσεις στο:\n%s"
+                                % (len(ips), path))
+        return True
+
+    def load_ips(self):
+        exe = self.v_s3exe.get().strip()
+        ips = read_ips(exe)
+        if not ips:
+            messagebox.showinfo(APP_NAME, "Δεν βρέθηκαν IP στο ip.xml του AutoProcess.")
+            return
+        self.v_ips.set(", ".join(ips))
+        self.log("Διαβάστηκαν IP από το AutoProcess: %s" % ", ".join(ips))
+
     def use_bundled_autoprocess(self):
         p = bundled_autoprocess()
         if not p:
@@ -2128,6 +2267,31 @@ class App(tk.Tk):
         self.v_s3exe.set(p)
         self.log("Επιλέχθηκε το ενσωματωμένο AutoProcess: %s" % p)
         self.refresh_bundled_hint()
+        if not self.v_ips.get().strip():
+            existing = read_ips(p)
+            if existing:
+                self.v_ips.set(", ".join(existing))
+
+    def refresh_poll_hint(self):
+        if not hasattr(self, "lbl_poll"):
+            return
+        try:
+            secs = self.poll_seconds()
+        except ValueError:
+            self.lbl_poll.configure(text="(μη έγκυρος αριθμός)")
+            return
+        if secs < 60:
+            txt = "= κάθε %d δευτ." % secs
+        elif secs < 3600:
+            txt = "= κάθε %g λεπτά" % (secs / 60.0)
+        else:
+            txt = "= κάθε %g ώρες" % (secs / 3600.0)
+        self.lbl_poll.configure(text=txt)
+
+    def poll_seconds(self):
+        """Ο αριθμός του πεδίου × η επιλεγμένη μονάδα, σε δευτερόλεπτα."""
+        n = max(1, int(float(self.v_poll.get())))
+        return n * POLL_UNITS.get(self.v_poll_unit.get(), 1)
 
     def refresh_bundled_hint(self):
         p = bundled_autoprocess()
@@ -2429,7 +2593,8 @@ class App(tk.Tk):
         self.last_stamp = self._stamp(path)
         self.btn_watch.config(text="■  Διακοπή παρακολούθησης")
         self.set_status("Παρακολούθηση ενεργή", COLORS["ok"])
-        self.log("Παρακολούθηση: %s (κάθε %ds)" % (path, self.cfg["poll_seconds"]))
+        n, unit = seconds_to_unit(self.cfg["poll_seconds"])
+        self.log("Παρακολούθηση: %s (έλεγχος κάθε %d %s)" % (path, n, unit))
         self.watch_thread = threading.Thread(target=self._watch_loop, daemon=True)
         self.watch_thread.start()
 
