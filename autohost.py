@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.5.0"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.6.0"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -141,6 +141,21 @@ def resource(name):
     base = getattr(sys, "_MEIPASS", APP_DIR)
     p = os.path.join(base, name)
     return p if os.path.exists(p) else os.path.join(APP_DIR, name)
+
+
+def bundled_autoprocess():
+    """Διαδρομή του AutoProcess που έρχεται μαζί με την εφαρμογή, αν υπάρχει.
+
+    Στο πακέτο διανομής κάθεται στον υποφάκελο «autosend» δίπλα στο exe, ώστε
+    η εγκατάσταση στον πελάτη να είναι ένα κατέβασμα χωρίς κυνήγι αρχείων.
+    """
+    roots = [os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else APP_DIR,
+             APP_DIR]
+    for root in roots:
+        p = os.path.join(root, "autosend", "AutoProcess.exe")
+        if os.path.isfile(p):
+            return p
+    return ""
 
 
 def exe_command():
@@ -1622,6 +1637,14 @@ class App(tk.Tk):
         g.pack(fill="x", pady=8)
         self.v_s3exe = tk.StringVar()
         self._pick_row(g, "Εφαρμογή ζυγού (π.χ. AutoProcess):", self.v_s3exe, "exe", 0)
+
+        bundled = ttk.Frame(f)
+        bundled.pack(fill="x", pady=(4, 0))
+        self.btn_bundled = ttk.Button(bundled, text="Χρήση του ενσωματωμένου AutoProcess",
+                                      command=self.use_bundled_autoprocess)
+        self.btn_bundled.pack(side="left")
+        self.lbl_bundled = ttk.Label(bundled, style="Hint.TLabel")
+        self.lbl_bundled.pack(side="left", padx=10)
         r = ttk.Frame(f)
         r.pack(fill="x")
         self.v_s3sec = tk.StringVar(value="120")
@@ -1805,6 +1828,7 @@ class App(tk.Tk):
         self.v_s3sec.set(str(c.get("step3_seconds", 120)))
         self.v_s3kill.set(bool(c.get("step3_kill", True)))
         self.refresh_tree()
+        self.refresh_bundled_hint()
         if self.v_auto.get():
             self.after(600, self.toggle_watch)
 
@@ -2092,6 +2116,29 @@ class App(tk.Tk):
         ent.bind("<Return>", ok)
         self.wait_window(win)
         return result["ok"]
+
+    def use_bundled_autoprocess(self):
+        p = bundled_autoprocess()
+        if not p:
+            messagebox.showinfo(
+                APP_NAME,
+                "Δεν βρέθηκε ενσωματωμένο AutoProcess.\n\nΠεριμένεται στον υποφάκελο "
+                "«autosend» δίπλα στο πρόγραμμα. Διάλεξε το exe με «Αναζήτηση…».")
+            return
+        self.v_s3exe.set(p)
+        self.log("Επιλέχθηκε το ενσωματωμένο AutoProcess: %s" % p)
+        self.refresh_bundled_hint()
+
+    def refresh_bundled_hint(self):
+        p = bundled_autoprocess()
+        if not hasattr(self, "lbl_bundled"):
+            return
+        if p:
+            self.lbl_bundled.configure(text="βρέθηκε: %s" % p)
+            self.btn_bundled.state(["!disabled"])
+        else:
+            self.lbl_bundled.configure(text="(δεν βρέθηκε φάκελος «autosend» δίπλα στο πρόγραμμα)")
+            self.btn_bundled.state(["disabled"])
 
     def show_about(self):
         messagebox.showinfo(

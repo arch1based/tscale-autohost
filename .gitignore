@@ -4,3 +4,10 @@ build/
 dist/
 *.spec
 autohost_config.json
+
+# Το AutoProcess ταξιδεύει μαζί μας, αλλά όχι τα δεδομένα πελατών
+autosend/log/*.txt
+autosend/product/*.csv
+autosend/product/*.txt
+autosend/image_product/*
+!autosend/**/.gitkeep

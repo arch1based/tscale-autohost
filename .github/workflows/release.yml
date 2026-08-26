@@ -47,6 +47,12 @@ jobs:
         run: |
           $exe = "dist\ICSautoScaleUpdater\ICSautoScaleUpdater.exe"
           if (-not (Test-Path $exe)) { throw "Δεν βρέθηκε το $exe" }
+          # Μαζί με την εφαρμογή πάει και το AutoProcess (αποστολή σε T-Scale),
+          # ώστε η εγκατάσταση στον πελάτη να είναι ένα και μόνο κατέβασμα.
+          Copy-Item -Recurse -Force "autosend" "dist\ICSautoScaleUpdater\autosend"
+          if (-not (Test-Path "dist\ICSautoScaleUpdater\autosend\AutoProcess.exe")) {
+            throw "Δεν συμπεριλήφθηκε το AutoProcess.exe"
+          }
           Compress-Archive -Path "dist\ICSautoScaleUpdater\*" -DestinationPath "ICSautoScaleUpdater.zip" -Force
           $mb = [math]::Round((Get-Item "ICSautoScaleUpdater.zip").Length / 1MB, 1)
           Write-Host "OK: ICSautoScaleUpdater.zip ($mb MB)"

@@ -30,6 +30,9 @@ pyinstaller --noconfirm --onedir --windowed --name ICSautoScaleUpdater ^
   autohost.py
 if errorlevel 1 goto :builderror
 
+echo Antigrafi tou AutoProcess mesa sto paketo...
+xcopy "autosend" "dist\ICSautoScaleUpdater\autosend\" /E /I /Y >nul
+
 echo.
 echo ============================================
 echo   ETOIMO: dist\ICSautoScaleUpdater\ICSautoScaleUpdater.exe
