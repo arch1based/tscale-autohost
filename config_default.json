@@ -97,6 +97,91 @@
   "src_encoding": "auto",
   "dst_encoding": "auto",
   "profiles": {
+    "ERGON · CSV με κόμμα (ΚΩΔ,ΟΝΟΜΑ,ΚΑΤΗΓ,ΤΙΜΗ,-,ΦΠΑ)": {
+      "settings": {
+        "step2_input_type": "delimited",
+        "step2_input_delimiter": ",",
+        "step2_format": "semicolon",
+        "step2_delimiter": ";",
+        "step2_trailing_delim": true,
+        "step2_quotes": false,
+        "step2_in_encoding": "auto",
+        "step2_out_encoding": "cp1253",
+        "step2_final_newline": true,
+        "step2_write_header": true,
+        "step2_sanitize": true,
+        "step2_dedupe": true,
+        "step2_positions_bytes": false,
+        "step2_startline": 1,
+        "step2_onebased": true
+      },
+      "fields": [
+        {
+          "name": "ProductNumber",
+          "enabled": true,
+          "pos": 1,
+          "len": 0,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "ProductName",
+          "enabled": true,
+          "pos": 2,
+          "len": 40,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "NameSpell",
+          "enabled": true,
+          "pos": 2,
+          "len": 40,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "Price",
+          "enabled": true,
+          "pos": 4,
+          "len": 0,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "BarCode",
+          "enabled": true,
+          "pos": 1,
+          "len": 0,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "Price Unit",
+          "enabled": true,
+          "pos": 0,
+          "len": 0,
+          "extra": "0",
+          "xform": ""
+        },
+        {
+          "name": "Abbr",
+          "enabled": true,
+          "pos": 2,
+          "len": 40,
+          "extra": "",
+          "xform": ""
+        },
+        {
+          "name": "AbbrSpell",
+          "enabled": true,
+          "pos": 2,
+          "len": 40,
+          "extra": "",
+          "xform": ""
+        }
+      ]
+    },
     "ΕΛΛΗΝΙΚΑ · 8 στήλες, cp1253, τιμή με τελεία": {
       "settings": {
         "step2_format": "semicolon",

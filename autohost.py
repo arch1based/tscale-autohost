@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.3.2"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.4.0"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -673,9 +673,11 @@ def run_step2(cfg, fallback_input, log):
     if not fields:
         raise StepError("Βήμα 3", "Δεν είναι επιλεγμένο κανένα πεδίο στον πίνακα παραμέτρων.",
                         "Τσέκαρε τουλάχιστον ένα πεδίο στη στήλη «Για έξοδο».")
-    constants = [f["name"] for f in fields if int(f.get("len") or 0) <= 0]
+    is_delimited = cfg.get("step2_input_type", "fixed") == "delimited"
+    # Σταθερή στήλη: fixed -> Μήκος 0, delimited -> καμία Στήλη ορισμένη (0).
+    constants = [f["name"] for f in fields
+                if (int(f.get("pos") or 0) <= 0 if is_delimited else int(f.get("len") or 0) <= 0)]
     if constants:
-        # Μήκος 0 = στήλη σταθερής τιμής: γράφεται το «Εξτρα» (ή κενό).
         log("  (σταθερές στήλες: %s)" % ", ".join(constants))
 
     off = 1 if cfg.get("step2_onebased", True) else 0
@@ -705,10 +707,34 @@ def run_step2(cfg, fallback_input, log):
     else:
         lines = raw.decode(in_enc, "replace").splitlines()
 
+    input_type = cfg.get("step2_input_type", "fixed")
+    in_delim = cfg.get("step2_input_delimiter", ",") or ","
+
     rows = []
     for line in lines[start_line - 1:]:
-        if not line.strip():
+        if not (line.strip() if not by_bytes else line.strip(b" \t")):
             continue
+
+        if input_type == "delimited":
+            # Αρχείο ήδη χωρισμένο με διαχωριστικό (π.χ. CSV του ERP): κάθε
+            # πεδίο διαβάζεται με τη «Θέση» ως αριθμό στήλης (1 = πρώτη).
+            txt = line if not by_bytes else line.decode(
+                in_enc if in_enc != "utf-8-sig" else "utf-8", "replace")
+            cols = next(csv.reader([txt], delimiter=in_delim))
+            row = []
+            for f in fields:
+                col = int(f.get("pos") or 0) - off
+                cap = int(f.get("len") or 0)
+                val = cols[col].strip() if 0 <= col < len(cols) else ""
+                if cap > 0:
+                    val = val[:cap]
+                val = apply_xform(val, f.get("xform", ""))
+                if not val and str(f.get("extra", "")).strip():
+                    val = str(f["extra"]).strip()
+                row.append(val)
+            rows.append(row)
+            continue
+
         row = []
         for f in fields:
             pos = int(f.get("pos") or 0) - off
@@ -942,19 +968,40 @@ def build_preview(cfg):
     start = max(1, int(cfg.get("step2_startline", 1) or 1))
     sample = body[start - 1] if len(body) >= start else ""
     off = 1 if cfg.get("step2_onebased", True) else 0
-    add("\n  πώς κόβεται η γραμμή %d (μήκος %d χαρακτήρες):" % (start, len(sample)))
-    add("  %-16s %5s %5s  %-24s %s" % ("ΠΕΔΙΟ", "ΘΕΣΗ", "ΜΗΚΟΣ", "ΤΙ ΚΟΒΕΙ", "ΜΕΤΑ ΤΗ ΜΕΤΑΤΡΟΠΗ"))
-    for f in cfg.get("step2_fields", []):
-        if not f.get("enabled"):
-            continue
-        pos, ln = int(f.get("pos") or 0) - off, int(f.get("len") or 0)
-        rawv = sample[pos:pos + ln] if ln > 0 and pos >= 0 else ""
-        val = apply_xform(rawv.strip(), f.get("xform", ""))
-        if not val and str(f.get("extra", "")).strip():
-            val = str(f["extra"]).strip()
-        note = "" if ln > 0 else "(σταθερή στήλη)"
-        add("  %-16s %5s %5s  %-24s %s %s" % (f["name"], f.get("pos"), f.get("len"),
-                                              "«%s»" % rawv, "«%s»" % val, note))
+    input_type = cfg.get("step2_input_type", "fixed")
+    in_delim = cfg.get("step2_input_delimiter", ",") or ","
+    if input_type == "delimited":
+        cols_sample = next(csv.reader([sample], delimiter=in_delim)) if sample else []
+        add("\n  πώς κόβεται η γραμμή %d (%d στήλες, διαχωριστικό «%s»):"
+            % (start, len(cols_sample), in_delim))
+        add("  %-16s %6s %5s  %-24s %s" % ("ΠΕΔΙΟ", "ΣΤΗΛΗ", "ΚΟΨΙΜ", "ΤΙ ΚΟΒΕΙ", "ΜΕΤΑ ΤΗ ΜΕΤΑΤΡΟΠΗ"))
+        for f in cfg.get("step2_fields", []):
+            if not f.get("enabled"):
+                continue
+            col, cap = int(f.get("pos") or 0) - off, int(f.get("len") or 0)
+            rawv = cols_sample[col].strip() if 0 <= col < len(cols_sample) else ""
+            if cap > 0:
+                rawv = rawv[:cap]
+            val = apply_xform(rawv, f.get("xform", ""))
+            if not val and str(f.get("extra", "")).strip():
+                val = str(f["extra"]).strip()
+            note = "(σταθερή στήλη)" if not f.get("pos") else ""
+            add("  %-16s %6s %5s  %-24s %s %s" % (f["name"], f.get("pos"), f.get("len") or "—",
+                                                  "«%s»" % rawv, "«%s»" % val, note))
+    else:
+        add("\n  πώς κόβεται η γραμμή %d (μήκος %d χαρακτήρες):" % (start, len(sample)))
+        add("  %-16s %5s %5s  %-24s %s" % ("ΠΕΔΙΟ", "ΘΕΣΗ", "ΜΗΚΟΣ", "ΤΙ ΚΟΒΕΙ", "ΜΕΤΑ ΤΗ ΜΕΤΑΤΡΟΠΗ"))
+        for f in cfg.get("step2_fields", []):
+            if not f.get("enabled"):
+                continue
+            pos, ln = int(f.get("pos") or 0) - off, int(f.get("len") or 0)
+            rawv = sample[pos:pos + ln] if ln > 0 and pos >= 0 else ""
+            val = apply_xform(rawv.strip(), f.get("xform", ""))
+            if not val and str(f.get("extra", "")).strip():
+                val = str(f["extra"]).strip()
+            note = "" if ln > 0 else "(σταθερή στήλη)"
+            add("  %-16s %5s %5s  %-24s %s %s" % (f["name"], f.get("pos"), f.get("len"),
+                                                  "«%s»" % rawv, "«%s»" % val, note))
 
     # ---------------- το τελικό αρχείο ----------------
     d = open(dst, "rb").read()
@@ -1397,6 +1444,21 @@ class App(tk.Tk):
                   text="Κενή είσοδος = παίρνει ό,τι έβγαλε το προηγούμενο βήμα (έξοδος Βήματος 2, "
                        "αλλιώς host1). Το αρχείο εξόδου φτιάχνεται μόνο του — δεν χρειάζεται να υπάρχει."
                   ).pack(anchor="w", pady=(0, 4))
+        intype = ttk.Frame(f)
+        intype.pack(fill="x", pady=(2, 4))
+        ttk.Label(intype, text="Αρχείο εισόδου:").pack(side="left")
+        self.v_input_type = tk.StringVar(value="fixed")
+        ttk.Radiobutton(intype, text="Σταθερού πλάτους (θέσεις/μήκη)", value="fixed",
+                        variable=self.v_input_type,
+                        command=self.on_input_type_change).pack(side="left", padx=(8, 0))
+        ttk.Radiobutton(intype, text="Με διαχωριστικό — στήλες (π.χ. CSV του ERP)", value="delimited",
+                        variable=self.v_input_type,
+                        command=self.on_input_type_change).pack(side="left", padx=(10, 0))
+        ttk.Label(intype, text="διαχωριστικό:").pack(side="left", padx=(14, 2))
+        self.v_in_delim = tk.StringVar(value=",")
+        self._add_edit_menu(ttk.Entry(intype, textvariable=self.v_in_delim, width=3)
+                            ).pack(side="left")
+
         o = ttk.Frame(f)
         o.pack(fill="x", pady=4)
         self.v_start = tk.StringVar(value="1")
@@ -1440,6 +1502,8 @@ class App(tk.Tk):
                         variable=self.v_finalnl).pack(side="left")
         ttk.Checkbutton(o, text="Θέση 1 = πρώτος χαρακτήρας", variable=self.v_onebased).pack(side="left", padx=12)
 
+        self.lbl_intype_hint = ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920)
+        self.lbl_intype_hint.pack(anchor="w", pady=(0, 4))
 
         b = ttk.Frame(f)
         b.pack(side="bottom", fill="x", pady=(6, 0))
@@ -1660,6 +1724,9 @@ class App(tk.Tk):
         self.v_s2out.set(c.get("step2_output", ""))
         self.v_start.set(str(c.get("step2_startline", 1)))
         self.v_onebased.set(bool(c.get("step2_onebased", True)))
+        self.v_input_type.set(c.get("step2_input_type", "fixed"))
+        self.v_in_delim.set(c.get("step2_input_delimiter", ","))
+        self.on_input_type_change()
         self.v_header.set(bool(c.get("step2_write_header", True)))
         self.v_delim.set(c.get("step2_delimiter", ","))
         self.v_format.set(c.get("step2_format", "csv"))
@@ -1719,6 +1786,8 @@ class App(tk.Tk):
         except ValueError:
             c["step2_startline"] = 1
         c["step2_onebased"] = self.v_onebased.get()
+        c["step2_input_type"] = self.v_input_type.get()
+        c["step2_input_delimiter"] = self.v_in_delim.get() or ","
         c["step2_write_header"] = self.v_header.get()
         c["step2_delimiter"] = self.v_delim.get() or ","
         c["step2_format"] = self.v_format.get()
@@ -1753,6 +1822,20 @@ class App(tk.Tk):
             if ext.lower() in (".csv", ".txt") and ext.lower() != want:
                 self.v_s2out.set(base + want)
                 self.log("Το αρχείο εξόδου έγινε %s" % os.path.basename(base + want))
+
+    def on_input_type_change(self):
+        delimited = self.v_input_type.get() == "delimited"
+        self.tree.heading("pos", text="Στήλη" if delimited else "Από Θέση")
+        self.tree.heading("len", text="Κόψιμο" if delimited else "Μήκος Πεδίου")
+        if delimited:
+            self.lbl_intype_hint.configure(
+                text="Στήλη = αριθμός πεδίου στη γραμμή (1 = πρώτο), χωρισμένα με το "
+                     "διαχωριστικό εισόδου. Κόψιμο είναι προαιρετικό — κόβει το πεδίο σε τόσους "
+                     "χαρακτήρες (κενό = χωρίς όριο).")
+        else:
+            self.lbl_intype_hint.configure(
+                text="Από Θέση/Μήκος = χαρακτήρες πάνω στη γραμμή, όπως στα αρχεία σταθερού "
+                     "πλάτους του ERP (π.χ. host1_cnv.txt).")
 
     def _sel(self):
         sel = self.tree.selection()
