@@ -5,9 +5,6 @@ dist/
 *.spec
 autohost_config.json
 
-# Το AutoProcess ταξιδεύει μαζί μας, αλλά όχι τα δεδομένα πελατών
-autosend/log/*.txt
-autosend/product/*.csv
-autosend/product/*.txt
-autosend/image_product/*
-!autosend/**/.gitkeep
+# Το AutoProcess είναι λογισμικό του κατασκευαστή των ζυγών: το αντιγράφει
+# ο τεχνικός στην εγκατάσταση, δεν αναδιανέμεται από εδώ.
+autosend/

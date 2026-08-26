@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.8.0"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.8.1"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -206,10 +206,11 @@ def parse_ips(text):
 
 
 def bundled_autoprocess():
-    """Διαδρομή του AutoProcess που έρχεται μαζί με την εφαρμογή, αν υπάρχει.
+    """Ψάχνει AutoProcess σε υποφάκελο «autosend» δίπλα στο πρόγραμμα.
 
-    Στο πακέτο διανομής κάθεται στον υποφάκελο «autosend» δίπλα στο exe, ώστε
-    η εγκατάσταση στον πελάτη να είναι ένα κατέβασμα χωρίς κυνήγι αρχείων.
+    Το AutoProcess είναι λογισμικό του κατασκευαστή των ζυγών και δεν διανέμεται
+    μαζί μας. Αν όμως ο τεχνικός το αντιγράψει εκεί, το βρίσκουμε μόνοι μας
+    ώστε να μη χρειάζεται αναζήτηση σε κάθε εγκατάσταση.
     """
     roots = [os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else APP_DIR,
              APP_DIR]
@@ -1779,11 +1780,11 @@ class App(tk.Tk):
         g = ttk.Frame(f)
         g.pack(fill="x", pady=8)
         self.v_s3exe = tk.StringVar()
-        self._pick_row(g, "Εφαρμογή ζυγού (π.χ. AutoProcess):", self.v_s3exe, "exe", 0)
+        self._pick_row(g, "Πρόγραμμα T-Scale (AutoProcess.exe):", self.v_s3exe, "exe", 0)
 
         bundled = ttk.Frame(f)
         bundled.pack(fill="x", pady=(4, 0))
-        self.btn_bundled = ttk.Button(bundled, text="Χρήση του ενσωματωμένου AutoProcess",
+        self.btn_bundled = ttk.Button(bundled, text="Εύρεση δίπλα στο πρόγραμμα",
                                       command=self.use_bundled_autoprocess)
         self.btn_bundled.pack(side="left")
         self.lbl_bundled = ttk.Label(bundled, style="Hint.TLabel")
@@ -1813,8 +1814,9 @@ class App(tk.Tk):
         ttk.Checkbutton(r, text="Κλείσε την αυτόματα όταν περάσει ο χρόνος",
                         variable=self.v_s3kill).pack(side="left", padx=12)
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Είναι το πρόγραμμα που στέλνει τα δεδομένα στους ζυγούς T-Scale "
-                       "(AutoProcess).").pack(anchor="w", pady=(8, 0))
+                  text="Το AutoProcess είναι το πρόγραμμα του κατασκευαστή που στέλνει τα "
+                       "δεδομένα στους ζυγούς T-Scale. Δείξε πού είναι εγκατεστημένο στο "
+                       "μηχάνημα του πελάτη.").pack(anchor="w", pady=(8, 0))
 
         ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(12, 8))
         ttk.Label(f, text="Επιπλέον ζυγοί (προαιρετικά)",
@@ -2375,11 +2377,13 @@ class App(tk.Tk):
         if not p:
             messagebox.showinfo(
                 APP_NAME,
-                "Δεν βρέθηκε ενσωματωμένο AutoProcess.\n\nΠεριμένεται στον υποφάκελο "
-                "«autosend» δίπλα στο πρόγραμμα. Διάλεξε το exe με «Αναζήτηση…».")
+                "Δεν βρέθηκε AutoProcess δίπλα στο πρόγραμμα.\n\nΤο AutoProcess είναι "
+                "λογισμικό του κατασκευαστή των ζυγών και δεν έρχεται μαζί μας. Διάλεξέ "
+                "το με «Αναζήτηση…», ή αντίγραψε τον φάκελό του ως «autosend» δίπλα στο "
+                "πρόγραμμα για να βρίσκεται αυτόματα.")
             return
         self.v_s3exe.set(p)
-        self.log("Επιλέχθηκε το ενσωματωμένο AutoProcess: %s" % p)
+        self.log("Βρέθηκε AutoProcess δίπλα στο πρόγραμμα: %s" % p)
         self.refresh_bundled_hint()
         if not self.v_ips.get().strip():
             existing = read_ips(p)
@@ -2415,7 +2419,9 @@ class App(tk.Tk):
             self.lbl_bundled.configure(text="βρέθηκε: %s" % p)
             self.btn_bundled.state(["!disabled"])
         else:
-            self.lbl_bundled.configure(text="(δεν βρέθηκε φάκελος «autosend» δίπλα στο πρόγραμμα)")
+            self.lbl_bundled.configure(
+                text="(αν αντιγράψεις τον φάκελο του AutoProcess ως «autosend» δίπλα "
+                     "στο πρόγραμμα, βρίσκεται μόνο του)")
             self.btn_bundled.state(["disabled"])
 
     def show_about(self):
