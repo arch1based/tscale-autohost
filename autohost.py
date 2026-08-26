@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.7.0"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.8.0"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -949,7 +949,64 @@ def run_step2(cfg, fallback_input, log):
 # --------------------------------------------------------------------------
 # VIMA 4 - Efarmogi zygou (AutoProcess i antistoixi allou zygou)
 # --------------------------------------------------------------------------
+# Οι επιπλέον ζυγοί: κάθε ένας έχει δικό του πρόγραμμα αποστολής και δικό του
+# αρχείο. Το κλειδί μπαίνει μπροστά από κάθε ρύθμιση (π.χ. ishida_exe).
+EXTRA_SENDERS = (("ishida", "Ishida"), ("ils", "ILS"))
+
+
+def run_sender(exe, secs, kill, log, stop_event=None, label="εφαρμογή ζυγού"):
+    """Τρέχει ένα πρόγραμμα αποστολής και το κλείνει όταν περάσει ο χρόνος."""
+    name = os.path.basename(exe)
+    try:
+        proc = subprocess.Popen([exe], cwd=os.path.dirname(exe))
+    except Exception as exc:
+        raise StepError("Βήμα 4", "Αδυναμία εκκίνησης: %s" % label, "%s\n%s" % (exe, exc))
+
+    log("  -> %s (%s): τρέχει για %d δευτερόλεπτα…" % (name, label, secs))
+    deadline = time.time() + secs
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            log("  -> %s: τερμάτισε μόνο του (κωδικός %s)." % (name, proc.returncode))
+            return
+        if stop_event is not None and stop_event.is_set():
+            break
+        time.sleep(0.5)
+
+    if proc.poll() is None and kill:
+        try:
+            proc.terminate()
+            time.sleep(1.5)
+            if proc.poll() is None:
+                proc.kill()
+            log("  -> %s: έκλεισε μετά τα %d δευτερόλεπτα." % (name, secs))
+        except Exception as exc:
+            raise StepError("Βήμα 4", "Αδυναμία τερματισμού: %s" % label, str(exc))
+
+
+def deliver_file(src, dst, log, label):
+    """Αντιγράφει το αρχείο εκεί που το περιμένει το πρόγραμμα του ζυγού."""
+    if not dst:
+        return
+    if not src or not os.path.isfile(src):
+        raise StepError("Βήμα 4", "Δεν βρέθηκε το αρχείο για %s." % label,
+                        "Αρχείο: %s" % src)
+    folder = os.path.dirname(dst)
+    if folder and not os.path.isdir(folder):
+        try:
+            os.makedirs(folder)
+        except Exception as exc:
+            raise StepError("Βήμα 4", "Αδυναμία δημιουργίας φακέλου για %s." % label,
+                            "%s\n%s" % (folder, exc))
+    try:
+        shutil.copyfile(src, dst)
+    except Exception as exc:
+        raise StepError("Βήμα 4", "Αδυναμία αντιγραφής αρχείου για %s." % label,
+                        "%s -> %s\n%s" % (src, dst, exc))
+    log("  -> %s: %s -> %s" % (label, os.path.basename(src), dst))
+
+
 def run_step3(cfg, log, stop_event=None):
+    """Βήμα 4: στέλνει σε T-Scale και, προαιρετικά, σε Ishida / ILS."""
     exe = (cfg.get("step3_exe") or "").strip()
     secs = int(cfg.get("step3_seconds", 120) or 120)
     if not exe or not os.path.isfile(exe):
@@ -964,30 +1021,19 @@ def run_step3(cfg, log, stop_event=None):
             write_ips(exe, ips)
             log("  -> ενημερώθηκε το ip.xml: %s" % ", ".join(ips))
 
-    try:
-        proc = subprocess.Popen([exe], cwd=os.path.dirname(exe))
-    except Exception as exc:
-        raise StepError("Βήμα 4", "Αδυναμία εκκίνησης της εφαρμογής του ζυγού.", "%s\n%s" % (exe, exc))
+    run_sender(exe, secs, cfg.get("step3_kill", True), log, stop_event, "T-Scale")
 
-    log("  -> %s: τρέχει για %d δευτερόλεπτα…" % (os.path.basename(exe), secs))
-    deadline = time.time() + secs
-    while time.time() < deadline:
-        if proc.poll() is not None:
-            log("  -> %s: τερμάτισε μόνο του (κωδικός %s)." % (os.path.basename(exe), proc.returncode))
-            return
-        if stop_event is not None and stop_event.is_set():
-            break
-        time.sleep(0.5)
-
-    if proc.poll() is None and cfg.get("step3_kill", True):
-        try:
-            proc.terminate()
-            time.sleep(1.5)
-            if proc.poll() is None:
-                proc.kill()
-            log("  -> %s: έκλεισε μετά τα %d δευτερόλεπτα." % (os.path.basename(exe), secs))
-        except Exception as exc:
-            raise StepError("Βήμα 4", "Αδυναμία τερματισμού της εφαρμογής του ζυγού.", str(exc))
+    for key, label in EXTRA_SENDERS:
+        if not cfg.get("%s_enabled" % key):
+            continue
+        x_exe = (cfg.get("%s_exe" % key) or "").strip()
+        if not x_exe or not os.path.isfile(x_exe):
+            raise StepError("Βήμα 4", "Δεν βρέθηκε το πρόγραμμα για %s." % label,
+                            x_exe or "(δεν έχει οριστεί)")
+        deliver_file((cfg.get("%s_src" % key) or "").strip(),
+                     (cfg.get("%s_dst" % key) or "").strip(), log, label)
+        run_sender(x_exe, int(cfg.get("%s_seconds" % key, 120) or 120),
+                   cfg.get("%s_kill" % key, True), log, stop_event, label)
 
 
 # --------------------------------------------------------------------------
@@ -1166,6 +1212,19 @@ def build_preview(cfg):
         add("  IP ζυγών (ρύθμιση): %s" % (", ".join(wanted) or "—"))
         add("  IP ζυγών (ip.xml):  %s%s" % (", ".join(current) or "—",
             "" if not wanted or current == wanted else "  → θα ενημερωθεί πριν την αποστολή"))
+
+        for key, label in EXTRA_SENDERS:
+            if not cfg.get("%s_enabled" % key):
+                add("  %-8s: απενεργοποιημένο" % label)
+                continue
+            x_exe = (cfg.get("%s_exe" % key) or "").strip()
+            src = (cfg.get("%s_src" % key) or "").strip()
+            dst = (cfg.get("%s_dst" % key) or "").strip()
+            add("  %-8s: %s (υπάρχει: %s, %s δευτ.)"
+                % (label, x_exe or "—", os.path.isfile(x_exe), cfg.get("%s_seconds" % key)))
+            if dst:
+                add("            αρχείο: %s → %s%s"
+                    % (src or "—", dst, "" if os.path.isfile(src) else "   ΠΡΟΣΟΧΗ: δεν βρέθηκε"))
     add("\n(τα αρχεία της προεπισκόπησης: %s)" % tmp)
     return "\n".join(out)
 
@@ -1754,9 +1813,45 @@ class App(tk.Tk):
         ttk.Checkbutton(r, text="Κλείσε την αυτόματα όταν περάσει ο χρόνος",
                         variable=self.v_s3kill).pack(side="left", padx=12)
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Είναι το πρόγραμμα που στέλνει τα δεδομένα στη ζυγαριά. Για τους T-Scale "
-                       "είναι το AutoProcess, αλλά μπορείς να δείξεις οποιαδήποτε άλλη εφαρμογή "
-                       "αν ο ζυγός είναι διαφορετικού τύπου.").pack(anchor="w", pady=(8, 0))
+                  text="Είναι το πρόγραμμα που στέλνει τα δεδομένα στους ζυγούς T-Scale "
+                       "(AutoProcess).").pack(anchor="w", pady=(8, 0))
+
+        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(12, 8))
+        ttk.Label(f, text="Επιπλέον ζυγοί (προαιρετικά)",
+                  style="Big.TCheckbutton").pack(anchor="w")
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Αν το κατάστημα έχει και άλλου τύπου ζυγούς, στέλνονται στην ίδια "
+                       "εκτέλεση, αμέσως μετά τους T-Scale. Άφησέ τα κλειστά αν δεν "
+                       "χρειάζονται.").pack(anchor="w", pady=(0, 6))
+
+        self.v_extra = {}
+        for key, label in EXTRA_SENDERS:
+            self._build_extra_sender(f, key, label)
+
+    def _build_extra_sender(self, parent, key, label):
+        """Ένα μπλοκ ρυθμίσεων για επιπλέον ζυγό (Ishida, ILS…)."""
+        box = ttk.Frame(parent)
+        box.pack(fill="x", pady=(6, 0))
+
+        v = {"enabled": tk.BooleanVar(value=False), "exe": tk.StringVar(),
+             "src": tk.StringVar(), "dst": tk.StringVar(),
+             "seconds": tk.StringVar(value="120"), "kill": tk.BooleanVar(value=True)}
+        self.v_extra[key] = v
+
+        head = ttk.Frame(box)
+        head.pack(fill="x")
+        ttk.Checkbutton(head, text="Αποστολή σε %s" % label,
+                        variable=v["enabled"]).pack(side="left")
+        ttk.Label(head, text="διάρκεια:", style="Hint.TLabel").pack(side="left", padx=(16, 3))
+        ttk.Entry(head, textvariable=v["seconds"], width=6).pack(side="left")
+        ttk.Checkbutton(head, text="κλείσε το μετά",
+                        variable=v["kill"]).pack(side="left", padx=8)
+
+        grid = ttk.Frame(box)
+        grid.pack(fill="x", padx=(20, 0))
+        self._pick_row(grid, "Πρόγραμμα %s:" % label, v["exe"], "exe", 0)
+        self._pick_row(grid, "Αρχείο host προς αποστολή:", v["src"], "file", 1)
+        self._pick_row(grid, "Να αντιγράφεται εδώ:", v["dst"], "save", 2)
 
     def _load_logo(self, height):
         try:
@@ -1931,6 +2026,14 @@ class App(tk.Tk):
         self.v_s3sec.set(str(c.get("step3_seconds", 120)))
         self.v_s3kill.set(bool(c.get("step3_kill", True)))
         self.v_ips.set(c.get("scale_ips", "") or ", ".join(read_ips(c.get("step3_exe", ""))))
+        for key, _label in EXTRA_SENDERS:
+            v = self.v_extra[key]
+            v["enabled"].set(bool(c.get("%s_enabled" % key, False)))
+            v["exe"].set(c.get("%s_exe" % key, ""))
+            v["src"].set(c.get("%s_src" % key, ""))
+            v["dst"].set(c.get("%s_dst" % key, ""))
+            v["seconds"].set(str(c.get("%s_seconds" % key, 120)))
+            v["kill"].set(bool(c.get("%s_kill" % key, True)))
         self.refresh_tree()
         self.refresh_bundled_hint()
         if self.v_auto.get():
@@ -1999,6 +2102,17 @@ class App(tk.Tk):
             c["step3_seconds"] = 120
         c["step3_kill"] = self.v_s3kill.get()
         c["scale_ips"] = self.v_ips.get().strip()
+        for key, _label in EXTRA_SENDERS:
+            v = self.v_extra[key]
+            c["%s_enabled" % key] = v["enabled"].get()
+            c["%s_exe" % key] = v["exe"].get().strip()
+            c["%s_src" % key] = v["src"].get().strip()
+            c["%s_dst" % key] = v["dst"].get().strip()
+            try:
+                c["%s_seconds" % key] = max(1, int(v["seconds"].get()))
+            except ValueError:
+                c["%s_seconds" % key] = 120
+            c["%s_kill" % key] = v["kill"].get()
         return c
 
     def on_save(self):
