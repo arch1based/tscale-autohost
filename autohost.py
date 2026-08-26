@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.4.1"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.4.2"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -624,6 +624,37 @@ XFORMS = {
 }
 
 
+def extract_delimited_field(cols, f, off, delim):
+    """Διαβάζει ένα πεδίο από ήδη χωρισμένη γραμμή (delimited host).
+
+    «Θέση» θετική = συγκεκριμένη στήλη (1‑based, ή 0‑based αν off=0).
+    «Θέση» αρνητική = μετρημένη από το τέλος (Python‑style: -1 η τελευταία
+      στήλη) — χρήσιμο όταν οι πρώτες στήλες (π.χ. περιγραφή) μπορεί να
+      περιέχουν τυχαία το ίδιο το διαχωριστικό και μετατοπίζουν τα υπόλοιπα.
+    «Κόψιμο/Μήκος» θετικό = κόβει το πεδίο σε τόσους χαρακτήρες.
+    «Κόψιμο/Μήκος» αρνητικό = ΣΥΝΕΝΩΝΕΙ όλες τις στήλες από τη «Θέση» μέχρι
+      αυτή τη στήλη (αρνητική = από το τέλος), ξαναβάζοντας το διαχωριστικό
+      ανάμεσά τους — έτσι δεν χάνεται τίποτα αν η περιγραφή περιέχει κόμμα.
+    """
+    pos = int(f.get("pos") or 0)
+    cap = int(f.get("len") or 0)
+    if pos == 0:
+        return ""
+    col = pos if pos < 0 else pos - off
+    if cap < 0:
+        end = cap + 1                    # inclusive αρνητικό τέλος -> Python slice
+        end_slice = None if end == 0 else end
+        try:
+            span = cols[col:end_slice]
+        except Exception:
+            span = []
+        return delim.join(c.strip() for c in span)
+    if not (-len(cols) <= col < len(cols)):
+        return ""
+    val = cols[col].strip()
+    return val[:cap] if cap > 0 else val
+
+
 def apply_xform(value, kind):
     """Μετατροπή τιμής πεδίου πριν γραφτεί στο αρχείο."""
     if not kind:
@@ -677,9 +708,10 @@ def run_step2(cfg, fallback_input, log):
         raise StepError("Βήμα 3", "Δεν είναι επιλεγμένο κανένα πεδίο στον πίνακα παραμέτρων.",
                         "Τσέκαρε τουλάχιστον ένα πεδίο στη στήλη «Για έξοδο».")
     is_delimited = cfg.get("step2_input_type", "fixed") == "delimited"
-    # Σταθερή στήλη: fixed -> Μήκος 0, delimited -> καμία Στήλη ορισμένη (0).
+    # Σταθερή στήλη: fixed -> Μήκος 0, delimited -> καμία Στήλη ορισμένη (ακριβώς 0·
+    # αρνητική Στήλη είναι έγκυρη θέση από το τέλος, όχι σταθερή τιμή).
     constants = [f["name"] for f in fields
-                if (int(f.get("pos") or 0) <= 0 if is_delimited else int(f.get("len") or 0) <= 0)]
+                if (int(f.get("pos") or 0) == 0 if is_delimited else int(f.get("len") or 0) <= 0)]
     if constants:
         log("  (σταθερές στήλες: %s)" % ", ".join(constants))
 
@@ -720,17 +752,14 @@ def run_step2(cfg, fallback_input, log):
 
         if input_type == "delimited":
             # Αρχείο ήδη χωρισμένο με διαχωριστικό (π.χ. CSV του ERP): κάθε
-            # πεδίο διαβάζεται με τη «Θέση» ως αριθμό στήλης (1 = πρώτη).
+            # πεδίο διαβάζεται με τη «Θέση» ως αριθμό στήλης (1 = πρώτη· αρνητικός
+            # αριθμός μετράει από το τέλος: -1 η τελευταία, -2 η προτελευταία…).
             txt = line if not by_bytes else line.decode(
                 in_enc if in_enc != "utf-8-sig" else "utf-8", "replace")
             cols = next(csv.reader([txt], delimiter=in_delim))
             row = []
             for f in fields:
-                col = int(f.get("pos") or 0) - off
-                cap = int(f.get("len") or 0)
-                val = cols[col].strip() if 0 <= col < len(cols) else ""
-                if cap > 0:
-                    val = val[:cap]
+                val = extract_delimited_field(cols, f, off, in_delim)
                 val = apply_xform(val, f.get("xform", ""))
                 if not val and str(f.get("extra", "")).strip():
                     val = str(f["extra"]).strip()
@@ -977,19 +1006,17 @@ def build_preview(cfg):
         cols_sample = next(csv.reader([sample], delimiter=in_delim)) if sample else []
         add("\n  πώς κόβεται η γραμμή %d (%d στήλες, διαχωριστικό «%s»):"
             % (start, len(cols_sample), in_delim))
-        add("  %-16s %6s %5s  %-24s %s" % ("ΠΕΔΙΟ", "ΣΤΗΛΗ", "ΚΟΨΙΜ", "ΤΙ ΚΟΒΕΙ", "ΜΕΤΑ ΤΗ ΜΕΤΑΤΡΟΠΗ"))
+        add("  %-16s %6s %6s  %-24s %s" % ("ΠΕΔΙΟ", "ΣΤΗΛΗ", "ΩΣ", "ΤΙ ΚΟΒΕΙ", "ΜΕΤΑ ΤΗ ΜΕΤΑΤΡΟΠΗ"))
         for f in cfg.get("step2_fields", []):
             if not f.get("enabled"):
                 continue
-            col, cap = int(f.get("pos") or 0) - off, int(f.get("len") or 0)
-            rawv = cols_sample[col].strip() if 0 <= col < len(cols_sample) else ""
-            if cap > 0:
-                rawv = rawv[:cap]
+            rawv = extract_delimited_field(cols_sample, f, off, in_delim)
             val = apply_xform(rawv, f.get("xform", ""))
             if not val and str(f.get("extra", "")).strip():
                 val = str(f["extra"]).strip()
-            note = "(σταθερή στήλη)" if not f.get("pos") else ""
-            add("  %-16s %6s %5s  %-24s %s %s" % (f["name"], f.get("pos"), f.get("len") or "—",
+            note = "(σταθερή στήλη)" if not f.get("pos") else \
+                   ("(συνένωση στηλών)" if int(f.get("len") or 0) < 0 else "")
+            add("  %-16s %6s %6s  %-24s %s %s" % (f["name"], f.get("pos"), f.get("len") or "—",
                                                   "«%s»" % rawv, "«%s»" % val, note))
     else:
         add("\n  πώς κόβεται η γραμμή %d (μήκος %d χαρακτήρες):" % (start, len(sample)))
@@ -1832,9 +1859,12 @@ class App(tk.Tk):
         self.tree.heading("len", text="Κόψιμο" if delimited else "Μήκος Πεδίου")
         if delimited:
             self.lbl_intype_hint.configure(
-                text="Στήλη = αριθμός πεδίου στη γραμμή (1 = πρώτο), χωρισμένα με το "
-                     "διαχωριστικό εισόδου. Κόψιμο είναι προαιρετικό — κόβει το πεδίο σε τόσους "
-                     "χαρακτήρες (κενό = χωρίς όριο).")
+                text="Στήλη = αριθμός πεδίου στη γραμμή (1 = πρώτο). Αρνητικός αριθμός μετράει "
+                     "από το τέλος (-1 = τελευταία στήλη) — χρήσιμο για την τιμή, όταν η "
+                     "περιγραφή μπορεί να περιέχει τυχαία το ίδιο το διαχωριστικό. Κόψιμο "
+                     "θετικό = κόβει σε τόσους χαρακτήρες· αρνητικό = συνενώνει τις στήλες από "
+                     "τη Στήλη μέχρι αυτή (π.χ. Στήλη 2, Κόψιμο -4 = «από τη 2η μέχρι την "
+                     "4η-από-το-τέλος», για περιγραφές με ενδεχόμενα κόμματα μέσα.")
         else:
             self.lbl_intype_hint.configure(
                 text="Από Θέση/Μήκος = χαρακτήρες πάνω στη γραμμή, όπως στα αρχεία σταθερού "
