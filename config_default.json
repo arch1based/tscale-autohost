@@ -128,7 +128,7 @@
           "name": "ProductName",
           "enabled": true,
           "pos": 2,
-          "len": -4,
+          "len": 40,
           "extra": "",
           "xform": ""
         },
@@ -136,7 +136,7 @@
           "name": "NameSpell",
           "enabled": true,
           "pos": 2,
-          "len": -4,
+          "len": 40,
           "extra": "",
           "xform": ""
         },
@@ -168,7 +168,7 @@
           "name": "Abbr",
           "enabled": true,
           "pos": 2,
-          "len": -4,
+          "len": 40,
           "extra": "",
           "xform": ""
         },
@@ -176,7 +176,7 @@
           "name": "AbbrSpell",
           "enabled": true,
           "pos": 2,
-          "len": -4,
+          "len": 40,
           "extra": "",
           "xform": ""
         }
