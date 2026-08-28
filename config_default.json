@@ -114,7 +114,7 @@
   "src_encoding": "auto",
   "dst_encoding": "auto",
   "profiles": {
-    "ISHIDA · τιμή σε λεπτά 540 ✓ δοκιμασμένο": {
+    "ERGON · Ishida — τιμή σε λεπτά 540 ✓": {
       "settings": {
         "step2_input_type": "delimited",
         "step2_input_delimiter": ",",

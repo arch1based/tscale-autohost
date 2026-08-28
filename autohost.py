@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.9.5"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.9.6"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -104,6 +104,13 @@ LEGACY_CONFIGS = (
                  "ICS", "TScaleAutoHost", "autohost_config.json"),
 )
 USER_PROFILES_PATH = os.path.join(CONFIG_DIR, "profiles.json")
+# Όταν μετονομάζεται ένα προφίλ, η παλιά ονομασία μένει εδώ: αλλιώς μια
+# αποθηκευμένη ρύθμιση πελάτη θα έδειχνε σε προφίλ που δεν υπάρχει πια.
+PROFILE_ALIASES = {
+    "ISHIDA · τιμή σε λεπτά 540 ✓ δοκιμασμένο": "ERGON · Ishida — τιμή σε λεπτά 540 ✓",
+    "ISHIDA · τιμή σε λεπτά, 540 (κόμμα)": "ERGON · Ishida — τιμή σε λεπτά 540 ✓",
+}
+
 PROFILE_KEYS = ("step2_format", "step2_delimiter", "step2_trailing_delim", "step2_quotes",
                 "step2_in_encoding", "step2_out_encoding", "step2_final_newline",
                 "step2_write_header", "step2_sanitize", "step2_dedupe",
@@ -431,6 +438,16 @@ def load_config():
     for name, entry in load_user_profiles().items():
         cfg["profiles"]["★ " + name] = entry          # τα δικά μας πρώτα-πρώτα ξεχωριστά
     return cfg
+
+
+def resolve_profile(profiles, name):
+    """Βρίσκει προφίλ με το τρέχον ή με παλιό του όνομα."""
+    if name in profiles:
+        return name, profiles[name]
+    alias = PROFILE_ALIASES.get(name)
+    if alias and alias in profiles:
+        return alias, profiles[alias]
+    return name, None
 
 
 def load_user_profiles():
@@ -1065,7 +1082,7 @@ def build_second_output(cfg, fallback_input, log):
     του γραφή — π.χ. οι Ishida δεν δέχονται «5.4», θέλουν «5,40».
     """
     name = (cfg.get("step2b_profile") or "").strip()
-    entry = (cfg.get("profiles") or {}).get(name)
+    name, entry = resolve_profile(cfg.get("profiles") or {}, name)
     if not entry:
         raise StepError("Βήμα 3β", "Δεν βρέθηκε το προφίλ «%s» για το δεύτερο αρχείο." % name,
                         "Διάλεξε προφίλ στην καρτέλα «Βήμα 3».")
@@ -2103,7 +2120,8 @@ class App(tk.Tk):
         self.v_dedupe.set(bool(c.get("step2_dedupe", False)))
         self.v_s2b.set(bool(c.get("step2b_enabled", False)))
         self.cmb_s2b.configure(values=list(c.get("profiles", {})))
-        self.v_s2b_profile.set(c.get("step2b_profile", ""))
+        saved_p = c.get("step2b_profile", "")
+        self.v_s2b_profile.set(resolve_profile(c.get("profiles", {}), saved_p)[0] if saved_p else "")
         self.v_s2b_out.set(c.get("step2b_output", ""))
         self.v_finalnl.set(bool(c.get("step2_final_newline", True)))
         self.v_s3.set(bool(c.get("step3_enabled", True)))
@@ -2298,6 +2316,7 @@ class App(tk.Tk):
     def load_profile(self, name):
         """Έτοιμο σετ θέσεων/μηκών για γνωστό τύπο αρχείου."""
         profiles = self.cfg.get("profiles", {})     # ενσωματωμένα + του τεχνικού
+        name, _entry = resolve_profile(profiles, name)
         if name not in profiles:
             messagebox.showerror(APP_NAME, "Δεν βρέθηκε το προφίλ «%s»." % name)
             return
