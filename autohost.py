@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.9.4"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.9.5"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -1720,6 +1720,28 @@ class App(tk.Tk):
                   text="Κενή είσοδος = παίρνει ό,τι έβγαλε το προηγούμενο βήμα (έξοδος Βήματος 2, "
                        "αλλιώς host1). Το αρχείο εξόδου φτιάχνεται μόνο του — δεν χρειάζεται να υπάρχει."
                   ).pack(anchor="w", pady=(0, 4))
+        second = ttk.Frame(f)
+        second.pack(fill="x", pady=(6, 4))
+        ttk.Separator(second, orient="horizontal").pack(fill="x", pady=(0, 6))
+        srow = ttk.Frame(second)
+        srow.pack(fill="x")
+        self.v_s2b = tk.BooleanVar(value=False)
+        ttk.Checkbutton(srow, text="Φτιάξε και δεύτερο αρχείο (π.χ. για Ishida)",
+                        variable=self.v_s2b).pack(side="left")
+        ttk.Label(srow, text="μορφή:").pack(side="left", padx=(14, 3))
+        self.v_s2b_profile = tk.StringVar()
+        self.cmb_s2b = ttk.Combobox(srow, textvariable=self.v_s2b_profile, state="readonly",
+                                    width=34, values=list(self.cfg.get("profiles", {})))
+        self.cmb_s2b.pack(side="left")
+        g2 = ttk.Frame(second)
+        g2.pack(fill="x")
+        self.v_s2b_out = tk.StringVar()
+        self._pick_row(g2, "Να δημιουργείται εδώ:", self.v_s2b_out, "save", 0)
+        ttk.Label(second, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Ίδια δεδομένα, άλλη γραφή — φτιάχνεται στην ίδια εκτέλεση με το "
+                       "product.csv. Κενή διαδρομή = host2.csv στον φάκελο εξόδου."
+                  ).pack(anchor="w", pady=(2, 0))
+
         intype = ttk.Frame(f)
         intype.pack(fill="x", pady=(2, 4))
         ttk.Label(intype, text="Αρχείο εισόδου:").pack(side="left")
@@ -1780,28 +1802,6 @@ class App(tk.Tk):
 
         self.lbl_intype_hint = ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920)
         self.lbl_intype_hint.pack(anchor="w", pady=(0, 4))
-
-        second = ttk.Frame(f)
-        second.pack(side="bottom", fill="x", pady=(10, 0))
-        ttk.Separator(second, orient="horizontal").pack(fill="x", pady=(0, 6))
-        srow = ttk.Frame(second)
-        srow.pack(fill="x")
-        self.v_s2b = tk.BooleanVar(value=False)
-        ttk.Checkbutton(srow, text="Φτιάξε και δεύτερο αρχείο (π.χ. για Ishida)",
-                        variable=self.v_s2b).pack(side="left")
-        ttk.Label(srow, text="μορφή:").pack(side="left", padx=(14, 3))
-        self.v_s2b_profile = tk.StringVar()
-        self.cmb_s2b = ttk.Combobox(srow, textvariable=self.v_s2b_profile, state="readonly",
-                                    width=34, values=list(self.cfg.get("profiles", {})))
-        self.cmb_s2b.pack(side="left")
-        g2 = ttk.Frame(second)
-        g2.pack(fill="x")
-        self.v_s2b_out = tk.StringVar()
-        self._pick_row(g2, "Να δημιουργείται εδώ:", self.v_s2b_out, "save", 0)
-        ttk.Label(second, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Ίδια δεδομένα, άλλη γραφή — φτιάχνεται στην ίδια εκτέλεση με το "
-                       "product.csv. Κενή διαδρομή = host2.csv στον φάκελο εξόδου."
-                  ).pack(anchor="w", pady=(2, 0))
 
         b = ttk.Frame(f)
         b.pack(side="bottom", fill="x", pady=(6, 0))
