@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.9.0"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.9.1"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -1049,7 +1049,7 @@ def run_step3(cfg, log, stop_event=None):
         if not x_exe or not os.path.isfile(x_exe):
             raise StepError("Βήμα 4", "Δεν βρέθηκε το πρόγραμμα για %s." % label,
                             x_exe or "(δεν έχει οριστεί)")
-        src = (cfg.get("%s_src" % key) or "").strip()
+        src = (cfg.get("%s_src" % key) or "").strip() or (cfg.get("_chain_input") or "")
         dst = (cfg.get("%s_dst" % key) or "").strip()
         profile = (cfg.get("%s_profile" % key) or "").strip()
 
@@ -1310,7 +1310,9 @@ def run_pipeline(cfg, log, stop_event=None):
         archive_run(cfg, produced, log)
 
     if cfg.get("step3_enabled"):
-        run_step3(cfg, log, stop_event)
+        # Οι επιπλέον ζυγοί, αν δεν έχουν δικό τους αρχείο εισόδου, παίρνουν
+        # ό,τι πήρε και το Βήμα 3 — δεν μένουν χωρίς είσοδο.
+        run_step3(dict(cfg, _chain_input=current), log, stop_event)
         log("Βήμα 4: εφαρμογή ζυγού. OK")
     else:
         log("Βήμα 4: απενεργοποιημένο.")
