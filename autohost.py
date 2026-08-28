@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.9.1"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.8.1"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -716,9 +716,6 @@ XFORMS = {
     "cents2comma": "λεπτά → τιμή με κόμμα (00315 → 3,15)",
     "cents2dot": "λεπτά → τιμή με τελεία (00315 → 3.15)",
     "prefix21": "πρόθεμα 21 (barcode ζυγαριάς: 00010 → 2100010)",
-    "dec2dot": "2 δεκαδικά με τελεία (5.4 → 5.40)",
-    "dec2comma": "2 δεκαδικά με κόμμα (5,4 → 5,40)",
-    "tocents": "τιμή → λεπτά (5.4 → 540)",
 }
 
 
@@ -777,21 +774,6 @@ def apply_xform(value, kind):
         return whole + ("," if kind == "cents2comma" else ".") + cents
     if kind == "prefix21":
         return "21" + value if value else value
-    if kind in ("dec2dot", "dec2comma", "tocents"):
-        # Δουλεύουμε σε λεπτά για να μη μας ξεφύγει στρογγυλοποίηση.
-        txt = value.strip().replace(",", ".")
-        if not txt:
-            return value
-        try:
-            cents = int(round(float(txt) * 100))
-        except ValueError:
-            return value
-        if kind == "tocents":
-            return str(cents)
-        whole, rest = divmod(abs(cents), 100)
-        sign = "-" if cents < 0 else ""
-        sep = "." if kind == "dec2dot" else ","
-        return "%s%d%s%02d" % (sign, whole, sep, rest)
     return value
 
 
@@ -1049,48 +1031,10 @@ def run_step3(cfg, log, stop_event=None):
         if not x_exe or not os.path.isfile(x_exe):
             raise StepError("Βήμα 4", "Δεν βρέθηκε το πρόγραμμα για %s." % label,
                             x_exe or "(δεν έχει οριστεί)")
-        src = (cfg.get("%s_src" % key) or "").strip() or (cfg.get("_chain_input") or "")
-        dst = (cfg.get("%s_dst" % key) or "").strip()
-        profile = (cfg.get("%s_profile" % key) or "").strip()
-
-        if profile:
-            # Ο ζυγός θέλει δική του μορφή: φτιάχνουμε ξεχωριστό αρχείο με το
-            # προφίλ του, αντί να του δώσουμε σκέτο αντίγραφο του ERP.
-            src = build_for_sender(cfg, key, label, src, dst, log)
-        else:
-            deliver_file(src, dst, log, label)
-
+        deliver_file((cfg.get("%s_src" % key) or "").strip(),
+                     (cfg.get("%s_dst" % key) or "").strip(), log, label)
         run_sender(x_exe, int(cfg.get("%s_seconds" % key, 120) or 120),
                    cfg.get("%s_kill" % key, True), log, stop_event, label)
-
-
-def sender_default_output(cfg, key, profile_settings):
-    """Προεπιλεγμένο όνομα αρχείου για επιπλέον ζυγό: host<όνομα>.<κατάληξη>."""
-    fmt = profile_settings.get("step2_format", cfg.get("step2_format", "csv"))
-    ext = ".csv" if fmt in ("csv", "semicolon") else ".txt"
-    folder = cfg.get("output_dir") or os.path.dirname(cfg.get("watch_file", "") or "")
-    return os.path.join(folder, "host%s%s" % (key, ext))
-
-
-def build_for_sender(cfg, key, label, src, dst, log):
-    """Φτιάχνει το αρχείο ενός επιπλέον ζυγού με το δικό του προφίλ."""
-    name = (cfg.get("%s_profile" % key) or "").strip()
-    entry = (cfg.get("profiles") or {}).get(name)
-    if not entry:
-        raise StepError("Βήμα 4", "Δεν βρέθηκε το προφίλ «%s» για %s." % (name, label),
-                        "Διάλεξε ξανά προφίλ στην καρτέλα του Βήματος 4.")
-    fields = entry.get("fields", entry) if isinstance(entry, dict) else entry
-    settings = entry.get("settings", {}) if isinstance(entry, dict) else {}
-
-    sub = dict(cfg)
-    sub.update(settings)
-    sub["step2_fields"] = fields
-    sub["step2_input"] = src
-    # Χωρίς ρητή διαδρομή, το αρχείο παίρνει το όνομα του ζυγού: hostishida.csv,
-    # hostils.csv — ώστε να ξεχωρίζει με μια ματιά στον φάκελο εξόδου.
-    sub["step2_output"] = dst or sender_default_output(cfg, key, settings)
-    log("  %s: δημιουργία αρχείου με προφίλ «%s»" % (label, name))
-    return run_step2(sub, src, log)
 
 
 # --------------------------------------------------------------------------
@@ -1310,9 +1254,7 @@ def run_pipeline(cfg, log, stop_event=None):
         archive_run(cfg, produced, log)
 
     if cfg.get("step3_enabled"):
-        # Οι επιπλέον ζυγοί, αν δεν έχουν δικό τους αρχείο εισόδου, παίρνουν
-        # ό,τι πήρε και το Βήμα 3 — δεν μένουν χωρίς είσοδο.
-        run_step3(dict(cfg, _chain_input=current), log, stop_event)
+        run_step3(cfg, log, stop_event)
         log("Βήμα 4: εφαρμογή ζυγού. OK")
     else:
         log("Βήμα 4: απενεργοποιημένο.")
@@ -1910,23 +1852,8 @@ class App(tk.Tk):
         grid = ttk.Frame(box)
         grid.pack(fill="x", padx=(20, 0))
         self._pick_row(grid, "Πρόγραμμα %s:" % label, v["exe"], "exe", 0)
-        self._pick_row(grid, "Αρχείο εισόδου:", v["src"], "file", 1)
-        self._pick_row(grid, "Αρχείο που θα πάρει ο ζυγός:", v["dst"], "save", 2)
-        ttk.Label(grid, style="Hint.TLabel",
-                  text="κενό = host%s.csv στον φάκελο εξόδου" % key
-                  ).grid(row=3, column=1, sticky="w", padx=6)
-
-        prow = ttk.Frame(box)
-        prow.pack(fill="x", padx=(20, 0), pady=(3, 0))
-        ttk.Label(prow, text="Μορφή:").pack(side="left")
-        v["profile"] = tk.StringVar(value="")
-        names = ["(σκέτο αντίγραφο)"] + list(self.cfg.get("profiles", {}))
-        v["cmb"] = ttk.Combobox(prow, textvariable=v["profile"], values=names,
-                                state="readonly", width=44)
-        v["cmb"].pack(side="left", padx=6)
-        ttk.Label(prow, style="Hint.TLabel",
-                  text="διάλεξε προφίλ αν ο ζυγός θέλει δική του μορφή"
-                  ).pack(side="left", padx=6)
+        self._pick_row(grid, "Αρχείο host προς αποστολή:", v["src"], "file", 1)
+        self._pick_row(grid, "Να αντιγράφεται εδώ:", v["dst"], "save", 2)
 
     def _load_logo(self, height):
         try:
@@ -2109,8 +2036,6 @@ class App(tk.Tk):
             v["dst"].set(c.get("%s_dst" % key, ""))
             v["seconds"].set(str(c.get("%s_seconds" % key, 120)))
             v["kill"].set(bool(c.get("%s_kill" % key, True)))
-            v["cmb"].configure(values=["(σκέτο αντίγραφο)"] + list(c.get("profiles", {})))
-            v["profile"].set(c.get("%s_profile" % key, "") or "(σκέτο αντίγραφο)")
         self.refresh_tree()
         self.refresh_bundled_hint()
         if self.v_auto.get():
@@ -2190,8 +2115,6 @@ class App(tk.Tk):
             except ValueError:
                 c["%s_seconds" % key] = 120
             c["%s_kill" % key] = v["kill"].get()
-            prof = v["profile"].get()
-            c["%s_profile" % key] = "" if prof.startswith("(") else prof
         return c
 
     def on_save(self):
