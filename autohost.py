@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.8.1"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.9.2"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -716,6 +716,9 @@ XFORMS = {
     "cents2comma": "λεπτά → τιμή με κόμμα (00315 → 3,15)",
     "cents2dot": "λεπτά → τιμή με τελεία (00315 → 3.15)",
     "prefix21": "πρόθεμα 21 (barcode ζυγαριάς: 00010 → 2100010)",
+    "dec2dot": "2 δεκαδικά με τελεία (5.4 → 5.40)",
+    "dec2comma": "2 δεκαδικά με κόμμα (5.4 → 5,40)",
+    "tocents": "τιμή → λεπτά (5.4 → 540)",
 }
 
 
@@ -774,6 +777,20 @@ def apply_xform(value, kind):
         return whole + ("," if kind == "cents2comma" else ".") + cents
     if kind == "prefix21":
         return "21" + value if value else value
+    if kind in ("dec2dot", "dec2comma", "tocents"):
+        # Μέσω λεπτών, ώστε το 5.4 και το 70 να καταλήγουν πάντα σε 2 δεκαδικά.
+        txt = value.strip().replace(",", ".")
+        if not txt:
+            return value
+        try:
+            cents = int(round(float(txt) * 100))
+        except ValueError:
+            return value
+        if kind == "tocents":
+            return str(cents)
+        whole, rest = divmod(abs(cents), 100)
+        return "%s%d%s%02d" % ("-" if cents < 0 else "", whole,
+                               "." if kind == "dec2dot" else ",", rest)
     return value
 
 
@@ -1037,6 +1054,36 @@ def run_step3(cfg, log, stop_event=None):
                    cfg.get("%s_kill" % key, True), log, stop_event, label)
 
 
+def build_second_output(cfg, fallback_input, log):
+    """Φτιάχνει δεύτερο αρχείο με άλλο προφίλ, από τα ίδια δεδομένα.
+
+    Χρησιμεύει όταν το κατάστημα έχει και άλλου τύπου ζυγό που θέλει τη δική
+    του γραφή — π.χ. οι Ishida δεν δέχονται «5.4», θέλουν «5,40».
+    """
+    name = (cfg.get("step2b_profile") or "").strip()
+    entry = (cfg.get("profiles") or {}).get(name)
+    if not entry:
+        raise StepError("Βήμα 3β", "Δεν βρέθηκε το προφίλ «%s» για το δεύτερο αρχείο." % name,
+                        "Διάλεξε προφίλ στην καρτέλα «Βήμα 3».")
+    fields = entry.get("fields", entry) if isinstance(entry, dict) else entry
+    settings = entry.get("settings", {}) if isinstance(entry, dict) else {}
+
+    dst = (cfg.get("step2b_output") or "").strip()
+    if not dst:
+        fmt = settings.get("step2_format", cfg.get("step2_format", "csv"))
+        ext = ".csv" if fmt in ("csv", "semicolon") else ".txt"
+        folder = cfg.get("output_dir") or os.path.dirname(cfg.get("watch_file", "") or "")
+        dst = os.path.join(folder, "host2" + ext)
+
+    sub = dict(cfg)
+    sub.update(settings)
+    sub["step2_fields"] = fields
+    sub["step2_input"] = (cfg.get("step2_input") or "").strip()
+    sub["step2_output"] = dst
+    log("  δεύτερο αρχείο με προφίλ «%s»:" % name)
+    return run_step2(sub, fallback_input, log)
+
+
 # --------------------------------------------------------------------------
 # Oli i roi
 # --------------------------------------------------------------------------
@@ -1249,6 +1296,12 @@ def run_pipeline(cfg, log, stop_event=None):
         log("Βήμα 3: product.csv. OK")
     else:
         log("Βήμα 3: απενεργοποιημένο.")
+
+    # Δεύτερο αρχείο για άλλου τύπου ζυγό (π.χ. Ishida): ίδια δεδομένα, άλλη
+    # μορφή, στην ίδια εκτέλεση — όχι δεύτερο πέρασμα.
+    if cfg.get("step2b_enabled"):
+        produced.append(build_second_output(cfg, current, log))
+        log("Βήμα 3β: δεύτερο αρχείο. OK")
 
     if cfg.get("backup_enabled", True):
         archive_run(cfg, produced, log)
@@ -1724,6 +1777,28 @@ class App(tk.Tk):
         self.lbl_intype_hint = ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920)
         self.lbl_intype_hint.pack(anchor="w", pady=(0, 4))
 
+        second = ttk.Frame(f)
+        second.pack(side="bottom", fill="x", pady=(10, 0))
+        ttk.Separator(second, orient="horizontal").pack(fill="x", pady=(0, 6))
+        srow = ttk.Frame(second)
+        srow.pack(fill="x")
+        self.v_s2b = tk.BooleanVar(value=False)
+        ttk.Checkbutton(srow, text="Φτιάξε και δεύτερο αρχείο (π.χ. για Ishida)",
+                        variable=self.v_s2b).pack(side="left")
+        ttk.Label(srow, text="μορφή:").pack(side="left", padx=(14, 3))
+        self.v_s2b_profile = tk.StringVar()
+        self.cmb_s2b = ttk.Combobox(srow, textvariable=self.v_s2b_profile, state="readonly",
+                                    width=34, values=list(self.cfg.get("profiles", {})))
+        self.cmb_s2b.pack(side="left")
+        g2 = ttk.Frame(second)
+        g2.pack(fill="x")
+        self.v_s2b_out = tk.StringVar()
+        self._pick_row(g2, "Να δημιουργείται εδώ:", self.v_s2b_out, "save", 0)
+        ttk.Label(second, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Ίδια δεδομένα, άλλη γραφή — φτιάχνεται στην ίδια εκτέλεση με το "
+                       "product.csv. Κενή διαδρομή = host2.csv στον φάκελο εξόδου."
+                  ).pack(anchor="w", pady=(2, 0))
+
         b = ttk.Frame(f)
         b.pack(side="bottom", fill="x", pady=(6, 0))
         ttk.Button(b, text="Εναλλαγή ✓ (ή Space)", command=self.toggle_field).pack(side="left")
@@ -2022,6 +2097,10 @@ class App(tk.Tk):
         self.v_quotes.set(bool(c.get("step2_quotes", False)))
         self.v_sanitize.set(bool(c.get("step2_sanitize", True)))
         self.v_dedupe.set(bool(c.get("step2_dedupe", False)))
+        self.v_s2b.set(bool(c.get("step2b_enabled", False)))
+        self.cmb_s2b.configure(values=list(c.get("profiles", {})))
+        self.v_s2b_profile.set(c.get("step2b_profile", ""))
+        self.v_s2b_out.set(c.get("step2b_output", ""))
         self.v_finalnl.set(bool(c.get("step2_final_newline", True)))
         self.v_s3.set(bool(c.get("step3_enabled", True)))
         self.v_s3exe.set(c.get("step3_exe", ""))
@@ -2095,6 +2174,9 @@ class App(tk.Tk):
         c["step2_quotes"] = self.v_quotes.get()
         c["step2_sanitize"] = self.v_sanitize.get()
         c["step2_dedupe"] = self.v_dedupe.get()
+        c["step2b_enabled"] = self.v_s2b.get()
+        c["step2b_profile"] = self.v_s2b_profile.get()
+        c["step2b_output"] = self.v_s2b_out.get().strip()
         c["step2_final_newline"] = self.v_finalnl.get()
         c["step3_enabled"] = self.v_s3.get()
         c["step3_exe"] = self.v_s3exe.get().strip()
