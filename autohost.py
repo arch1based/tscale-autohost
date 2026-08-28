@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.9.2"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "1.9.3"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -926,14 +926,18 @@ def run_step2(cfg, fallback_input, log):
     fmt = cfg.get("step2_format", "csv")
     try:
         if fmt == "fixed":
-            # σταθερό πλάτος: κάθε πεδίο γεμίζει το δικό του μήκος
+            # Σταθερό πλάτος: κάθε πεδίο γεμίζει το δικό του μήκος. Η στοίχιση
+            # μετράει — π.χ. οι Ishida θέλουν την τιμή δεξιά μέσα στο πεδίο.
+            def cell(v, f):
+                w = int(f.get("len") or 0)
+                v = v[:w]
+                return v.rjust(w) if f.get("align") == "right" else v.ljust(w)
+
             with open(dst, "w", encoding=out_enc, errors="replace", newline="\r\n") as fh:
                 if cfg.get("step2_write_header", True):
-                    fh.write("".join(f["name"][:int(f["len"])].ljust(int(f["len"]))
-                                     for f in fields) + "\n")
+                    fh.write("".join(cell(f["name"], f) for f in fields) + "\n")
                 for row in rows:
-                    fh.write("".join(v[:int(f["len"])].ljust(int(f["len"]))
-                                     for v, f in zip(row, fields)) + "\n")
+                    fh.write("".join(cell(v, f) for v, f in zip(row, fields)) + "\n")
         else:
             delim = {"csv": ",", "tab": "\t", "semicolon": ";"}.get(
                 fmt, cfg.get("step2_delimiter", ",") or ",")
@@ -2269,7 +2273,10 @@ class App(tk.Tk):
         xf = tk.StringVar(value=XFORMS.get(f.get("xform", ""), "—"))
         ttk.Combobox(win, textvariable=xf, values=labels, state="readonly",
                      width=32).grid(row=4, column=1, padx=8, pady=4)
-        ttk.Checkbutton(win, text="Για έξοδο σε αρχείο", variable=en).grid(row=5, column=1, sticky="w", padx=8)
+        al = tk.BooleanVar(value=f.get("align") == "right")
+        ttk.Checkbutton(win, text="Στοίχιση δεξιά (σταθερό πλάτος)",
+                        variable=al).grid(row=5, column=1, sticky="w", padx=8)
+        ttk.Checkbutton(win, text="Για έξοδο σε αρχείο", variable=en).grid(row=6, column=1, sticky="w", padx=8)
 
         def ok():
             try:
@@ -2282,10 +2289,11 @@ class App(tk.Tk):
             f["extra"] = vals["extra"].get()
             f["enabled"] = en.get()
             f["xform"] = keys[labels.index(xf.get())] if xf.get() in labels else ""
+            f["align"] = "right" if al.get() else ""
             win.destroy()
             self.refresh_tree()
             self.tree.selection_set(str(i))
-        ttk.Button(win, text="Καταχώρηση", command=ok).grid(row=6, column=1, sticky="e", padx=8, pady=10)
+        ttk.Button(win, text="Καταχώρηση", command=ok).grid(row=7, column=1, sticky="e", padx=8, pady=10)
 
     def load_profile(self, name):
         """Έτοιμο σετ θέσεων/μηκών για γνωστό τύπο αρχείου."""

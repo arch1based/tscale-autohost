@@ -114,141 +114,159 @@
   "src_encoding": "auto",
   "dst_encoding": "auto",
   "profiles": {
-    "ISHIDA · όλα τα πεδία, τιμή 5.40 (κόμμα διαχωριστικό)": {
+    "ISHIDA · Items σταθερού πλάτους (101 χαρ.)": {
       "settings": {
         "step2_input_type": "delimited",
         "step2_input_delimiter": ",",
+        "step2_format": "fixed",
+        "step2_delimiter": ",",
         "step2_trailing_delim": false,
         "step2_quotes": false,
         "step2_in_encoding": "auto",
         "step2_out_encoding": "cp1253",
         "step2_final_newline": true,
         "step2_write_header": false,
-        "step2_sanitize": true,
-        "step2_dedupe": false,
+        "step2_sanitize": false,
+        "step2_dedupe": true,
         "step2_positions_bytes": false,
         "step2_startline": 1,
-        "step2_onebased": true,
-        "step2_format": "csv",
-        "step2_delimiter": ","
+        "step2_onebased": true
       },
       "fields": [
         {
-          "name": "Κωδικός",
+          "name": "Barcode",
           "enabled": true,
           "pos": 1,
-          "len": 0,
+          "len": 7,
           "extra": "",
-          "xform": ""
+          "xform": "prefix21",
+          "align": ""
+        },
+        {
+          "name": "κενά",
+          "enabled": true,
+          "pos": 0,
+          "len": 10,
+          "extra": "",
+          "xform": "",
+          "align": ""
         },
         {
           "name": "Περιγραφή",
           "enabled": true,
           "pos": 2,
-          "len": 0,
+          "len": 30,
           "extra": "",
-          "xform": ""
+          "xform": "",
+          "align": ""
         },
         {
-          "name": "Κατηγορία",
+          "name": "κενά",
           "enabled": true,
-          "pos": 3,
-          "len": 0,
+          "pos": 0,
+          "len": 12,
           "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Τιμή",
-          "enabled": true,
-          "pos": 4,
-          "len": 0,
-          "extra": "",
-          "xform": "dec2dot"
-        },
-        {
-          "name": "Πεδίο 5",
-          "enabled": true,
-          "pos": 5,
-          "len": 0,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "ΦΠΑ",
-          "enabled": true,
-          "pos": 6,
-          "len": 0,
-          "extra": "",
-          "xform": ""
-        }
-      ]
-    },
-    "ISHIDA · όλα τα πεδία, τιμή 5,40 (; διαχωριστικό)": {
-      "settings": {
-        "step2_input_type": "delimited",
-        "step2_input_delimiter": ",",
-        "step2_trailing_delim": false,
-        "step2_quotes": false,
-        "step2_in_encoding": "auto",
-        "step2_out_encoding": "cp1253",
-        "step2_final_newline": true,
-        "step2_write_header": false,
-        "step2_sanitize": true,
-        "step2_dedupe": false,
-        "step2_positions_bytes": false,
-        "step2_startline": 1,
-        "step2_onebased": true,
-        "step2_format": "semicolon",
-        "step2_delimiter": ";"
-      },
-      "fields": [
-        {
-          "name": "Κωδικός",
-          "enabled": true,
-          "pos": 1,
-          "len": 0,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Περιγραφή",
-          "enabled": true,
-          "pos": 2,
-          "len": 0,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Κατηγορία",
-          "enabled": true,
-          "pos": 3,
-          "len": 0,
-          "extra": "",
-          "xform": ""
+          "xform": "",
+          "align": ""
         },
         {
           "name": "Τιμή",
           "enabled": true,
           "pos": 4,
-          "len": 0,
+          "len": 5,
           "extra": "",
-          "xform": "dec2comma"
+          "xform": "dec2dot",
+          "align": "right"
         },
         {
-          "name": "Πεδίο 5",
+          "name": "κενά",
           "enabled": true,
-          "pos": 5,
-          "len": 0,
+          "pos": 0,
+          "len": 5,
           "extra": "",
-          "xform": ""
+          "xform": "",
+          "align": ""
         },
         {
-          "name": "ΦΠΑ",
+          "name": "Μονάδα",
           "enabled": true,
-          "pos": 6,
-          "len": 0,
+          "pos": 0,
+          "len": 1,
+          "extra": "2",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "κενό",
+          "enabled": true,
+          "pos": 0,
+          "len": 1,
           "extra": "",
-          "xform": ""
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "Τμήμα",
+          "enabled": true,
+          "pos": 0,
+          "len": 2,
+          "extra": "04",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "κενό",
+          "enabled": true,
+          "pos": 0,
+          "len": 1,
+          "extra": "",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "Ομάδα",
+          "enabled": true,
+          "pos": 0,
+          "len": 2,
+          "extra": "01",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "κενό",
+          "enabled": true,
+          "pos": 0,
+          "len": 1,
+          "extra": "",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "Σταθερό",
+          "enabled": true,
+          "pos": 0,
+          "len": 2,
+          "extra": "00",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "κενά",
+          "enabled": true,
+          "pos": 0,
+          "len": 21,
+          "extra": "",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "Τέλος",
+          "enabled": true,
+          "pos": 0,
+          "len": 1,
+          "extra": "0",
+          "xform": "",
+          "align": ""
         }
       ]
     },
