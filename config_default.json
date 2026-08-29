@@ -102,6 +102,7 @@
   "direct_send": false,
   "direct_retries": 2,
   "direct_quirk": true,
+  "direct_all_fields": false,
   "ishida_enabled": false,
   "ishida_exe": "",
   "ishida_src": "",

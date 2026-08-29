@@ -1063,7 +1063,11 @@ CSV_TO_JSON = {
     "Department": "department_num", "Pre tare": "pre_tare_value",
     "BarCode Format": "barcode_format", "Label Format": "label_format_num",
     "Disabled": "disabled",
-    # --- επιπλέον: ο ζυγός τα δέχεται, το AutoProcess δεν τα έστελνε ποτέ ---
+}
+
+# Ο ζυγός τα δέχεται, αλλά το AutoProcess δεν τα έστελνε ποτέ. Μένουν κλειστά
+# από προεπιλογή: στέλνουμε ό,τι ακριβώς στέλνει και το AutoProcess.
+CSV_TO_JSON_EXTRA = {
     "NameSpell": "name_sort", "AbbrSpell": "abbr_sort",
     "Origin": "place_of_origin", "Label Format2": "label_format_num2",
     "Pcs": "pcs_flag", "Tax": "tax_num", "Shelf Number": "shelf_num",
@@ -1095,6 +1099,29 @@ MODEL_FIELDS = [
 ] + [("remark_%d" % i, "") for i in range(1, 9)]
 
 
+def csv_map(cfg):
+    """Η αντιστοίχιση στηλών: ίδια με το AutoProcess, ή διευρυμένη αν ζητηθεί."""
+    m = dict(CSV_TO_JSON)
+    if cfg.get("direct_all_fields"):
+        m.update(CSV_TO_JSON_EXTRA)
+    return m
+
+
+def greek_as_autoprocess(text):
+    """Μιμείται το σφάλμα κωδικοσελίδας του AutoProcess, ώστε ο ζυγός να δει
+    ακριβώς ό,τι έβλεπε πάντα.
+
+    Το AutoProcess διαβάζει το cp1253 αρχείο σαν Windows-1252: το «Κ» (0xCA) του
+    φαίνεται «Ê», ενώ το «’» (0x92) περνάει σωστά — κάτι που αποκλείει το Latin-1.
+    Ο ζυγός έχει μάθει να τα διαβάζει έτσι, οπότε το αναπαράγουμε πιστά αντί να
+    «διορθώσουμε» κάτι που δουλεύει.
+    """
+    try:
+        return text.encode("cp1253").decode("cp1252", "replace")
+    except UnicodeEncodeError:
+        return text
+
+
 def build_products_json(path, cfg, log):
     """Διαβάζει το αρχείο προϊόντων και φτιάχνει το JSON που περιμένει ο ζυγός."""
     enc = cfg.get("step2_out_encoding") or "cp1253"
@@ -1116,9 +1143,10 @@ def build_products_json(path, cfg, log):
         raise StepError("Βήμα 4", "Η απευθείας αποστολή χρειάζεται γραμμή επικεφαλίδων.",
                         "Ενεργοποίησε το «Γράψε γραμμή επικεφαλίδων» στο Βήμα 3.")
 
+    mapping = csv_map(cfg)
     header = [h.strip() for h in lines[0].split(delim)]
-    known = [h for h in header if h in CSV_TO_JSON]
-    unknown = [h for h in header if h and h not in CSV_TO_JSON]
+    known = [h for h in header if h in mapping]
+    unknown = [h for h in header if h and h not in mapping]
     log("  στέλνονται %d στήλες: %s" % (len(known), ", ".join(known)))
     if unknown:
         log("  (αγνοούνται, δεν υπάρχει αντίστοιχο πεδίο στον ζυγό: %s)" % ", ".join(unknown))
@@ -1128,9 +1156,12 @@ def build_products_json(path, cfg, log):
         cols = line.split(delim)
         row = dict(MODEL_FIELDS)
         for i, name in enumerate(header):
-            key = CSV_TO_JSON.get(name)
+            key = mapping.get(name)
             if key and i < len(cols):
-                row[key] = cols[i].strip()
+                # Το AutoProcess πετάει τα διπλά εισαγωγικά (τα θεωρεί σήμανση CSV),
+                # π.χ. ΣΑΛΑΜΙ ΑΕΡΟΣ "ΩΡΑΙΑ ΔΡΑΜΑ" -> ΣΑΛΑΜΙ ΑΕΡΟΣ ΩΡΑΙΑ ΔΡΑΜΑ.
+                # Τα κενά στο τέλος μένουν: έτσι τα στέλνει και το AutoProcess.
+                row[key] = cols[i].replace('"', "")
         items.append(row)
     return items
 
@@ -1155,19 +1186,20 @@ def send_to_scale(ip, items, log, timeout=180, quirk=True):
     ok, why = scale_reachable(ip)
     if not ok:
         return False, why
-    text = json.dumps(items, ensure_ascii=False)
     if quirk:
-        # Το AutoProcess διαβάζει το cp1253 αρχείο σαν Latin-1, οπότε ο ζυγός
-        # περιμένει τα ελληνικά έτσι. Το μιμούμαστε για να δουλέψει ίδια.
-        body = text.encode("utf-8", "replace")
-    else:
-        body = text.encode("utf-8")
+        items = [{k: (greek_as_autoprocess(v) if isinstance(v, str) else v)
+                  for k, v in row.items()} for row in items]
+    # Χωρίς κενά μετά από «:» και «,» — έτσι το γράφει το Newtonsoft.Json του
+    # AutoProcess, και θέλουμε σώμα byte-προς-byte ίδιο.
+    body = json.dumps(items, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     url = "http://%s:%d/products" % (ip, SCALE_PORT)
     req = urllib.request.Request(url, data=body, method="POST", headers={
         "Content-Type": "application/json",
         "Accept": "application/json, application/xml, text/json, text/x-json, "
                   "text/javascript, text/xml",
-        "User-Agent": "ICSautoScaleUpdater",
+        # Ίδιες κεφαλίδες με το AutoProcess: ο ζυγός βλέπει ακριβώς ό,τι συνήθιζε.
+        "User-Agent": "RestSharp 102.7.0.0",
+        "Accept-Encoding": "gzip, deflate",
     })
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
