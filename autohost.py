@@ -1044,8 +1044,176 @@ def deliver_file(src, dst, log, label):
     log("  -> %s: %s -> %s" % (label, os.path.basename(src), dst))
 
 
+# --------------------------------------------------------------------------
+# Απευθείας αποστολή στους ζυγούς, χωρίς το AutoProcess
+#
+# Το πρωτόκολλο βγήκε από ανάλυση και καταγραφή του AutoProcess:
+#   POST http://<IP>:1235/products   με Content-Type: application/json
+#   σώμα: ΕΝΑΣ πίνακας με όλα τα προϊόντα, όλες οι τιμές ως κείμενο.
+# --------------------------------------------------------------------------
+SCALE_PORT = 1235
+
+# Στήλη CSV -> πεδίο JSON (επιβεβαιωμένο με δοκιμαστικό αρχείο μοναδικών τιμών)
+CSV_TO_JSON = {
+    "ProductNumber": "product_number", "BarCode": "product_code",
+    "ProductName": "product_name", "Abbr": "product_abbr",
+    "Price": "original_price", "Price Low": "sales_price",
+    "Price Unit": "price_unit_index", "Category": "category_num",
+    "Department": "department_num", "Pre tare": "pre_tare_value",
+    "BarCode Format": "barcode_format", "Label Format": "label_format_num",
+    "Disabled": "disabled",
+}
+
+# Τα 40 πεδία της κλάσης ModelProduct. Όσα μένουν κενά στέλνονται "" ή null,
+# ακριβώς όπως τα στέλνει το AutoProcess — ποτέ δεν παραλείπονται.
+MODEL_FIELDS = [
+    ("product_number", ""), ("product_code", ""), ("product_name", ""),
+    ("name_sort", None), ("product_abbr", ""), ("abbr_sort", None),
+    ("category_num", ""), ("department_num", ""), ("pre_tare_value", ""),
+    ("pre_tare_unit_index", ""), ("place_of_origin", None), ("pcs_flag", ""),
+    ("original_price", ""), ("sales_price", ""), ("price_unit_index", ""),
+    ("tax_num", None), ("barcode_format", ""), ("used_by_days", ""),
+    ("reccommend_days", ""), ("label_format_num", ""), ("label_format_num2", None),
+    ("image_filename", ""), ("disabled", ""), ("shelf_num", None),
+    ("produced_date", ""), ("pack_date", ""), ("exp_date", ""),
+    ("expiration_date", None), ("ingredients", ""), ("temperature_info", ""),
+    ("nutrition", ""), ("produced", ""),
+] + [("remark_%d" % i, "") for i in range(1, 9)]
+
+
+def build_products_json(path, cfg, log):
+    """Διαβάζει το αρχείο προϊόντων και φτιάχνει το JSON που περιμένει ο ζυγός."""
+    enc = cfg.get("step2_out_encoding") or "cp1253"
+    delim = {"csv": ",", "tab": "\t", "semicolon": ";"}.get(
+        cfg.get("step2_format", "csv"), cfg.get("step2_delimiter", ",") or ",")
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+    except Exception as exc:
+        raise StepError("Βήμα 4", "Αδυναμία ανάγνωσης του αρχείου προϊόντων.",
+                        "%s\n%s" % (path, exc))
+
+    text = raw.decode(enc, "replace")
+    lines = [l for l in text.replace("\r\n", "\n").split("\n") if l.strip()]
+    if not lines:
+        raise StepError("Βήμα 4", "Το αρχείο προϊόντων είναι κενό.", path)
+
+    if not cfg.get("step2_write_header", True):
+        raise StepError("Βήμα 4", "Η απευθείας αποστολή χρειάζεται γραμμή επικεφαλίδων.",
+                        "Ενεργοποίησε το «Γράψε γραμμή επικεφαλίδων» στο Βήμα 3.")
+
+    header = [h.strip() for h in lines[0].split(delim)]
+    unknown = [h for h in header if h and h not in CSV_TO_JSON]
+    if unknown:
+        log("  (αγνοούνται στήλες που δεν δέχεται ο ζυγός: %s)" % ", ".join(unknown))
+
+    items = []
+    for line in lines[1:]:
+        cols = line.split(delim)
+        row = dict(MODEL_FIELDS)
+        for i, name in enumerate(header):
+            key = CSV_TO_JSON.get(name)
+            if key and i < len(cols):
+                row[key] = cols[i].strip()
+        items.append(row)
+    return items
+
+
+def scale_reachable(ip, timeout=5):
+    """Γρήγορος έλεγχος ότι ο ζυγός ακούει, πριν στείλουμε megabytes.
+
+    Χωρίς αυτό, ένας κλειστός ζυγός κρατάει τη ροή για λεπτά περιμένοντας
+    timeout — και καθυστερούν μαζί του και οι υπόλοιποι.
+    """
+    import socket
+    try:
+        with socket.create_connection((ip, SCALE_PORT), timeout):
+            return True, ""
+    except Exception as exc:
+        return False, "δεν απαντά στη θύρα %d (%s)" % (SCALE_PORT, exc)
+
+
+def send_to_scale(ip, items, log, timeout=180, quirk=True):
+    """Στέλνει τα προϊόντα σε έναν ζυγό. Επιστρέφει (επιτυχία, μήνυμα)."""
+    import urllib.request, urllib.error
+    ok, why = scale_reachable(ip)
+    if not ok:
+        return False, why
+    text = json.dumps(items, ensure_ascii=False)
+    if quirk:
+        # Το AutoProcess διαβάζει το cp1253 αρχείο σαν Latin-1, οπότε ο ζυγός
+        # περιμένει τα ελληνικά έτσι. Το μιμούμαστε για να δουλέψει ίδια.
+        body = text.encode("utf-8", "replace")
+    else:
+        body = text.encode("utf-8")
+    url = "http://%s:%d/products" % (ip, SCALE_PORT)
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Content-Type": "application/json",
+        "Accept": "application/json, application/xml, text/json, text/x-json, "
+                  "text/javascript, text/xml",
+        "User-Agent": "ICSautoScaleUpdater",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            answer = resp.read().decode("utf-8", "replace")[:200]
+            return True, "HTTP %d %s" % (resp.status, answer.strip())
+    except urllib.error.HTTPError as exc:
+        return False, "HTTP %d: %s" % (exc.code, exc.reason)
+    except Exception as exc:
+        return False, str(exc)
+
+
+def run_direct_send(cfg, log, stop_event=None):
+    """Βήμα 4 χωρίς AutoProcess: στέλνει το ίδιο το πρόγραμμα."""
+    ips = parse_ips(cfg.get("scale_ips", ""))
+    if not ips:
+        raise StepError("Βήμα 4", "Δεν έχει οριστεί IP ζυγού.",
+                        "Συμπλήρωσε τις διευθύνσεις στο πεδίο «IP ζυγών».")
+    path = (cfg.get("step2_output") or "").strip()
+    if not path or not os.path.isfile(path):
+        raise StepError("Βήμα 4", "Δεν βρέθηκε το αρχείο προϊόντων για αποστολή.",
+                        "Διαδρομή: %s" % path)
+
+    items = build_products_json(path, cfg, log)
+    log("  -> απευθείας αποστολή: %d προϊόντα σε %d ζυγό(ους), θύρα %d"
+        % (len(items), len(ips), SCALE_PORT))
+
+    # Ένας ζυγός που δεν απαντά δεν σταματά τους υπόλοιπους: συνεχίζουμε και
+    # αναφέρουμε στο τέλος ποιοι έμειναν πίσω.
+    failures = []
+    tries = max(1, int(cfg.get("direct_retries", 2) or 2))
+    for ip in ips:
+        if stop_event is not None and stop_event.is_set():
+            break
+        for attempt in range(1, tries + 1):
+            ok, msg = send_to_scale(ip, items, log, quirk=cfg.get("direct_quirk", True))
+            if ok:
+                log("  -> %s: ΕΠΙΤΥΧΙΑ  (%s)" % (ip, msg))
+                break
+            if attempt < tries:
+                log("  -> %s: αποτυχία (%s) — νέα προσπάθεια %d/%d"
+                    % (ip, msg, attempt + 1, tries))
+                time.sleep(2)
+            else:
+                log("  -> %s: ΑΠΟΤΥΧΙΑ μετά από %d προσπάθειες  (%s)" % (ip, tries, msg))
+                failures.append("%s — %s" % (ip, msg))
+    return failures
+
+
 def run_step3(cfg, log, stop_event=None):
     """Βήμα 4: στέλνει σε T-Scale και, προαιρετικά, σε Ishida / ILS."""
+    if cfg.get("direct_send"):
+        failures = run_direct_send(cfg, log, stop_event)
+        _run_extra_senders(cfg, log, stop_event)      # οι υπόλοιποι ζυγοί κανονικά
+        if failures:
+            raise StepError(
+                "Βήμα 4", "Δεν ενημερώθηκαν %d ζυγοί." % len(failures),
+                "\n".join(failures) +
+                "\n\nΟι υπόλοιποι ενημερώθηκαν κανονικά και η προσπάθεια θα "
+                "επαναληφθεί στην επόμενη αλλαγή του ERP.\nΑν επιμένει, ξε-τσέκαρε "
+                "την «Απευθείας αποστολή» για να ξαναδουλέψει μέσω AutoProcess.")
+        return
+
     exe = (cfg.get("step3_exe") or "").strip()
     secs = int(cfg.get("step3_seconds", 120) or 120)
     if not exe or not os.path.isfile(exe):
@@ -1061,7 +1229,10 @@ def run_step3(cfg, log, stop_event=None):
             log("  -> ενημερώθηκε το ip.xml: %s" % ", ".join(ips))
 
     run_sender(exe, secs, cfg.get("step3_kill", True), log, stop_event, "T-Scale")
+    _run_extra_senders(cfg, log, stop_event)
 
+
+def _run_extra_senders(cfg, log, stop_event=None):
     for key, label in EXTRA_SENDERS:
         if not cfg.get("%s_enabled" % key):
             continue
@@ -1273,9 +1444,26 @@ def build_preview(cfg):
     if not cfg.get("step3_enabled"):
         add("  απενεργοποιημένο")
     else:
+        if cfg.get("direct_send"):
+            add("  ΤΡΟΠΟΣ: απευθείας από το πρόγραμμά μας (χωρίς AutoProcess)")
+            add("  POST http://<IP>:%d/products   Content-Type: application/json" % SCALE_PORT)
+            src = (cfg.get("step2_output") or "").strip()
+            if os.path.isfile(src):
+                try:
+                    items = build_products_json(src, cfg, lambda m: None)
+                    add("  θα σταλούν %d προϊόντα από %s" % (len(items), os.path.basename(src)))
+                    if items:
+                        sample = {k: v for k, v in items[0].items() if v not in ("", None)}
+                        add("  δείγμα 1ου: %s" % json.dumps(sample, ensure_ascii=False)[:220])
+                except StepError as exc:
+                    add("  ΠΡΟΣΟΧΗ: %s" % exc.message)
+            else:
+                add("  ΠΡΟΣΟΧΗ: δεν βρέθηκε το αρχείο προϊόντων (%s)" % (src or "—"))
         exe = cfg.get("step3_exe", "")
-        add("  θα εκτελεστεί: %s" % exe)
-        add("  υπάρχει: %s | διάρκεια: %s δευτ." % (os.path.isfile(exe), cfg.get("step3_seconds")))
+        add("  εφαρμογή ζυγού: %s" % exe)
+        add("  υπάρχει: %s | διάρκεια: %s δευτ.%s"
+            % (os.path.isfile(exe), cfg.get("step3_seconds"),
+               "   (δεν θα χρησιμοποιηθεί)" if cfg.get("direct_send") else ""))
         wanted = parse_ips(cfg.get("scale_ips", ""))
         current = read_ips(exe)
         add("  IP ζυγών (ρύθμιση): %s" % (", ".join(wanted) or "—"))
@@ -1895,6 +2083,22 @@ class App(tk.Tk):
         f = self.tab3
         self.v_s3 = tk.BooleanVar()
         ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 4 — Εφαρμογή ζυγού", variable=self.v_s3).pack(anchor="w")
+        direct = ttk.Frame(f)
+        direct.pack(fill="x", pady=(6, 2))
+        self.v_direct = tk.BooleanVar(value=False)
+        ttk.Checkbutton(direct, text="Απευθείας αποστολή από το πρόγραμμά μας "
+                                     "(χωρίς AutoProcess)",
+                        variable=self.v_direct, command=self.on_direct_toggle,
+                        style="Big.TCheckbutton").pack(side="left")
+        self.lbl_direct = ttk.Label(direct, style="Hint.TLabel")
+        self.lbl_direct.pack(side="left", padx=10)
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Στέλνει το ίδιο το πρόγραμμα, στο παρασκήνιο, χωρίς να ανοίγει "
+                       "τίποτα. Δίνει πραγματική επιβεβαίωση ανά ζυγό. Αν κάποιος ζυγός "
+                       "δεν απαντήσει, οι υπόλοιποι ενημερώνονται κανονικά και βγαίνει "
+                       "σφάλμα μόνο γι' αυτόν. Ξε-τσέκαρέ το για να ξαναδουλέψει με το "
+                       "AutoProcess.").pack(anchor="w", pady=(0, 6))
+
         g = ttk.Frame(f)
         g.pack(fill="x", pady=8)
         self.v_s3exe = tk.StringVar()
@@ -2165,6 +2369,8 @@ class App(tk.Tk):
         self.v_s3sec.set(str(c.get("step3_seconds", 120)))
         self.v_s3kill.set(bool(c.get("step3_kill", True)))
         self.v_ips.set(c.get("scale_ips", "") or ", ".join(read_ips(c.get("step3_exe", ""))))
+        self.v_direct.set(bool(c.get("direct_send", False)))
+        self.on_direct_toggle()
         for key, _label in EXTRA_SENDERS:
             v = self.v_extra[key]
             v["enabled"].set(bool(c.get("%s_enabled" % key, False)))
@@ -2244,6 +2450,7 @@ class App(tk.Tk):
             c["step3_seconds"] = 120
         c["step3_kill"] = self.v_s3kill.get()
         c["scale_ips"] = self.v_ips.get().strip()
+        c["direct_send"] = self.v_direct.get()
         for key, _label in EXTRA_SENDERS:
             v = self.v_extra[key]
             c["%s_enabled" % key] = v["enabled"].get()
@@ -2533,6 +2740,15 @@ class App(tk.Tk):
         else:
             self.adv4.pack(fill="x")
             self.btn_adv4.configure(text="⚙  Επιπλέον ζυγοί (Ishida / ILS)  ▴")
+
+    def on_direct_toggle(self):
+        """Δείχνει τι θα γίνει με την τρέχουσα επιλογή."""
+        if self.v_direct.get():
+            self.lbl_direct.configure(
+                text="→ POST http://<IP>:%d/products  (δεν χρησιμοποιείται το AutoProcess)"
+                     % SCALE_PORT)
+        else:
+            self.lbl_direct.configure(text="→ ανοίγει το AutoProcess, όπως μέχρι τώρα")
 
     def use_bundled_autoprocess(self):
         p = bundled_autoprocess()
