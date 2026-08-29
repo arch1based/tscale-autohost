@@ -6,7 +6,7 @@
 διεύθυνση, κεφαλίδες και ολόκληρο το JSON.
 
 Χρήση (στα Windows, με Python εγκατεστημένη):
-    python fake_scale.py            (θύρα 80)
+    python fake_scale.py            (θύρα 1235 — αυτή που χρησιμοποιεί ο ζυγός)
     python fake_scale.py 8080       (άλλη θύρα, αν η 80 είναι πιασμένη)
 """
 
@@ -100,7 +100,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 80
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 1235   # η θύρα των T-Scale
     open(OUT, "w", encoding="utf-8").close()
     log("Ψεύτικος ζυγός σε http://127.0.0.1:%d" % port)
     log("Βάλε 127.0.0.1 στο ip.xml, τρέξε το AutoProcess, και θα δεις εδώ το αίτημα.")
