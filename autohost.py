@@ -1589,7 +1589,20 @@ class App(tk.Tk):
         h = min(900, sh - 90)                  # να μη μπαίνει κάτω από τη γραμμή εργασιών
         self.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 3)))
         self.minsize(760, 460)
+        self._first_run = not os.path.exists(CONFIG_PATH) and not any(
+            os.path.exists(p) for p in LEGACY_CONFIGS)
         self.cfg = load_config()
+        if self._first_run:
+            # Νέα εγκατάσταση: ξεκινά ήδη φορτωμένο το πρώτο (προεπιλεγμένο) προφίλ,
+            # χωρίς να χρειαστεί να πατηθεί «Φόρτωση».
+            profiles = self.cfg.get("profiles", {})
+            default_name = next(iter(profiles), None)
+            if default_name:
+                entry = profiles[default_name]
+                fields = entry.get("fields", entry) if isinstance(entry, dict) else entry
+                self.cfg["step2_fields"] = [dict(fld) for fld in fields]
+                settings = entry.get("settings", {}) if isinstance(entry, dict) else {}
+                self.cfg.update(settings)
         self.worker = None
         self.stop_event = threading.Event()
         self.watch_thread = None
@@ -1600,6 +1613,13 @@ class App(tk.Tk):
         self.pending_error = None
         self._build()
         self._load_into_widgets()
+        if self._first_run:
+            # Νέα εγκατάσταση: ξεκινά με τα Windows χωρίς να χρειαστεί κλικ.
+            try:
+                set_autostart(True)
+            except Exception:
+                pass
+            self.v_boot.set(True)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     # ---------------- εμφάνιση ----------------
@@ -2133,26 +2153,47 @@ class App(tk.Tk):
         ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 4 — Εφαρμογή ζυγού", variable=self.v_s3).pack(anchor="w")
         direct = ttk.Frame(f)
         direct.pack(fill="x", pady=(6, 2))
-        self.v_direct = tk.BooleanVar(value=False)
-        ttk.Checkbutton(direct, text="Απευθείας αποστολή από το πρόγραμμά μας "
-                                     "(χωρίς AutoProcess)",
+        self.v_direct = tk.BooleanVar(value=True)
+        ttk.Checkbutton(direct, text="Απευθείας αποστολή στη ζυγαριά",
                         variable=self.v_direct, command=self.on_direct_toggle,
                         style="Big.TCheckbutton").pack(side="left")
         self.lbl_direct = ttk.Label(direct, style="Hint.TLabel")
         self.lbl_direct.pack(side="left", padx=10)
-        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Στέλνει το ίδιο το πρόγραμμα, στο παρασκήνιο, χωρίς να ανοίγει "
-                       "τίποτα. Δίνει πραγματική επιβεβαίωση ανά ζυγό. Αν κάποιος ζυγός "
-                       "δεν απαντήσει, οι υπόλοιποι ενημερώνονται κανονικά και βγαίνει "
-                       "σφάλμα μόνο γι' αυτόν. Ξε-τσέκαρέ το για να ξαναδουλέψει με το "
-                       "AutoProcess.").pack(anchor="w", pady=(0, 6))
 
-        g = ttk.Frame(f)
-        g.pack(fill="x", pady=8)
+        ipf = ttk.Frame(f)
+        ipf.pack(fill="x", pady=(6, 0))
+        ttk.Label(ipf, text="IP ζυγών:").pack(side="left")
+        self.v_ips = tk.StringVar()
+        self._add_edit_menu(ttk.Entry(ipf, textvariable=self.v_ips, width=40)).pack(side="left", padx=6)
+        ttk.Button(ipf, text="Αποθήκευση IP", style="Accent.TButton",
+                   command=self.save_ips).pack(side="left")
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Οι διευθύνσεις των ζυγών, χωρισμένες με κόμμα (π.χ. 10.130.20.49, "
+                       "10.130.20.46). Αποθηκεύονται αυτόματα και πριν από κάθε εκτέλεση."
+                  ).pack(anchor="w", pady=(4, 8))
+
+        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(4, 8))
+        bar3m = ttk.Frame(f)
+        bar3m.pack(fill="x")
+        self.btn_adv3m = ttk.Button(bar3m, text="⚙  Χειροκίνητα με το AutoProcess  ▾",
+                                    style="Ghost.TButton", command=self.toggle_adv3m)
+        self.btn_adv3m.pack(side="left")
+        ttk.Label(bar3m, style="Hint.TLabel",
+                  text="μόνο αν χρειαστεί εναλλακτική στην απευθείας αποστολή"
+                  ).pack(side="left", padx=8)
+
+        self.adv3m = ttk.Frame(f)
+        ttk.Label(self.adv3m, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Ξε-τσέκαρε την «Απευθείας αποστολή» παραπάνω για να χρησιμοποιηθεί "
+                       "το AutoProcess του κατασκευαστή αντί για εμάς."
+                  ).pack(anchor="w", pady=(4, 6))
+
+        g = ttk.Frame(self.adv3m)
+        g.pack(fill="x", pady=4)
         self.v_s3exe = tk.StringVar()
         self._pick_row(g, "Πρόγραμμα T-Scale (AutoProcess.exe):", self.v_s3exe, "exe", 0)
 
-        bundled = ttk.Frame(f)
+        bundled = ttk.Frame(self.adv3m)
         bundled.pack(fill="x", pady=(4, 0))
         self.btn_bundled = ttk.Button(bundled, text="Εύρεση δίπλα στο πρόγραμμα",
                                       command=self.use_bundled_autoprocess)
@@ -2160,30 +2201,24 @@ class App(tk.Tk):
         self.lbl_bundled = ttk.Label(bundled, style="Hint.TLabel")
         self.lbl_bundled.pack(side="left", padx=10)
 
-        ipf = ttk.Frame(f)
-        ipf.pack(fill="x", pady=(10, 0))
-        ttk.Label(ipf, text="IP ζυγών:").pack(side="left")
-        self.v_ips = tk.StringVar()
-        self._add_edit_menu(ttk.Entry(ipf, textvariable=self.v_ips, width=40)).pack(side="left", padx=6)
-        ttk.Button(ipf, text="Αποθήκευση IP", style="Accent.TButton",
-                   command=self.save_ips).pack(side="left")
-        ttk.Button(ipf, text="Ανάγνωση από AutoProcess", style="Ghost.TButton",
-                   command=self.load_ips).pack(side="left", padx=6)
-        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Οι διευθύνσεις των ζυγών, χωρισμένες με κόμμα (π.χ. 10.130.20.49, "
-                       "10.130.20.46). Γράφονται στο ip.xml δίπλα στο AutoProcess — δεν "
-                       "χρειάζεται να το ανοίξεις με το χέρι. Αποθηκεύονται αυτόματα και "
-                       "πριν από κάθε εκτέλεση."
-                  ).pack(anchor="w", pady=(4, 0))
-        r = ttk.Frame(f)
-        r.pack(fill="x")
+        loadipf = ttk.Frame(self.adv3m)
+        loadipf.pack(fill="x", pady=(6, 0))
+        ttk.Button(loadipf, text="Ανάγνωση IP από AutoProcess", style="Ghost.TButton",
+                   command=self.load_ips).pack(side="left")
+        ttk.Label(self.adv3m, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Οι IP γράφονται στο ip.xml δίπλα στο AutoProcess — δεν χρειάζεται "
+                       "να το ανοίξεις με το χέρι."
+                  ).pack(anchor="w", pady=(2, 0))
+
+        r = ttk.Frame(self.adv3m)
+        r.pack(fill="x", pady=(8, 0))
         self.v_s3sec = tk.StringVar(value="120")
         self.v_s3kill = tk.BooleanVar(value=True)
         ttk.Label(r, text="Διάρκεια (δευτερόλεπτα):").pack(side="left")
         ttk.Entry(r, textvariable=self.v_s3sec, width=7).pack(side="left", padx=6)
         ttk.Checkbutton(r, text="Κλείσε την αυτόματα όταν περάσει ο χρόνος",
                         variable=self.v_s3kill).pack(side="left", padx=12)
-        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+        ttk.Label(self.adv3m, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Το AutoProcess είναι το πρόγραμμα του κατασκευαστή που στέλνει τα "
                        "δεδομένα στους ζυγούς T-Scale. Δείξε πού είναι εγκατεστημένο στο "
                        "μηχάνημα του πελάτη.").pack(anchor="w", pady=(8, 0))
@@ -2417,7 +2452,7 @@ class App(tk.Tk):
         self.v_s3sec.set(str(c.get("step3_seconds", 120)))
         self.v_s3kill.set(bool(c.get("step3_kill", True)))
         self.v_ips.set(c.get("scale_ips", "") or ", ".join(read_ips(c.get("step3_exe", ""))))
-        self.v_direct.set(bool(c.get("direct_send", False)))
+        self.v_direct.set(bool(c.get("direct_send", True)))
         self.on_direct_toggle()
         for key, _label in EXTRA_SENDERS:
             v = self.v_extra[key]
@@ -2789,14 +2824,21 @@ class App(tk.Tk):
             self.adv4.pack(fill="x")
             self.btn_adv4.configure(text="⚙  Επιπλέον ζυγοί (Ishida / ILS)  ▴")
 
+    def toggle_adv3m(self):
+        if self.adv3m.winfo_ismapped():
+            self.adv3m.pack_forget()
+            self.btn_adv3m.configure(text="⚙  Χειροκίνητα με το AutoProcess  ▾")
+        else:
+            self.adv3m.pack(fill="x")
+            self.btn_adv3m.configure(text="⚙  Χειροκίνητα με το AutoProcess  ▴")
+
     def on_direct_toggle(self):
         """Δείχνει τι θα γίνει με την τρέχουσα επιλογή."""
         if self.v_direct.get():
             self.lbl_direct.configure(
-                text="→ POST http://<IP>:%d/products  (δεν χρησιμοποιείται το AutoProcess)"
-                     % SCALE_PORT)
+                text="→ στέλνει απευθείας, χωρίς AutoProcess")
         else:
-            self.lbl_direct.configure(text="→ ανοίγει το AutoProcess, όπως μέχρι τώρα")
+            self.lbl_direct.configure(text="→ θα σταλεί μέσω AutoProcess")
 
     def use_bundled_autoprocess(self):
         p = bundled_autoprocess()
