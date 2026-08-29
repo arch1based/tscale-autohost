@@ -27,7 +27,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "1.9.6"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "2.0.0"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -1639,8 +1639,18 @@ class App(tk.Tk):
         self.v_auto = tk.BooleanVar()
         self._pick_row(f, "Αρχείο που βγάζει το ERP:", self.v_watch, "file", 0)
         self._pick_row(f, "Φάκελος εξόδου (host1 / host2):", self.v_outdir, "dir", 1)
-        ext = ttk.Frame(f)
-        ext.grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        adv1bar = ttk.Frame(f)
+        adv1bar.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.btn_adv1 = ttk.Button(adv1bar, text="⚙  Περισσότερα  ▾", style="Ghost.TButton",
+                                   command=self.toggle_adv1)
+        self.btn_adv1.pack(side="left")
+        ttk.Label(adv1bar, style="Hint.TLabel",
+                  text="καταλήξεις αρχείων, αντίγραφα ασφαλείας, μηνύματα"
+                  ).pack(side="left", padx=8)
+        self.adv1 = ttk.Frame(f)
+
+        ext = ttk.Frame(self.adv1)
+        ext.pack(fill="x", pady=(6, 0))
         ttk.Label(ext, text="Κατάληξη:").pack(side="left")
         ttk.Label(ext, text="host1", style="Hint.TLabel").pack(side="left", padx=(10, 2))
         self.v_ext1 = tk.StringVar(value="")
@@ -1665,8 +1675,8 @@ class App(tk.Tk):
             v.trace_add("write", lambda *_: self.refresh_poll_hint())
         ttk.Checkbutton(row, text="Αυτόματη έναρξη με το άνοιγμα",
                         variable=self.v_auto).pack(side="left", padx=12)
-        bk = ttk.Frame(f)
-        bk.grid(row=7, column=0, columnspan=3, sticky="w", pady=(2, 0))
+        bk = ttk.Frame(self.adv1)
+        bk.pack(fill="x", pady=(6, 0))
         self.v_backup = tk.BooleanVar(value=True)
         self.v_keep = tk.StringVar(value="3")
         ttk.Checkbutton(bk, text="Κράτα αντίγραφα των τελευταίων", variable=self.v_backup).pack(side="left")
@@ -1683,11 +1693,11 @@ class App(tk.Tk):
         ttk.Checkbutton(f, variable=self.v_boot, command=self.on_boot_toggle,
                         text="Εκκίνηση με τα Windows — ξεκινά ελαχιστοποιημένο "
                              "στην περιοχή ειδοποιήσεων (κάτω δεξιά)"
-                        ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(2, 0))
+                        ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(2, 0))
         ttk.Label(f, style="Hint.TLabel", wraplength=880, justify="left",
                   text="Μόλις αλλάξει το αρχείο του ERP, δημιουργούνται αυτόματα τα host1.<κατάληξη> και "
                        "host2.<κατάληξη> στον φάκελο εξόδου και ξεκινούν τα ενεργοποιημένα βήματα."
-                  ).grid(row=8, column=0, columnspan=3, sticky="w", pady=10)
+                  ).grid(row=7, column=0, columnspan=3, sticky="w", pady=10)
 
     def _build_tab1(self):
         f = self.tab1
@@ -1759,7 +1769,18 @@ class App(tk.Tk):
                        "product.csv. Κενή διαδρομή = host2.csv στον φάκελο εξόδου."
                   ).pack(anchor="w", pady=(2, 0))
 
-        intype = ttk.Frame(f)
+        advbar = ttk.Frame(f)
+        advbar.pack(fill="x", pady=(8, 0))
+        self.btn_adv2 = ttk.Button(advbar, text="⚙  Αναλυτικές ρυθμίσεις  ▾",
+                                   style="Ghost.TButton", command=self.toggle_adv2)
+        self.btn_adv2.pack(side="left")
+        ttk.Label(advbar, style="Hint.TLabel",
+                  text="μορφή αρχείου, κωδικοσελίδες, διαχωριστικά — τα ρυθμίζει το προφίλ"
+                  ).pack(side="left", padx=8)
+
+        self.adv2 = ttk.Frame(f)          # κρυφό: ό,τι ορίζει ήδη το προφίλ
+
+        intype = ttk.Frame(self.adv2)
         intype.pack(fill="x", pady=(2, 4))
         ttk.Label(intype, text="Αρχείο εισόδου:").pack(side="left")
         self.v_input_type = tk.StringVar(value="fixed")
@@ -1774,7 +1795,7 @@ class App(tk.Tk):
         self._add_edit_menu(ttk.Entry(intype, textvariable=self.v_in_delim, width=3)
                             ).pack(side="left")
 
-        o = ttk.Frame(f)
+        o = ttk.Frame(self.adv2)
         o.pack(fill="x", pady=4)
         self.v_start = tk.StringVar(value="1")
         self.v_onebased = tk.BooleanVar(value=True)
@@ -1784,7 +1805,7 @@ class App(tk.Tk):
         ttk.Entry(o, textvariable=self.v_start, width=5).pack(side="left", padx=4)
         ttk.Checkbutton(o, text="Γράψε γραμμή επικεφαλίδων", variable=self.v_header).pack(side="left", padx=(12, 0))
 
-        fmt = ttk.Frame(f)
+        fmt = ttk.Frame(self.adv2)
         fmt.pack(fill="x", pady=(6, 2))
         ttk.Label(fmt, text="Μορφή αρχείου:").pack(side="left")
         self.v_format = tk.StringVar(value="csv")
@@ -1795,7 +1816,7 @@ class App(tk.Tk):
             ttk.Radiobutton(fmt, text=txt, value=val, variable=self.v_format,
                             command=self.on_format_change).pack(side="left", padx=(10, 0))
 
-        extra = ttk.Frame(f)
+        extra = ttk.Frame(self.adv2)
         extra.pack(fill="x", pady=(2, 2))
         self.v_tail = tk.BooleanVar(value=False)
         self.v_quotes = tk.BooleanVar(value=False)
@@ -1804,7 +1825,7 @@ class App(tk.Tk):
         ttk.Checkbutton(extra, text="Εισαγωγικά όπου χρειάζεται (πρότυπο CSV)",
                         variable=self.v_quotes).pack(side="left", padx=14)
 
-        extra2 = ttk.Frame(f)
+        extra2 = ttk.Frame(self.adv2)
         extra2.pack(fill="x", pady=(0, 2))
         self.v_sanitize = tk.BooleanVar(value=True)
         self.v_dedupe = tk.BooleanVar(value=False)
@@ -1817,7 +1838,7 @@ class App(tk.Tk):
                         variable=self.v_finalnl).pack(side="left")
         ttk.Checkbutton(o, text="Θέση 1 = πρώτος χαρακτήρας", variable=self.v_onebased).pack(side="left", padx=12)
 
-        self.lbl_intype_hint = ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920)
+        self.lbl_intype_hint = ttk.Label(self.adv2, style="Hint.TLabel", justify="left", wraplength=920)
         self.lbl_intype_hint.pack(anchor="w", pady=(0, 4))
 
         b = ttk.Frame(f)
@@ -1829,8 +1850,9 @@ class App(tk.Tk):
         # στη σειρά σχεδίασης και δεν φαίνεται καθόλου.
         tree_box = ttk.Frame(f)
         tree_box.pack(fill="x", pady=4)
+        self.tree_box = tree_box
 
-        enc = ttk.Frame(f)
+        enc = ttk.Frame(self.adv2)
         enc.pack(fill="x", pady=(6, 2))
         ttk.Label(enc, text="Κωδικοσελίδα — είσοδος:").pack(side="left")
         self.v_enc_in = tk.StringVar(value="auto")
@@ -1845,7 +1867,7 @@ class App(tk.Tk):
         self.v_bytes = tk.BooleanVar(value=False)
         ttk.Checkbutton(enc, text="Οι θέσεις μετρούν bytes (αρχεία UTF-8)",
                         variable=self.v_bytes).pack(side="left", padx=12)
-        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+        ttk.Label(self.adv2, style="Hint.TLabel", justify="left", wraplength=920,
                   text="«auto» αναγνωρίζει μόνο του UTF-8 / Windows-1253 / DOS-737. "
                        "ΠΡΟΣΟΧΗ: για ελληνικά η ΕΞΟΔΟΣ πρέπει να είναι cp1253 — με utf-8 ο "
                        "ζυγός δείχνει ακαταλαβίστικους χαρακτήρες."
@@ -1915,16 +1937,22 @@ class App(tk.Tk):
                        "μηχάνημα του πελάτη.").pack(anchor="w", pady=(8, 0))
 
         ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(12, 8))
-        ttk.Label(f, text="Επιπλέον ζυγοί (προαιρετικά)",
-                  style="Big.TCheckbutton").pack(anchor="w")
-        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Αν το κατάστημα έχει και άλλου τύπου ζυγούς, στέλνονται στην ίδια "
-                       "εκτέλεση, αμέσως μετά τους T-Scale. Άφησέ τα κλειστά αν δεν "
-                       "χρειάζονται.").pack(anchor="w", pady=(0, 6))
+        bar4 = ttk.Frame(f)
+        bar4.pack(fill="x")
+        self.btn_adv4 = ttk.Button(bar4, text="⚙  Επιπλέον ζυγοί (Ishida / ILS)  ▾",
+                                   style="Ghost.TButton", command=self.toggle_adv4)
+        self.btn_adv4.pack(side="left")
+        ttk.Label(bar4, style="Hint.TLabel",
+                  text="μόνο αν στέλνει και σε άλλον ζυγό αυτόματα"
+                  ).pack(side="left", padx=8)
 
+        self.adv4 = ttk.Frame(f)
+        ttk.Label(self.adv4, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Τρέχουν στην ίδια εκτέλεση, αμέσως μετά τους T-Scale. Αν περνάς το "
+                       "αρχείο χειροκίνητα, άφησέ τα κλειστά.").pack(anchor="w", pady=(4, 6))
         self.v_extra = {}
         for key, label in EXTRA_SENDERS:
-            self._build_extra_sender(f, key, label)
+            self._build_extra_sender(self.adv4, key, label)
 
     def _build_extra_sender(self, parent, key, label):
         """Ένα μπλοκ ρυθμίσεων για επιπλέον ζυγό (Ishida, ILS…)."""
@@ -1964,6 +1992,14 @@ class App(tk.Tk):
                 return img.subsample(f, f)
             except Exception:
                 return None
+
+    def toggle_adv1(self):
+        if self.adv1.winfo_ismapped():
+            self.adv1.grid_remove()
+            self.btn_adv1.configure(text="⚙  Περισσότερα  ▾")
+        else:
+            self.adv1.grid(row=5, column=0, columnspan=3, sticky="we", pady=(4, 0))
+            self.btn_adv1.configure(text="⚙  Περισσότερα  ▴")
 
     def on_boot_toggle(self):
         want = self.v_boot.get()
@@ -2237,6 +2273,15 @@ class App(tk.Tk):
                 self.v_s2out.set(base + want)
                 self.log("Το αρχείο εξόδου έγινε %s" % os.path.basename(base + want))
 
+    def toggle_adv2(self):
+        """Δείχνει/κρύβει τις αναλυτικές ρυθμίσεις του Βήματος 3."""
+        if self.adv2.winfo_ismapped():
+            self.adv2.pack_forget()
+            self.btn_adv2.configure(text="⚙  Αναλυτικές ρυθμίσεις  ▾")
+        else:
+            self.adv2.pack(fill="x", pady=(4, 0), before=self.tree_box)
+            self.btn_adv2.configure(text="⚙  Αναλυτικές ρυθμίσεις  ▴")
+
     def on_input_type_change(self):
         delimited = self.v_input_type.get() == "delimited"
         self.tree.heading("pos", text="Στήλη" if delimited else "Από Θέση")
@@ -2480,6 +2525,14 @@ class App(tk.Tk):
             return
         self.v_ips.set(", ".join(ips))
         self.log("Διαβάστηκαν IP από το AutoProcess: %s" % ", ".join(ips))
+
+    def toggle_adv4(self):
+        if self.adv4.winfo_ismapped():
+            self.adv4.pack_forget()
+            self.btn_adv4.configure(text="⚙  Επιπλέον ζυγοί (Ishida / ILS)  ▾")
+        else:
+            self.adv4.pack(fill="x")
+            self.btn_adv4.configure(text="⚙  Επιπλέον ζυγοί (Ishida / ILS)  ▴")
 
     def use_bundled_autoprocess(self):
         p = bundled_autoprocess()

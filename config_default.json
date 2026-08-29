@@ -114,237 +114,6 @@
   "src_encoding": "auto",
   "dst_encoding": "auto",
   "profiles": {
-    "ERGON · Ishida — τιμή σε λεπτά 540 ✓": {
-      "settings": {
-        "step2_input_type": "delimited",
-        "step2_input_delimiter": ",",
-        "step2_trailing_delim": false,
-        "step2_quotes": false,
-        "step2_in_encoding": "auto",
-        "step2_out_encoding": "cp1253",
-        "step2_final_newline": true,
-        "step2_write_header": false,
-        "step2_sanitize": true,
-        "step2_dedupe": false,
-        "step2_positions_bytes": false,
-        "step2_startline": 1,
-        "step2_onebased": true,
-        "step2_format": "csv",
-        "step2_delimiter": ","
-      },
-      "fields": [
-        {
-          "name": "Κωδικός",
-          "enabled": true,
-          "pos": 1,
-          "len": 0,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "Περιγραφή",
-          "enabled": true,
-          "pos": 2,
-          "len": 0,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "Κατηγορία",
-          "enabled": true,
-          "pos": 3,
-          "len": 0,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "Τιμή",
-          "enabled": true,
-          "pos": 4,
-          "len": 0,
-          "extra": "",
-          "xform": "tocents",
-          "align": ""
-        },
-        {
-          "name": "Πεδίο 5",
-          "enabled": true,
-          "pos": 5,
-          "len": 0,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "ΦΠΑ",
-          "enabled": true,
-          "pos": 6,
-          "len": 0,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        }
-      ]
-    },
-    "ISHIDA · Items σταθερού πλάτους (101 χαρ.)": {
-      "settings": {
-        "step2_input_type": "delimited",
-        "step2_input_delimiter": ",",
-        "step2_format": "fixed",
-        "step2_delimiter": ",",
-        "step2_trailing_delim": false,
-        "step2_quotes": false,
-        "step2_in_encoding": "auto",
-        "step2_out_encoding": "cp1253",
-        "step2_final_newline": true,
-        "step2_write_header": false,
-        "step2_sanitize": false,
-        "step2_dedupe": true,
-        "step2_positions_bytes": false,
-        "step2_startline": 1,
-        "step2_onebased": true
-      },
-      "fields": [
-        {
-          "name": "Barcode",
-          "enabled": true,
-          "pos": 1,
-          "len": 7,
-          "extra": "",
-          "xform": "prefix21",
-          "align": ""
-        },
-        {
-          "name": "κενά",
-          "enabled": true,
-          "pos": 0,
-          "len": 10,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "Περιγραφή",
-          "enabled": true,
-          "pos": 2,
-          "len": 30,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "κενά",
-          "enabled": true,
-          "pos": 0,
-          "len": 12,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "Τιμή",
-          "enabled": true,
-          "pos": 4,
-          "len": 5,
-          "extra": "",
-          "xform": "dec2dot",
-          "align": "right"
-        },
-        {
-          "name": "κενά",
-          "enabled": true,
-          "pos": 0,
-          "len": 5,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "Μονάδα",
-          "enabled": true,
-          "pos": 0,
-          "len": 1,
-          "extra": "2",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "κενό",
-          "enabled": true,
-          "pos": 0,
-          "len": 1,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "Τμήμα",
-          "enabled": true,
-          "pos": 0,
-          "len": 2,
-          "extra": "04",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "κενό",
-          "enabled": true,
-          "pos": 0,
-          "len": 1,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "Ομάδα",
-          "enabled": true,
-          "pos": 0,
-          "len": 2,
-          "extra": "01",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "κενό",
-          "enabled": true,
-          "pos": 0,
-          "len": 1,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "Σταθερό",
-          "enabled": true,
-          "pos": 0,
-          "len": 2,
-          "extra": "00",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "κενά",
-          "enabled": true,
-          "pos": 0,
-          "len": 21,
-          "extra": "",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "Τέλος",
-          "enabled": true,
-          "pos": 0,
-          "len": 1,
-          "extra": "0",
-          "xform": "",
-          "align": ""
-        }
-      ]
-    },
     "ERGON · CSV με κόμμα (ΚΩΔ,ΟΝΟΜΑ,ΚΑΤΗΓ,ΤΙΜΗ,-,ΦΠΑ)": {
       "settings": {
         "step2_input_type": "delimited",
@@ -430,6 +199,81 @@
         }
       ]
     },
+    "ERGON · Ishida — τιμή σε λεπτά 540 ✓": {
+      "settings": {
+        "step2_input_type": "delimited",
+        "step2_input_delimiter": ",",
+        "step2_trailing_delim": false,
+        "step2_quotes": false,
+        "step2_in_encoding": "auto",
+        "step2_out_encoding": "cp1253",
+        "step2_final_newline": true,
+        "step2_write_header": false,
+        "step2_sanitize": true,
+        "step2_dedupe": false,
+        "step2_positions_bytes": false,
+        "step2_startline": 1,
+        "step2_onebased": true,
+        "step2_format": "csv",
+        "step2_delimiter": ","
+      },
+      "fields": [
+        {
+          "name": "Κωδικός",
+          "enabled": true,
+          "pos": 1,
+          "len": 0,
+          "extra": "",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "Περιγραφή",
+          "enabled": true,
+          "pos": 2,
+          "len": 0,
+          "extra": "",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "Κατηγορία",
+          "enabled": true,
+          "pos": 3,
+          "len": 0,
+          "extra": "",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "Τιμή",
+          "enabled": true,
+          "pos": 4,
+          "len": 0,
+          "extra": "",
+          "xform": "tocents",
+          "align": ""
+        },
+        {
+          "name": "Πεδίο 5",
+          "enabled": true,
+          "pos": 5,
+          "len": 0,
+          "extra": "",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "ΦΠΑ",
+          "enabled": true,
+          "pos": 6,
+          "len": 0,
+          "extra": "",
+          "xform": "",
+          "align": ""
+        }
+      ]
+    },
     "ΕΛΛΗΝΙΚΑ · 8 στήλες, cp1253, τιμή με τελεία": {
       "settings": {
         "step2_format": "semicolon",
@@ -508,398 +352,6 @@
           "enabled": true,
           "pos": 7,
           "len": 40,
-          "extra": "",
-          "xform": ""
-        }
-      ]
-    },
-    "T-Scale · 7 στήλες (κόμμα)": {
-      "settings": {
-        "step2_format": "csv",
-        "step2_delimiter": ",",
-        "step2_trailing_delim": true,
-        "step2_quotes": false,
-        "step2_out_encoding": "cp1253",
-        "step2_final_newline": true,
-        "step2_write_header": true,
-        "step2_sanitize": true
-      },
-      "fields": [
-        {
-          "name": "ProductNumber",
-          "enabled": true,
-          "pos": 1,
-          "len": 5,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "ProductName",
-          "enabled": true,
-          "pos": 7,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "NameSpell",
-          "enabled": true,
-          "pos": 7,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Price",
-          "enabled": true,
-          "pos": 64,
-          "len": 5,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Price Unit",
-          "enabled": true,
-          "pos": 70,
-          "len": 1,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Abbr",
-          "enabled": true,
-          "pos": 7,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "AbbrSpell",
-          "enabled": true,
-          "pos": 7,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        }
-      ]
-    },
-    "PLU (ERP fixed-width 70)": {
-      "fields": [
-        {
-          "name": "ProductNumber",
-          "alias": "A0",
-          "enabled": true,
-          "pos": 1,
-          "len": 7,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "BarCode",
-          "alias": "A1",
-          "enabled": true,
-          "pos": 8,
-          "len": 6,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "VAT",
-          "alias": "A2",
-          "enabled": false,
-          "pos": 15,
-          "len": 2,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Price",
-          "alias": "A3",
-          "enabled": true,
-          "pos": 18,
-          "len": 9,
-          "extra": "",
-          "xform": "comma2dot"
-        },
-        {
-          "name": "ProductName",
-          "alias": "A4",
-          "enabled": true,
-          "pos": 28,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Price Unit",
-          "alias": "A5",
-          "enabled": true,
-          "pos": 69,
-          "len": 2,
-          "extra": "",
-          "xform": ""
-        }
-      ]
-    },
-    "ICS host.txt (πλήρη πεδία)": {
-      "fields": [
-        {
-          "name": "ProductNumber",
-          "alias": "A0",
-          "enabled": true,
-          "pos": 2,
-          "len": 5,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "ProductName",
-          "alias": "A1",
-          "enabled": true,
-          "pos": 7,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "NameSpell",
-          "alias": "A2",
-          "enabled": true,
-          "pos": 7,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Price",
-          "alias": "A3",
-          "enabled": true,
-          "pos": 64,
-          "len": 5,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "BarCode",
-          "alias": "A4",
-          "enabled": true,
-          "pos": 1,
-          "len": 5,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Price Unit",
-          "alias": "A5",
-          "enabled": true,
-          "pos": 69,
-          "len": 1,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Category",
-          "alias": "A6",
-          "enabled": false,
-          "pos": 0,
-          "len": 0,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Pcs",
-          "alias": "A7",
-          "enabled": false,
-          "pos": 0,
-          "len": 0,
-          "extra": "0",
-          "xform": ""
-        },
-        {
-          "name": "BarCode Format",
-          "alias": "A8",
-          "enabled": false,
-          "pos": 0,
-          "len": 0,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Abbr",
-          "alias": "A9",
-          "enabled": true,
-          "pos": 7,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "AbbrSpell",
-          "alias": "A10",
-          "enabled": true,
-          "pos": 7,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Label Format",
-          "alias": "A11",
-          "enabled": false,
-          "pos": 0,
-          "len": 0,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Disabled",
-          "alias": "A12",
-          "enabled": false,
-          "pos": 0,
-          "len": 0,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Pcs2",
-          "alias": "A13",
-          "enabled": false,
-          "pos": 0,
-          "len": 0,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "REMARK1",
-          "alias": "A14",
-          "enabled": false,
-          "pos": 0,
-          "len": 0,
-          "extra": "",
-          "xform": ""
-        }
-      ]
-    },
-    "ICS host 76 χαρ. → T-Scale 6 στήλες": {
-      "settings": {
-        "step2_format": "semicolon",
-        "step2_delimiter": ";",
-        "step2_trailing_delim": false,
-        "step2_quotes": false,
-        "step2_out_encoding": "cp1253",
-        "step2_final_newline": true,
-        "step2_write_header": true,
-        "step2_sanitize": true,
-        "step2_dedupe": true
-      },
-      "fields": [
-        {
-          "name": "ProductNumber",
-          "enabled": true,
-          "pos": 2,
-          "len": 5,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "ProductName",
-          "enabled": true,
-          "pos": 7,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Price",
-          "enabled": true,
-          "pos": 64,
-          "len": 5,
-          "extra": "",
-          "xform": "cents2dot"
-        },
-        {
-          "name": "BarCode",
-          "enabled": true,
-          "pos": 69,
-          "len": 8,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Abbr",
-          "enabled": true,
-          "pos": 7,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "DivisionCode",
-          "enabled": true,
-          "pos": 0,
-          "len": 0,
-          "extra": "",
-          "xform": ""
-        }
-      ]
-    },
-    "T-Scale · 6 στήλες (Κύπρου, λατινικά)": {
-      "settings": {
-        "step2_format": "semicolon",
-        "step2_delimiter": ";",
-        "step2_trailing_delim": false,
-        "step2_quotes": false,
-        "step2_out_encoding": "utf-8",
-        "step2_final_newline": false,
-        "step2_write_header": true,
-        "step2_sanitize": true
-      },
-      "fields": [
-        {
-          "name": "ProductNumber",
-          "enabled": true,
-          "pos": 1,
-          "len": 4,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "ProductName",
-          "enabled": true,
-          "pos": 7,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Price",
-          "enabled": true,
-          "pos": 64,
-          "len": 5,
-          "extra": "",
-          "xform": "dot2comma"
-        },
-        {
-          "name": "BarCode",
-          "enabled": true,
-          "pos": 1,
-          "len": 4,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "Abbr",
-          "enabled": true,
-          "pos": 7,
-          "len": 40,
-          "extra": "",
-          "xform": ""
-        },
-        {
-          "name": "DivisionCode",
-          "enabled": true,
-          "pos": 0,
-          "len": 0,
           "extra": "",
           "xform": ""
         }
