@@ -147,3 +147,49 @@ Connection: keep-alive
 Μόνο η **απάντηση του πραγματικού ζυγού** σε επιτυχία — ο ψεύτικος επέστρεψε
 `{"result":"success"}` και το AutoProcess το δέχτηκε, αλλά καλό είναι να δούμε τι
 στέλνει ο αληθινός για να ελέγχουμε σωστά την επιτυχία.
+
+
+## Ποιες στήλες στέλνονται
+
+Το πρόγραμμά μας αναγνωρίζει **40 στήλες** και τις στέλνει στο αντίστοιχο πεδίο του
+ζυγού. Οι πρώτες 13 είναι όσες έστελνε και το AutoProcess· οι υπόλοιπες υπάρχουν στον
+ζυγό αλλά **δεν τις έστελνε ποτέ** — τώρα μπορούμε.
+
+| Στήλη CSV | Πεδίο ζυγού | |
+|---|---|---|
+| ProductNumber | product_number | και AutoProcess |
+| BarCode | product_code | και AutoProcess |
+| ProductName | product_name | και AutoProcess |
+| Abbr | product_abbr | και AutoProcess |
+| Price | original_price | και AutoProcess |
+| Price Low | sales_price | και AutoProcess |
+| Price Unit | price_unit_index | και AutoProcess |
+| Category | category_num | και AutoProcess |
+| Department | department_num | και AutoProcess |
+| Pre tare | pre_tare_value | και AutoProcess |
+| BarCode Format | barcode_format | και AutoProcess |
+| Label Format | label_format_num | και AutoProcess |
+| Disabled | disabled | και AutoProcess |
+| NameSpell | name_sort | **νέο** |
+| AbbrSpell | abbr_sort | **νέο** |
+| Origin | place_of_origin | **νέο** |
+| Ingredient | ingredients | **νέο** |
+| Nutritional | nutrition | **νέο** |
+| Temperautre | temperature_info | **νέο** |
+| Period | used_by_days | **νέο** |
+| Recommend | reccommend_days | **νέο** |
+| Production date | produced_date | **νέο** |
+| Packing date | pack_date | **νέο** |
+| Use By date | exp_date | **νέο** |
+| Image | image_filename | **νέο** |
+| Shelf Number | shelf_num | **νέο** |
+| Tax | tax_num | **νέο** |
+| Pcs | pcs_flag | **νέο** |
+| Produced | produced | **νέο** |
+| REMARK1 … REMARK8 | remark_1 … remark_8 | **νέο** |
+
+Στήλη που δεν υπάρχει στον πίνακα **αγνοείται** — το log το γράφει ρητά, ώστε να μη
+νομίζουμε ότι στάλθηκε κάτι που δεν στάλθηκε.
+
+Το JSON περιέχει **πάντα και τα 40 πεδία**· όσα δεν γεμίζουν πάνε `""` ή `null`,
+ακριβώς όπως τα στέλνει το AutoProcess.

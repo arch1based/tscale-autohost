@@ -1055,6 +1055,7 @@ SCALE_PORT = 1235
 
 # Στήλη CSV -> πεδίο JSON (επιβεβαιωμένο με δοκιμαστικό αρχείο μοναδικών τιμών)
 CSV_TO_JSON = {
+    # --- όσα στέλνει και το AutoProcess (επιβεβαιωμένα με δοκιμή) ---
     "ProductNumber": "product_number", "BarCode": "product_code",
     "ProductName": "product_name", "Abbr": "product_abbr",
     "Price": "original_price", "Price Low": "sales_price",
@@ -1062,6 +1063,19 @@ CSV_TO_JSON = {
     "Department": "department_num", "Pre tare": "pre_tare_value",
     "BarCode Format": "barcode_format", "Label Format": "label_format_num",
     "Disabled": "disabled",
+    # --- επιπλέον: ο ζυγός τα δέχεται, το AutoProcess δεν τα έστελνε ποτέ ---
+    "NameSpell": "name_sort", "AbbrSpell": "abbr_sort",
+    "Origin": "place_of_origin", "Label Format2": "label_format_num2",
+    "Pcs": "pcs_flag", "Tax": "tax_num", "Shelf Number": "shelf_num",
+    "Image": "image_filename", "Period": "used_by_days",
+    "Recommend": "reccommend_days", "Ingredient": "ingredients",
+    "Temperautre": "temperature_info", "Nutritional": "nutrition",
+    "Produced": "produced", "Pre tare unit": "pre_tare_unit_index",
+    "Production date": "produced_date", "Packing date": "pack_date",
+    "Use By date": "exp_date", "Expiration": "expiration_date",
+    "REMARK1": "remark_1", "REMARK2": "remark_2", "REMARK3": "remark_3",
+    "REMARK4": "remark_4", "REMARK5": "remark_5", "REMARK6": "remark_6",
+    "REMARK7": "remark_7", "REMARK8": "remark_8",
 }
 
 # Τα 40 πεδία της κλάσης ModelProduct. Όσα μένουν κενά στέλνονται "" ή null,
@@ -1103,9 +1117,11 @@ def build_products_json(path, cfg, log):
                         "Ενεργοποίησε το «Γράψε γραμμή επικεφαλίδων» στο Βήμα 3.")
 
     header = [h.strip() for h in lines[0].split(delim)]
+    known = [h for h in header if h in CSV_TO_JSON]
     unknown = [h for h in header if h and h not in CSV_TO_JSON]
+    log("  στέλνονται %d στήλες: %s" % (len(known), ", ".join(known)))
     if unknown:
-        log("  (αγνοούνται στήλες που δεν δέχεται ο ζυγός: %s)" % ", ".join(unknown))
+        log("  (αγνοούνται, δεν υπάρχει αντίστοιχο πεδίο στον ζυγό: %s)" % ", ".join(unknown))
 
     items = []
     for line in lines[1:]:
