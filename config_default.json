@@ -101,6 +101,7 @@
   "step3_kill": true,
   "direct_send": true,
   "direct_retries": 2,
+  "direct_rebuild": false,
   "direct_quirk": false,
   "direct_wire_encoding": "utf-8",
   "direct_all_fields": false,

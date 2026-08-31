@@ -1235,6 +1235,57 @@ def send_to_scale(ip, items, log, timeout=180, quirk=False, wire="utf-8"):
         return False, str(exc)
 
 
+# Τα πεδία που ανανεώνονται στην καθημερινή ενημέρωση τιμών. Ό,τι δεν είναι εδώ
+# —πρώτα απ' όλα το όνομα— μένει στη ζυγαριά ακριβώς όπως το βρήκαμε.
+PRICE_FIELDS = ("original_price", "sales_price", "price_unit_index")
+
+
+def fetch_scale_products(ip, timeout=90):
+    """Διαβάζει τη βάση προϊόντων του ζυγού. Επιστρέφει {κωδικός: εγγραφή}."""
+    import urllib.request
+    url = "http://%s:%d/products" % (ip, SCALE_PORT)
+    req = urllib.request.Request(url, headers={"User-Agent": "RestSharp 102.7.0.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8", "replace"))
+    yparxonta = {}
+    for row in data:
+        kleidi = str(row.get("product_number", "")).lstrip("0") or "0"
+        yparxonta[kleidi] = row
+    return yparxonta
+
+
+def merge_prices_only(yparxonta, items, log):
+    """Κρατάει τις εγγραφές του ζυγού και αλλάζει μόνο τις τιμές.
+
+    Γιατί έτσι: τα ονόματα στη ζυγαριά είναι γραμμένα με την κωδικοσελίδα που
+    έβαλε όποιος τα πρωτοέστειλε. Αν τα ξαναστείλουμε εμείς με άλλη, αλλάζει η
+    γραφή τους και βγαίνουν αλλόκοτοι χαρακτήρες στην ετικέτα. Στην καθημερινή
+    ενημέρωση δεν έχουμε λόγο να τα αγγίξουμε καθόλου.
+    """
+    telika, kaina, allages = [], 0, 0
+    for row in items:
+        kleidi = str(row.get("product_number", "")).lstrip("0") or "0"
+        palia = yparxonta.get(kleidi)
+        if palia is None:
+            telika.append(row)                 # νέο προϊόν: πάει ολόκληρο
+            kaina += 1
+            continue
+        enimeromeni = dict(palia)
+        aliaxe = False
+        for pedio in PRICE_FIELDS:
+            nea = row.get(pedio)
+            if nea not in (None, "") and str(nea) != str(palia.get(pedio, "")):
+                enimeromeni[pedio] = nea
+                aliaxe = True
+        if aliaxe:
+            allages += 1
+        telika.append(enimeromeni)
+    log("  ενημέρωση τιμών: %d άλλαξαν, %d νέα προϊόντα, %d συνολικά"
+        % (allages, kaina, len(telika)))
+    log("  τα ονόματα στη ζυγαριά μένουν ανέπαφα")
+    return telika
+
+
 def run_direct_send(cfg, log, stop_event=None):
     """Βήμα 4 χωρίς AutoProcess: στέλνει το ίδιο το πρόγραμμα."""
     ips = parse_ips(cfg.get("scale_ips", ""))
@@ -1247,8 +1298,10 @@ def run_direct_send(cfg, log, stop_event=None):
                         "Διαδρομή: %s" % path)
 
     items = build_products_json(path, cfg, log)
-    log("  -> απευθείας αποστολή: %d προϊόντα σε %d ζυγό(ους), θύρα %d"
-        % (len(items), len(ips), SCALE_PORT))
+    rebuild = bool(cfg.get("direct_rebuild", False))
+    log("  -> απευθείας αποστολή: %d προϊόντα σε %d ζυγό(ους), θύρα %d%s"
+        % (len(items), len(ips), SCALE_PORT,
+           "  [ΠΛΗΡΗΣ ΑΝΑΚΑΤΑΣΚΕΥΗ]" if rebuild else "  [μόνο τιμές]"))
 
     # Ένας ζυγός που δεν απαντά δεν σταματά τους υπόλοιπους: συνεχίζουμε και
     # αναφέρουμε στο τέλος ποιοι έμειναν πίσω.
@@ -1261,8 +1314,25 @@ def run_direct_send(cfg, log, stop_event=None):
         # Με δύο ζυγούς στη σειρά, ο δεύτερος έτρωγε άρνηση χωρίς να φταίει.
         if i:
             time.sleep(RATE_LIMIT_WAIT)
+
+        pros_apostoli = items
+        if not rebuild:
+            # Καθημερινή ενημέρωση: διαβάζουμε πρώτα τι έχει ο ζυγός και
+            # πειράζουμε μόνο τις τιμές. Αν η ανάγνωση αποτύχει, δεν στέλνουμε
+            # ολόκληρα τα προϊόντα «στα τυφλά» — θα άλλαζε η γραφή των ονομάτων.
+            try:
+                yparxonta = fetch_scale_products(ip)
+                log("  -> %s: διαβάστηκαν %d προϊόντα από τον ζυγό"
+                    % (ip, len(yparxonta)))
+                time.sleep(RATE_LIMIT_WAIT)
+                pros_apostoli = merge_prices_only(yparxonta, items, log)
+            except Exception as exc:
+                log("  -> %s: ΑΠΟΤΥΧΙΑ ανάγνωσης (%s)" % (ip, exc))
+                failures.append("%s — δεν διαβάστηκε η βάση του ζυγού: %s" % (ip, exc))
+                continue
+
         for attempt in range(1, tries + 1):
-            ok, msg = send_to_scale(ip, items, log,
+            ok, msg = send_to_scale(ip, pros_apostoli, log,
                                     quirk=cfg.get("direct_quirk", False),
                                     wire=cfg.get("direct_wire_encoding", "utf-8"))
             if ok:
@@ -2198,6 +2268,22 @@ class App(tk.Tk):
                        "να ξαναδουλέψει μέσω AutoProcess."
                   ).pack(anchor="w", pady=(0, 4))
 
+        rebuild = ttk.Frame(f)
+        rebuild.pack(fill="x", pady=(2, 0))
+        self.v_rebuild = tk.BooleanVar(value=False)
+        ttk.Checkbutton(rebuild,
+                        text="Ξαναφτιάξε ολόκληρη τη βάση (ονόματα + τιμές)",
+                        variable=self.v_rebuild,
+                        command=self.on_rebuild_toggle).pack(side="left")
+        self.lbl_rebuild = ttk.Label(rebuild, style="Hint.TLabel")
+        self.lbl_rebuild.pack(side="left", padx=10)
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Κανονικά ενημερώνονται ΜΟΝΟ ΟΙ ΤΙΜΕΣ: το πρόγραμμα διαβάζει πρώτα "
+                       "τι έχει ο ζυγός και αγγίζει μόνο την τιμή, οπότε τα ελληνικά "
+                       "ονόματα μένουν ακριβώς όπως είναι. Τσέκαρέ το μόνο όταν άλλαξαν "
+                       "ονόματα ή μπήκαν πολλά νέα προϊόντα — τότε ξαναγράφονται όλα."
+                  ).pack(anchor="w", pady=(0, 4))
+
         ipf = ttk.Frame(f)
         ipf.pack(fill="x", pady=(6, 0))
         ttk.Label(ipf, text="IP ζυγών:").pack(side="left")
@@ -2491,6 +2577,8 @@ class App(tk.Tk):
         self.v_s3kill.set(bool(c.get("step3_kill", True)))
         self.v_ips.set(c.get("scale_ips", "") or ", ".join(read_ips(c.get("step3_exe", ""))))
         self.v_direct.set(bool(c.get("direct_send", True)))
+        self.v_rebuild.set(bool(c.get("direct_rebuild", False)))
+        self.on_rebuild_toggle()
         self.on_direct_toggle()
         for key, _label in EXTRA_SENDERS:
             v = self.v_extra[key]
@@ -2572,6 +2660,7 @@ class App(tk.Tk):
         c["step3_kill"] = self.v_s3kill.get()
         c["scale_ips"] = self.v_ips.get().strip()
         c["direct_send"] = self.v_direct.get()
+        c["direct_rebuild"] = self.v_rebuild.get()
         for key, _label in EXTRA_SENDERS:
             v = self.v_extra[key]
             c["%s_enabled" % key] = v["enabled"].get()
@@ -2869,6 +2958,14 @@ class App(tk.Tk):
         else:
             self.adv3m.pack(fill="x")
             self.btn_adv3m.configure(text="⚙  Ρυθμίσεις AutoProcess  ▴")
+
+    def on_rebuild_toggle(self):
+        """Το τικ αλλάζει κάτι σοβαρό — να φαίνεται τι θα γίνει."""
+        if self.v_rebuild.get():
+            self.lbl_rebuild.configure(
+                text="→ ξαναγράφονται ΚΑΙ τα ονόματα σε κάθε εκτέλεση")
+        else:
+            self.lbl_rebuild.configure(text="→ αλλάζουν μόνο οι τιμές")
 
     def on_direct_toggle(self):
         """Δείχνει τι θα γίνει με την τρέχουσα επιλογή."""
