@@ -2153,12 +2153,18 @@ class App(tk.Tk):
         ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 4 — Εφαρμογή ζυγού", variable=self.v_s3).pack(anchor="w")
         direct = ttk.Frame(f)
         direct.pack(fill="x", pady=(6, 2))
-        self.v_direct = tk.BooleanVar(value=True)
-        ttk.Checkbutton(direct, text="Απευθείας αποστολή στη ζυγαριά",
+        self.v_direct = tk.BooleanVar(value=False)
+        ttk.Checkbutton(direct, text="Απευθείας αποστολή στη ζυγαριά (πειραματικό)",
                         variable=self.v_direct, command=self.on_direct_toggle,
                         style="Big.TCheckbutton").pack(side="left")
         self.lbl_direct = ttk.Label(direct, style="Hint.TLabel")
         self.lbl_direct.pack(side="left", padx=10)
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Σε ορισμένες ζυγαριές έχει εμφανίσει λάθος χαρακτήρες στα ελληνικά "
+                       "(«κινέζικα» στην ετικέτα). Δοκίμασέ το πρώτα σε ένα προϊόν πριν το "
+                       "εμπιστευτείς σε όλο το κατάστημα — χρησιμοποίησε το AutoProcess αν "
+                       "δεις πρόβλημα."
+                  ).pack(anchor="w", pady=(0, 4))
 
         ipf = ttk.Frame(f)
         ipf.pack(fill="x", pady=(6, 0))
@@ -2175,17 +2181,18 @@ class App(tk.Tk):
         ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(4, 8))
         bar3m = ttk.Frame(f)
         bar3m.pack(fill="x")
-        self.btn_adv3m = ttk.Button(bar3m, text="⚙  Χειροκίνητα με το AutoProcess  ▾",
+        self.btn_adv3m = ttk.Button(bar3m, text="⚙  Ρυθμίσεις AutoProcess  ▴",
                                     style="Ghost.TButton", command=self.toggle_adv3m)
         self.btn_adv3m.pack(side="left")
         ttk.Label(bar3m, style="Hint.TLabel",
-                  text="μόνο αν χρειαστεί εναλλακτική στην απευθείας αποστολή"
+                  text="ο προεπιλεγμένος τρόπος — χρειάζεται μόνο αν τσεκάρεις την "
+                       "πειραματική απευθείας αποστολή"
                   ).pack(side="left", padx=8)
 
         self.adv3m = ttk.Frame(f)
         ttk.Label(self.adv3m, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Ξε-τσέκαρε την «Απευθείας αποστολή» παραπάνω για να χρησιμοποιηθεί "
-                       "το AutoProcess του κατασκευαστή αντί για εμάς."
+                  text="Χρησιμοποιείται όσο η «Απευθείας αποστολή» παραπάνω είναι "
+                       "ξε-τσεκαρισμένη."
                   ).pack(anchor="w", pady=(4, 6))
 
         g = ttk.Frame(self.adv3m)
@@ -2222,6 +2229,7 @@ class App(tk.Tk):
                   text="Το AutoProcess είναι το πρόγραμμα του κατασκευαστή που στέλνει τα "
                        "δεδομένα στους ζυγούς T-Scale. Δείξε πού είναι εγκατεστημένο στο "
                        "μηχάνημα του πελάτη.").pack(anchor="w", pady=(8, 0))
+        self.adv3m.pack(fill="x")   # ξεδιπλωμένο από προεπιλογή — είναι ο προεπιλεγμένος τρόπος
 
         ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(12, 8))
         bar4 = ttk.Frame(f)
@@ -2452,7 +2460,7 @@ class App(tk.Tk):
         self.v_s3sec.set(str(c.get("step3_seconds", 120)))
         self.v_s3kill.set(bool(c.get("step3_kill", True)))
         self.v_ips.set(c.get("scale_ips", "") or ", ".join(read_ips(c.get("step3_exe", ""))))
-        self.v_direct.set(bool(c.get("direct_send", True)))
+        self.v_direct.set(bool(c.get("direct_send", False)))
         self.on_direct_toggle()
         for key, _label in EXTRA_SENDERS:
             v = self.v_extra[key]
@@ -2827,10 +2835,10 @@ class App(tk.Tk):
     def toggle_adv3m(self):
         if self.adv3m.winfo_ismapped():
             self.adv3m.pack_forget()
-            self.btn_adv3m.configure(text="⚙  Χειροκίνητα με το AutoProcess  ▾")
+            self.btn_adv3m.configure(text="⚙  Ρυθμίσεις AutoProcess  ▾")
         else:
             self.adv3m.pack(fill="x")
-            self.btn_adv3m.configure(text="⚙  Χειροκίνητα με το AutoProcess  ▴")
+            self.btn_adv3m.configure(text="⚙  Ρυθμίσεις AutoProcess  ▴")
 
     def on_direct_toggle(self):
         """Δείχνει τι θα γίνει με την τρέχουσα επιλογή."""

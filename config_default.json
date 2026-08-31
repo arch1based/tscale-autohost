@@ -99,7 +99,7 @@
   "step3_exe": "",
   "step3_seconds": 120,
   "step3_kill": true,
-  "direct_send": true,
+  "direct_send": false,
   "direct_retries": 2,
   "direct_quirk": true,
   "direct_all_fields": false,
