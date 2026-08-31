@@ -104,6 +104,9 @@ LEGACY_CONFIGS = (
                  "ICS", "TScaleAutoHost", "autohost_config.json"),
 )
 USER_PROFILES_PATH = os.path.join(CONFIG_DIR, "profiles.json")
+# Ζυγοί που δεν πρόλαβαν την τελευταία ενημέρωση (κλειστοί, εκτός δικτύου).
+# Σε αρχείο ώστε να μη χαθούν αν κλείσει το πρόγραμμα ή πέσει το ρεύμα.
+PENDING_PATH = os.path.join(CONFIG_DIR, "pending_scales.json")
 # Όταν μετονομάζεται ένα προφίλ, η παλιά ονομασία μένει εδώ: αλλιώς μια
 # αποθηκευμένη ρύθμιση πελάτη θα έδειχνε σε προφίλ που δεν υπάρχει πια.
 PROFILE_ALIASES = {
@@ -1332,6 +1335,78 @@ def merge_prices_only(yparxonta, items, log):
     return telika
 
 
+def load_pending():
+    """Ζυγοί που περιμένουν ακόμα την ενημέρωση. {IP: πότε απέτυχε}"""
+    try:
+        with open(PENDING_PATH, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def save_pending(pending):
+    try:
+        with open(PENDING_PATH, "w", encoding="utf-8") as fh:
+            json.dump(pending, fh, indent=2, ensure_ascii=False)
+    except Exception:
+        pass                        # δεν σταματάμε τη δουλειά για το σημειωματάριο
+
+
+def mark_pending(ip, why):
+    p = load_pending()
+    if ip not in p:
+        p[ip] = {"since": datetime.datetime.now().isoformat(timespec="seconds"),
+                 "tries": 0, "why": why}
+    p[ip]["tries"] = int(p[ip].get("tries", 0)) + 1
+    p[ip]["why"] = why
+    p[ip]["last"] = datetime.datetime.now().isoformat(timespec="seconds")
+    save_pending(p)
+
+
+def clear_pending(ip, log=None):
+    p = load_pending()
+    if ip in p:
+        apo = p[ip].get("since", "")
+        del p[ip]
+        save_pending(p)
+        if log:
+            log("  -> %s: πρόλαβε την ενημέρωση (εκκρεμούσε από %s)" % (ip, apo))
+
+
+def retry_pending_scales(cfg, log, stop_event=None):
+    """Ξαναδοκιμάζει τους ζυγούς που έχασαν την τελευταία ενημέρωση.
+
+    Στέλνει το ΤΡΕΧΟΝ product.csv, όχι ό,τι ίσχυε τότε: αν στο μεταξύ άλλαξαν
+    κι άλλες τιμές, ο ζυγός που άνοιξε τώρα πρέπει να πάρει τις σημερινές.
+    """
+    pending = load_pending()
+    if not pending:
+        return
+    path = (cfg.get("step2_output") or "").strip()
+    if not path or not os.path.isfile(path):
+        return                       # δεν έχει τρέξει ακόμα το Βήμα 3
+
+    log("Εκκρεμούν %d ζυγοί από προηγούμενη ενημέρωση — δοκιμή ξανά: %s"
+        % (len(pending), ", ".join(sorted(pending))))
+    for ip in sorted(pending):
+        if stop_event is not None and stop_event.is_set():
+            return
+        ok, why = scale_reachable(ip)
+        if not ok:
+            mark_pending(ip, why)
+            log("  -> %s: ακόμα κλειστός (%s)" % (ip, why))
+            continue
+        log("  -> %s: απαντά, στέλνουμε" % ip)
+        eidiko = dict(cfg)
+        eidiko["scale_ips"] = ip     # μόνο αυτόν, οι άλλοι είναι ενημερωμένοι
+        try:
+            apotyxies = run_direct_send(eidiko, log, stop_event)
+            if not apotyxies:
+                clear_pending(ip, log)
+        except StepError as exc:
+            log("  -> %s: απέτυχε ξανά (%s)" % (ip, exc.message))
+
+
 def run_direct_send(cfg, log, stop_event=None):
     """Βήμα 4 χωρίς AutoProcess: στέλνει το ίδιο το πρόγραμμα."""
     ips = parse_ips(cfg.get("scale_ips", ""))
@@ -1386,6 +1461,7 @@ def run_direct_send(cfg, log, stop_event=None):
             except Exception as exc:
                 log("  -> %s: ΑΠΟΤΥΧΙΑ ανάγνωσης (%s)" % (ip, exc))
                 failures.append("%s — δεν διαβάστηκε η βάση του ζυγού: %s" % (ip, exc))
+                mark_pending(ip, "δεν διαβάστηκε η βάση: %s" % exc)
                 continue
 
         for attempt in range(1, tries + 1):
@@ -1394,6 +1470,7 @@ def run_direct_send(cfg, log, stop_event=None):
                                     wire=cfg.get("direct_wire_encoding", "utf-8"))
             if ok:
                 log("  -> %s: ΕΠΙΤΥΧΙΑ  (%s)" % (ip, msg))
+                clear_pending(ip, log)
                 break
             if attempt < tries:
                 # Το 429 δεν είναι βλάβη — είναι «περίμενε». Θέλει περισσότερο
@@ -1405,6 +1482,8 @@ def run_direct_send(cfg, log, stop_event=None):
             else:
                 log("  -> %s: ΑΠΟΤΥΧΙΑ μετά από %d προσπάθειες  (%s)" % (ip, tries, msg))
                 failures.append("%s — %s" % (ip, msg))
+                # Δεν τον ξεχνάμε: θα ξαναδοκιμάσουμε μόνοι μας ώσπου να ανοίξει.
+                mark_pending(ip, msg)
     return failures
 
 
@@ -2341,6 +2420,24 @@ class App(tk.Tk):
                        "ονόματα ή μπήκαν πολλά νέα προϊόντα — τότε ξαναγράφονται όλα."
                   ).pack(anchor="w", pady=(0, 4))
 
+        rt = ttk.Frame(f)
+        rt.pack(fill="x", pady=(2, 0))
+        ttk.Label(rt, text="Αν ένας ζυγός είναι κλειστός, ξαναδοκίμασε κάθε:").pack(side="left")
+        self.v_pending_min = tk.StringVar(value="15")
+        ttk.Entry(rt, textvariable=self.v_pending_min, width=5).pack(side="left", padx=6)
+        ttk.Label(rt, text="λεπτά").pack(side="left")
+        self.btn_pending = ttk.Button(rt, text="Δοκιμή τώρα", style="Ghost.TButton",
+                                      command=self.retry_pending_now)
+        self.btn_pending.pack(side="left", padx=12)
+        self.lbl_pending = ttk.Label(rt, style="Hint.TLabel")
+        self.lbl_pending.pack(side="left", padx=6)
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Ο ζυγός που ήταν σβηστός δεν χάνει την ενημέρωση: μένει σε "
+                       "εκκρεμότητα και δοκιμάζεται μόνος του ώσπου να ανοίξει — παίρνει "
+                       "τότε τις ΤΡΕΧΟΥΣΕΣ τιμές, όχι τις παλιές. Η εκκρεμότητα επιβιώνει "
+                       "ακόμα κι αν κλείσει το πρόγραμμα ή πέσει το ρεύμα."
+                  ).pack(anchor="w", pady=(0, 4))
+
         katal = ttk.Frame(f)
         katal.pack(fill="x", pady=(2, 0))
         self.v_fullcat = tk.BooleanVar(value=False)
@@ -2651,6 +2748,8 @@ class App(tk.Tk):
         self.v_direct.set(bool(c.get("direct_send", True)))
         self.v_rebuild.set(bool(c.get("direct_rebuild", False)))
         self.v_fullcat.set(bool(c.get("erp_full_catalog", False)))
+        self.v_pending_min.set(str(c.get("pending_retry_minutes", 15)))
+        self.refresh_pending_hint()
         self.on_rebuild_toggle()
         self.on_direct_toggle()
         for key, _label in EXTRA_SENDERS:
@@ -2735,6 +2834,10 @@ class App(tk.Tk):
         c["direct_send"] = self.v_direct.get()
         c["direct_rebuild"] = self.v_rebuild.get()
         c["erp_full_catalog"] = self.v_fullcat.get()
+        try:
+            c["pending_retry_minutes"] = max(1, int(self.v_pending_min.get() or 15))
+        except ValueError:
+            c["pending_retry_minutes"] = 15
         for key, _label in EXTRA_SENDERS:
             v = self.v_extra[key]
             c["%s_enabled" % key] = v["enabled"].get()
@@ -3032,6 +3135,36 @@ class App(tk.Tk):
         else:
             self.adv3m.pack(fill="x")
             self.btn_adv3m.configure(text="⚙  Ρυθμίσεις AutoProcess  ▴")
+
+    def refresh_pending_hint(self):
+        """Δείχνει ποιοι ζυγοί περιμένουν ακόμα — αλλιώς δεν το μαθαίνει κανείς."""
+        p = load_pending()
+        if not p:
+            self.lbl_pending.configure(text="καμία εκκρεμότητα")
+            return
+        self.lbl_pending.configure(
+            text="εκκρεμούν: %s" % ", ".join("%s (από %s)" % (ip, d.get("since", "")[:16])
+                                            for ip, d in sorted(p.items())))
+
+    def retry_pending_now(self):
+        """Χειροκίνητη δοκιμή, για να μην περιμένει ο τεχνικός το διάστημα."""
+        if not load_pending():
+            messagebox.showinfo(APP_NAME, "Δεν εκκρεμεί κανένας ζυγός.")
+            return
+        if self.worker and self.worker.is_alive():
+            messagebox.showinfo(APP_NAME, "Τρέχει ήδη ενημέρωση — δοκίμασε σε λίγο.")
+            return
+
+        def ergasia():
+            try:
+                retry_pending_scales(self.collect(), lambda m: self.after(0, self.log, m),
+                                     self.stop_event)
+            except Exception as exc:
+                self.after(0, self.log, "Επανάληψη εκκρεμών: σφάλμα (%s)" % exc)
+            self.after(0, self.refresh_pending_hint)
+
+        self.worker = threading.Thread(target=ergasia, daemon=True)
+        self.worker.start()
 
     def on_rebuild_toggle(self):
         """Το τικ αλλάζει κάτι σοβαρό — να φαίνεται τι θα γίνει.
@@ -3429,9 +3562,32 @@ class App(tk.Tk):
         self.after(0, self.log, "Προσοχή: το αρχείο του ERP γράφεται ακόμη μετά από 30 δευτερόλεπτα.")
         return self._stamp(path)
 
+    def _pending_interval(self):
+        """Κάθε πόσο ξαναδοκιμάζουμε έναν κλειστό ζυγό (δευτερόλεπτα)."""
+        try:
+            lepta = int(self.cfg.get("pending_retry_minutes", 15) or 15)
+        except (TypeError, ValueError):
+            lepta = 15
+        return max(60, lepta * 60)
+
     def _watch_loop(self):
+        epomeni_dokimi = time.time() + self._pending_interval()
         while self.watching and not self.stop_event.is_set():
             time.sleep(max(1, int(self.cfg.get("poll_seconds", 3))))
+
+            # Ζυγός που ήταν κλειστός δεν πρέπει να περιμένει την επόμενη αλλαγή
+            # τιμών για να ενημερωθεί — μπορεί να αργήσει μέρες.
+            if time.time() >= epomeni_dokimi:
+                epomeni_dokimi = time.time() + self._pending_interval()
+                if load_pending() and not (self.worker and self.worker.is_alive()):
+                    try:
+                        retry_pending_scales(
+                            self.cfg,
+                            lambda m: self.after(0, self.log, m),
+                            self.stop_event)
+                    except Exception as exc:
+                        self.after(0, self.log, "Επανάληψη εκκρεμών: σφάλμα (%s)" % exc)
+
             path = self.cfg.get("watch_file")
             cur = self._stamp(path)
             if cur is None or cur == self.last_stamp:

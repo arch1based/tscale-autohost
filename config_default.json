@@ -103,6 +103,7 @@
   "direct_retries": 2,
   "direct_rebuild": false,
   "erp_full_catalog": false,
+  "pending_retry_minutes": 15,
   "direct_quirk": false,
   "direct_wire_encoding": "utf-8",
   "direct_all_fields": false,
