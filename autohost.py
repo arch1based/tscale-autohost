@@ -1323,7 +1323,12 @@ def merge_prices_only(yparxonta, items, log):
         telika.append(enimeromeni)
     log("  ενημέρωση τιμών: %d άλλαξαν, %d νέα προϊόντα, %d συνολικά"
         % (allages, kaina, len(telika)))
-    log("  τα ονόματα στη ζυγαριά μένουν ανέπαφα")
+    if kaina == len(telika):
+        log("  ο ζυγός δεν είχε κανένα από αυτά — γράφονται όλα από την αρχή")
+    elif kaina:
+        log("  τα υπάρχοντα ονόματα μένουν ανέπαφα· γράφονται μόνο τα %d νέα" % kaina)
+    else:
+        log("  τα ονόματα στη ζυγαριά μένουν ανέπαφα")
     return telika
 
 
