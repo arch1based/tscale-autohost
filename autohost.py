@@ -1052,6 +1052,9 @@ def deliver_file(src, dst, log, label):
 #   σώμα: ΕΝΑΣ πίνακας με όλα τα προϊόντα, όλες οι τιμές ως κείμενο.
 # --------------------------------------------------------------------------
 SCALE_PORT = 1235
+# Ο ζυγός απαντά HTTP 429 σε δύο γρήγορα διαδοχικά αιτήματα. Μετρήθηκε σε
+# πραγματικό ζυγό: 10 δευτερόλεπτα αναμονής αρκούν και περνάει κανονικά.
+RATE_LIMIT_WAIT = 10
 
 # Στήλη CSV -> πεδίο JSON (επιβεβαιωμένο με δοκιμαστικό αρχείο μοναδικών τιμών)
 CSV_TO_JSON = {
@@ -1242,9 +1245,13 @@ def run_direct_send(cfg, log, stop_event=None):
     # αναφέρουμε στο τέλος ποιοι έμειναν πίσω.
     failures = []
     tries = max(1, int(cfg.get("direct_retries", 2) or 2))
-    for ip in ips:
+    for i, ip in enumerate(ips):
         if stop_event is not None and stop_event.is_set():
             break
+        # Ο ζυγός απαντά 429 αν του μιλήσεις ξανά μέσα σε λίγα δευτερόλεπτα.
+        # Με δύο ζυγούς στη σειρά, ο δεύτερος έτρωγε άρνηση χωρίς να φταίει.
+        if i:
+            time.sleep(RATE_LIMIT_WAIT)
         for attempt in range(1, tries + 1):
             ok, msg = send_to_scale(ip, items, log,
                                     quirk=cfg.get("direct_quirk", False),
@@ -1253,9 +1260,12 @@ def run_direct_send(cfg, log, stop_event=None):
                 log("  -> %s: ΕΠΙΤΥΧΙΑ  (%s)" % (ip, msg))
                 break
             if attempt < tries:
-                log("  -> %s: αποτυχία (%s) — νέα προσπάθεια %d/%d"
-                    % (ip, msg, attempt + 1, tries))
-                time.sleep(2)
+                # Το 429 δεν είναι βλάβη — είναι «περίμενε». Θέλει περισσότερο
+                # από τα 2 δευτερόλεπτα που αρκούν σε μια στιγμιαία αστοχία.
+                anamoni = RATE_LIMIT_WAIT if "429" in msg else 2
+                log("  -> %s: αποτυχία (%s) — αναμονή %ds, νέα προσπάθεια %d/%d"
+                    % (ip, msg, anamoni, attempt + 1, tries))
+                time.sleep(anamoni)
             else:
                 log("  -> %s: ΑΠΟΤΥΧΙΑ μετά από %d προσπάθειες  (%s)" % (ip, tries, msg))
                 failures.append("%s — %s" % (ip, msg))

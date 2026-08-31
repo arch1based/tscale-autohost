@@ -12,6 +12,7 @@
 """
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import autohost as A                                          # noqa: E402
@@ -58,10 +59,26 @@ def main():
         items = [dokimastiko_proion(kodikos, DOKIMI)]
         soma = A.encode_body(items, quirk, wire)
         deigma = soma.split(b'"product_name":"')[1][:12].hex(" ")
-        ok, apantisi = A.send_to_scale(ip, items, print, quirk=quirk, wire=wire)
         print("  %s  %s" % (kodikos, perigrafi))
         print("         bytes στο καλώδιο: %s" % deigma)
-        print("         %s\n" % ("ΕΠΙΤΥΧΙΑ — " + apantisi if ok else "ΑΠΟΤΥΧΙΑ — " + apantisi))
+
+        # Ο ζυγός απαντά 429 («πολλά αιτήματα») αν του μιλήσεις γρήγορα δύο
+        # φορές. Χωρίς αναμονή περνάει μόνο το πρώτο και η δοκιμή δεν βγάζει
+        # νόημα — γι' αυτό επιμένουμε μέχρι να το δεχτεί.
+        for prospatheia in range(1, 7):
+            ok, apantisi = A.send_to_scale(ip, items, print, quirk=quirk, wire=wire)
+            if ok:
+                print("         ΕΠΙΤΥΧΙΑ — %s\n" % apantisi)
+                break
+            if "429" not in apantisi:
+                print("         ΑΠΟΤΥΧΙΑ — %s\n" % apantisi)
+                break
+            anamoni = 10 * prospatheia
+            print("         ο ζυγός ζητά αναμονή (429) — %ds και ξανά (%d/6)"
+                  % (anamoni, prospatheia))
+            time.sleep(anamoni)
+        else:
+            print("         ΑΠΟΤΥΧΙΑ — ο ζυγός επιμένει σε 429\n")
 
     print("Τώρα κοίτα στη ζυγαριά τα προϊόντα 90001 έως %s."
           % PARALLAGES[-1][0])
