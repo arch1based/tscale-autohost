@@ -3029,7 +3029,14 @@ class App(tk.Tk):
             self.btn_adv3m.configure(text="⚙  Ρυθμίσεις AutoProcess  ▴")
 
     def on_rebuild_toggle(self):
-        """Το τικ αλλάζει κάτι σοβαρό — να φαίνεται τι θα γίνει."""
+        """Το τικ αλλάζει κάτι σοβαρό — να φαίνεται τι θα γίνει.
+
+        Το «περιέχει ΟΛΑ τα προϊόντα» μετράει μόνο στην ανακατασκευή, οπότε
+        γκριζάρει όταν δεν παίζει ρόλο: ένα τικ που δεν κάνει τίποτα μπερδεύει
+        περισσότερο από ένα που λείπει.
+        """
+        self.chk_fullcat.configure(
+            state="normal" if self.v_rebuild.get() else "disabled")
         if not self.v_rebuild.get():
             self.lbl_rebuild.configure(text="→ αλλάζουν μόνο οι τιμές")
         elif self.v_fullcat.get():
