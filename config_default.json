@@ -1,5 +1,5 @@
 {
-  "config_version": 2,
+  "config_version": 3,
   "watch_file": "",
   "output_dir": "",
   "host1_ext": "",
@@ -99,7 +99,7 @@
   "step3_exe": "",
   "step3_seconds": 120,
   "step3_kill": true,
-  "direct_send": false,
+  "direct_send": true,
   "direct_retries": 2,
   "direct_quirk": false,
   "direct_wire_encoding": "utf-8",

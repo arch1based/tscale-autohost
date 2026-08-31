@@ -477,6 +477,15 @@ def migrate_config(cfg, saved):
         cfg["dst_encoding"] = "auto"
         cfg["config_version"] = 2
         changed = True
+    if int(saved.get("config_version", 0)) < 3:
+        # Η 2.3.0 αποθήκευε direct_quirk=true (αλλοίωνε τα ελληνικά και ο ζυγός
+        # τύπωνε κινέζικα). Επαληθεύτηκε σε πραγματικό ζυγό ότι το σωστό είναι
+        # καθαρό UTF-8 — και επειδή οι αποθηκευμένες ρυθμίσεις υπερισχύουν των
+        # προεπιλογών, η διόρθωση δεν έφτανε ποτέ σε όποιον είχε ήδη τρέξει.
+        cfg["direct_quirk"] = False
+        cfg["direct_wire_encoding"] = "utf-8"
+        cfg["config_version"] = 3
+        changed = True
     return changed
 
 
@@ -2177,17 +2186,16 @@ class App(tk.Tk):
         ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 4 — Εφαρμογή ζυγού", variable=self.v_s3).pack(anchor="w")
         direct = ttk.Frame(f)
         direct.pack(fill="x", pady=(6, 2))
-        self.v_direct = tk.BooleanVar(value=False)
-        ttk.Checkbutton(direct, text="Απευθείας αποστολή στη ζυγαριά (πειραματικό)",
+        self.v_direct = tk.BooleanVar(value=True)
+        ttk.Checkbutton(direct, text="Απευθείας αποστολή στη ζυγαριά",
                         variable=self.v_direct, command=self.on_direct_toggle,
                         style="Big.TCheckbutton").pack(side="left")
         self.lbl_direct = ttk.Label(direct, style="Hint.TLabel")
         self.lbl_direct.pack(side="left", padx=10)
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Σε ορισμένες ζυγαριές έχει εμφανίσει λάθος χαρακτήρες στα ελληνικά "
-                       "(«κινέζικα» στην ετικέτα). Δοκίμασέ το πρώτα σε ένα προϊόν πριν το "
-                       "εμπιστευτείς σε όλο το κατάστημα — χρησιμοποίησε το AutoProcess αν "
-                       "δεις πρόβλημα."
+                  text="Στέλνει το ίδιο το πρόγραμμα, στο παρασκήνιο, χωρίς να ανοίγει "
+                       "τίποτα. Δίνει πραγματική επιβεβαίωση ανά ζυγό. Ξε-τσέκαρέ το για "
+                       "να ξαναδουλέψει μέσω AutoProcess."
                   ).pack(anchor="w", pady=(0, 4))
 
         ipf = ttk.Frame(f)
@@ -2205,12 +2213,11 @@ class App(tk.Tk):
         ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(4, 8))
         bar3m = ttk.Frame(f)
         bar3m.pack(fill="x")
-        self.btn_adv3m = ttk.Button(bar3m, text="⚙  Ρυθμίσεις AutoProcess  ▴",
+        self.btn_adv3m = ttk.Button(bar3m, text="⚙  Ρυθμίσεις AutoProcess  ▾",
                                     style="Ghost.TButton", command=self.toggle_adv3m)
         self.btn_adv3m.pack(side="left")
         ttk.Label(bar3m, style="Hint.TLabel",
-                  text="ο προεπιλεγμένος τρόπος — χρειάζεται μόνο αν τσεκάρεις την "
-                       "πειραματική απευθείας αποστολή"
+                  text="χρειάζεται μόνο αν ξε-τσεκάρεις την απευθείας αποστολή"
                   ).pack(side="left", padx=8)
 
         self.adv3m = ttk.Frame(f)
@@ -2253,7 +2260,6 @@ class App(tk.Tk):
                   text="Το AutoProcess είναι το πρόγραμμα του κατασκευαστή που στέλνει τα "
                        "δεδομένα στους ζυγούς T-Scale. Δείξε πού είναι εγκατεστημένο στο "
                        "μηχάνημα του πελάτη.").pack(anchor="w", pady=(8, 0))
-        self.adv3m.pack(fill="x")   # ξεδιπλωμένο από προεπιλογή — είναι ο προεπιλεγμένος τρόπος
 
         ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(12, 8))
         bar4 = ttk.Frame(f)
@@ -2484,7 +2490,7 @@ class App(tk.Tk):
         self.v_s3sec.set(str(c.get("step3_seconds", 120)))
         self.v_s3kill.set(bool(c.get("step3_kill", True)))
         self.v_ips.set(c.get("scale_ips", "") or ", ".join(read_ips(c.get("step3_exe", ""))))
-        self.v_direct.set(bool(c.get("direct_send", False)))
+        self.v_direct.set(bool(c.get("direct_send", True)))
         self.on_direct_toggle()
         for key, _label in EXTRA_SENDERS:
             v = self.v_extra[key]
