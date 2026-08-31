@@ -1239,6 +1239,47 @@ def send_to_scale(ip, items, log, timeout=180, quirk=False, wire="utf-8"):
 # —πρώτα απ' όλα το όνομα— μένει στη ζυγαριά ακριβώς όπως το βρήκαμε.
 PRICE_FIELDS = ("original_price", "sales_price", "price_unit_index")
 
+# Αν λείπει μεγαλύτερο ποσοστό από αυτό, σταματάμε αντί να σβήσουμε: πιθανότατα
+# το ERP έβγαλε μερικό αρχείο (ή κόπηκε στη μέση) και δεν είναι πραγματικές
+# διαγραφές. Καλύτερα μια χαμένη εκτέλεση παρά άδεια ζυγαριά μέσα στη βάρδια.
+MAX_DELETE_RATIO = 0.30
+
+
+def find_deleted(yparxonta, items, log):
+    """Ποια προϊόντα του ζυγού δεν υπάρχουν πια στο αρχείο του ERP.
+
+    Καλείται ΜΟΝΟ όταν ο τεχνικός έχει δηλώσει ότι το ERP βγάζει ολόκληρο τον
+    κατάλογο. Σε πελάτη που βγάζει μόνο τις αλλαγές, «ό,τι λείπει» είναι απλώς
+    ό,τι δεν άλλαξε — και θα σβήναμε σχεδόν όλο το κατάστημα.
+    """
+    sto_arxeio = set()
+    for row in items:
+        sto_arxeio.add(str(row.get("product_number", "")).lstrip("0") or "0")
+    energa = {k: v for k, v in yparxonta.items() if str(v.get("disabled")) != "1"}
+    leipoun = [k for k in energa if k not in sto_arxeio]
+    if not leipoun:
+        return []
+    analogia = len(leipoun) / float(len(energa) or 1)
+    if analogia > MAX_DELETE_RATIO:
+        raise StepError(
+            "Βήμα 4",
+            "Ακύρωση: το αρχείο θα έσβηνε %d από τα %d προϊόντα του ζυγού (%d%%)."
+            % (len(leipoun), len(energa), round(analogia * 100)),
+            "Αυτό συνήθως σημαίνει ότι το ERP έβγαλε μερικό αρχείο, ή ότι ο "
+            "πελάτης στέλνει μόνο τις αλλαγές.\n\n"
+            "Αν ο πελάτης στέλνει μόνο τις αλλαγές, ξε-τσέκαρε το «Το αρχείο "
+            "περιέχει ΟΛΑ τα προϊόντα».\n"
+            "Αν όντως καταργήθηκαν τόσα προϊόντα, σβήσ' τα από τη ζυγαριά με "
+            "το χέρι — δεν το κάνουμε αυτόματα σε τέτοιο μέγεθος.")
+    log("  θα απενεργοποιηθούν %d προϊόντα που δεν υπάρχουν πια στο ERP"
+        % len(leipoun))
+    svisimena = []
+    for kleidi in leipoun:
+        row = dict(yparxonta[kleidi])
+        row["disabled"] = "1"
+        svisimena.append(row)
+    return svisimena
+
 
 def fetch_scale_products(ip, timeout=90):
     """Διαβάζει τη βάση προϊόντων του ζυγού. Επιστρέφει {κωδικός: εγγραφή}."""
@@ -1299,9 +1340,12 @@ def run_direct_send(cfg, log, stop_event=None):
 
     items = build_products_json(path, cfg, log)
     rebuild = bool(cfg.get("direct_rebuild", False))
+    plires = bool(cfg.get("erp_full_catalog", False))
     log("  -> απευθείας αποστολή: %d προϊόντα σε %d ζυγό(ους), θύρα %d%s"
         % (len(items), len(ips), SCALE_PORT,
            "  [ΠΛΗΡΗΣ ΑΝΑΚΑΤΑΣΚΕΥΗ]" if rebuild else "  [μόνο τιμές]"))
+    log("  το αρχείο του ERP δηλώθηκε ως: %s"
+        % ("ΟΛΟΚΛΗΡΟΣ ο κατάλογος" if plires else "μόνο οι αλλαγές"))
 
     # Ένας ζυγός που δεν απαντά δεν σταματά τους υπόλοιπους: συνεχίζουμε και
     # αναφέρουμε στο τέλος ποιοι έμειναν πίσω.
@@ -1316,7 +1360,9 @@ def run_direct_send(cfg, log, stop_event=None):
             time.sleep(RATE_LIMIT_WAIT)
 
         pros_apostoli = items
-        if not rebuild:
+        # Τη βάση του ζυγού τη χρειαζόμαστε και για τη συγχώνευση τιμών, και για
+        # να βρούμε τι καταργήθηκε σε πλήρη ανακατασκευή.
+        if not rebuild or plires:
             # Καθημερινή ενημέρωση: διαβάζουμε πρώτα τι έχει ο ζυγός και
             # πειράζουμε μόνο τις τιμές. Αν η ανάγνωση αποτύχει, δεν στέλνουμε
             # ολόκληρα τα προϊόντα «στα τυφλά» — θα άλλαζε η γραφή των ονομάτων.
@@ -1325,7 +1371,13 @@ def run_direct_send(cfg, log, stop_event=None):
                 log("  -> %s: διαβάστηκαν %d προϊόντα από τον ζυγό"
                     % (ip, len(yparxonta)))
                 time.sleep(RATE_LIMIT_WAIT)
-                pros_apostoli = merge_prices_only(yparxonta, items, log)
+                if rebuild:
+                    # Ολόκληρος ο κατάλογος: ό,τι λείπει έχει όντως καταργηθεί.
+                    pros_apostoli = list(items) + find_deleted(yparxonta, items, log)
+                else:
+                    pros_apostoli = merge_prices_only(yparxonta, items, log)
+            except StepError:
+                raise
             except Exception as exc:
                 log("  -> %s: ΑΠΟΤΥΧΙΑ ανάγνωσης (%s)" % (ip, exc))
                 failures.append("%s — δεν διαβάστηκε η βάση του ζυγού: %s" % (ip, exc))
@@ -2284,6 +2336,21 @@ class App(tk.Tk):
                        "ονόματα ή μπήκαν πολλά νέα προϊόντα — τότε ξαναγράφονται όλα."
                   ).pack(anchor="w", pady=(0, 4))
 
+        katal = ttk.Frame(f)
+        katal.pack(fill="x", pady=(2, 0))
+        self.v_fullcat = tk.BooleanVar(value=False)
+        self.chk_fullcat = ttk.Checkbutton(
+            katal, text="Το αρχείο του ERP περιέχει ΟΛΑ τα προϊόντα",
+            variable=self.v_fullcat, command=self.on_rebuild_toggle)
+        self.chk_fullcat.pack(side="left")
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Ρώτα τον πελάτη: το ERP βγάζει κάθε φορά ολόκληρο τον κατάλογο, ή "
+                       "μόνο όσα άλλαξαν; Μετράει ΜΟΝΟ στην πλήρη ανακατασκευή: αν βγάζει "
+                       "ολόκληρο τον κατάλογο, όσα λείπουν θεωρούνται καταργημένα και "
+                       "απενεργοποιούνται. Αν βγάζει μόνο τις αλλαγές, ΑΦΗΣΕ ΤΟ ΚΕΝΟ — "
+                       "αλλιώς όσα δεν άλλαξαν θα έμοιαζαν καταργημένα."
+                  ).pack(anchor="w", pady=(0, 4))
+
         ipf = ttk.Frame(f)
         ipf.pack(fill="x", pady=(6, 0))
         ttk.Label(ipf, text="IP ζυγών:").pack(side="left")
@@ -2578,6 +2645,7 @@ class App(tk.Tk):
         self.v_ips.set(c.get("scale_ips", "") or ", ".join(read_ips(c.get("step3_exe", ""))))
         self.v_direct.set(bool(c.get("direct_send", True)))
         self.v_rebuild.set(bool(c.get("direct_rebuild", False)))
+        self.v_fullcat.set(bool(c.get("erp_full_catalog", False)))
         self.on_rebuild_toggle()
         self.on_direct_toggle()
         for key, _label in EXTRA_SENDERS:
@@ -2661,6 +2729,7 @@ class App(tk.Tk):
         c["scale_ips"] = self.v_ips.get().strip()
         c["direct_send"] = self.v_direct.get()
         c["direct_rebuild"] = self.v_rebuild.get()
+        c["erp_full_catalog"] = self.v_fullcat.get()
         for key, _label in EXTRA_SENDERS:
             v = self.v_extra[key]
             c["%s_enabled" % key] = v["enabled"].get()
@@ -2961,11 +3030,14 @@ class App(tk.Tk):
 
     def on_rebuild_toggle(self):
         """Το τικ αλλάζει κάτι σοβαρό — να φαίνεται τι θα γίνει."""
-        if self.v_rebuild.get():
-            self.lbl_rebuild.configure(
-                text="→ ξαναγράφονται ΚΑΙ τα ονόματα σε κάθε εκτέλεση")
-        else:
+        if not self.v_rebuild.get():
             self.lbl_rebuild.configure(text="→ αλλάζουν μόνο οι τιμές")
+        elif self.v_fullcat.get():
+            self.lbl_rebuild.configure(
+                text="→ ξαναγράφονται τα ονόματα ΚΑΙ σβήνονται όσα λείπουν")
+        else:
+            self.lbl_rebuild.configure(
+                text="→ ξαναγράφονται τα ονόματα (τίποτα δεν σβήνεται)")
 
     def on_direct_toggle(self):
         """Δείχνει τι θα γίνει με την τρέχουσα επιλογή."""
