@@ -1180,18 +1180,30 @@ def scale_reachable(ip, timeout=5):
         return False, "δεν απαντά στη θύρα %d (%s)" % (SCALE_PORT, exc)
 
 
-def send_to_scale(ip, items, log, timeout=180, quirk=True):
+def encode_body(items, quirk=False, wire="utf-8"):
+    """Το σώμα του αιτήματος, με τον τρόπο γραφής των ελληνικών που ζητήθηκε.
+
+    Τρεις παραλλαγές, γιατί δεν υπάρχει τεκμηρίωση κατασκευαστή:
+      quirk=False, wire=utf-8   → «Κ» = ce 9a   (καθαρά ελληνικά — προεπιλογή)
+      quirk=True,  wire=utf-8   → «Κ» = c3 8a   (mojibake· έβγαλε κινέζικα στον ERGON)
+      quirk=True,  wire=cp1252  → «Κ» = ca      (αυτούσια cp1253 bytes)
+    """
+    if quirk:
+        items = [{k: (greek_as_autoprocess(v) if isinstance(v, str) else v)
+                  for k, v in row.items()} for row in items]
+    # Χωρίς κενά μετά από «:» και «,» — έτσι το γράφει το Newtonsoft.Json του
+    # AutoProcess, ώστε το σώμα να έχει την ίδια δομή.
+    text = json.dumps(items, ensure_ascii=False, separators=(",", ":"))
+    return text.encode(wire, "replace")
+
+
+def send_to_scale(ip, items, log, timeout=180, quirk=False, wire="utf-8"):
     """Στέλνει τα προϊόντα σε έναν ζυγό. Επιστρέφει (επιτυχία, μήνυμα)."""
     import urllib.request, urllib.error
     ok, why = scale_reachable(ip)
     if not ok:
         return False, why
-    if quirk:
-        items = [{k: (greek_as_autoprocess(v) if isinstance(v, str) else v)
-                  for k, v in row.items()} for row in items]
-    # Χωρίς κενά μετά από «:» και «,» — έτσι το γράφει το Newtonsoft.Json του
-    # AutoProcess, και θέλουμε σώμα byte-προς-byte ίδιο.
-    body = json.dumps(items, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    body = encode_body(items, quirk, wire)
     url = "http://%s:%d/products" % (ip, SCALE_PORT)
     req = urllib.request.Request(url, data=body, method="POST", headers={
         "Content-Type": "application/json",
@@ -1234,7 +1246,9 @@ def run_direct_send(cfg, log, stop_event=None):
         if stop_event is not None and stop_event.is_set():
             break
         for attempt in range(1, tries + 1):
-            ok, msg = send_to_scale(ip, items, log, quirk=cfg.get("direct_quirk", True))
+            ok, msg = send_to_scale(ip, items, log,
+                                    quirk=cfg.get("direct_quirk", False),
+                                    wire=cfg.get("direct_wire_encoding", "utf-8"))
             if ok:
                 log("  -> %s: ΕΠΙΤΥΧΙΑ  (%s)" % (ip, msg))
                 break
