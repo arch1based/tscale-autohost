@@ -1920,6 +1920,124 @@ def run_step3(cfg, log, stop_event=None):
             "επαναληφθεί στην επόμενη αλλαγή του ERP.")
 
 
+# --------------------------------------------------------------------------
+# Efresi zygon sto diktyo kai katastasi tous
+#
+# Κάθε μάρκα ακούει σε δική της θύρα, οπότε η ίδια η θύρα μας λέει τι είναι:
+# 1235 T-Scale, 8071 Ishida UNI-3. Ανοίγουμε και κλείνουμε τη σύνδεση χωρίς να
+# στείλουμε τίποτα — ο ζυγός δεν το καταλαβαίνει καν.
+# --------------------------------------------------------------------------
+SCALE_KINDS = ((SCALE_PORT, "T-Scale"), (ISHIDA_PORT, "Ishida"))
+
+
+def local_subnets():
+    """Τα δίκτυα όπου βρίσκεται αυτό το μηχάνημα, ως «10.130.20.» κ.λπ.
+
+    Παίρνουμε τη διεύθυνση που θα χρησιμοποιούσαμε για να βγούμε προς τα έξω:
+    είναι η κάρτα που βλέπει το δίκτυο του καταστήματος, άρα κι εκείνη που
+    βλέπει τους ζυγούς.
+    """
+    import socket
+    diktya = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("10.255.255.255", 1))
+        diktya.append(".".join(s.getsockname()[0].split(".")[:3]) + ".")
+        s.close()
+    except Exception:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if ip.startswith("127."):
+                continue
+            net = ".".join(ip.split(".")[:3]) + "."
+            if net not in diktya:
+                diktya.append(net)
+    except Exception:
+        pass
+    return diktya
+
+
+def probe_scale(ip, port, timeout=0.6):
+    """Ανοίγει και κλείνει μια σύνδεση. True αν ο ζυγός ακούει."""
+    import socket
+    try:
+        with socket.create_connection((ip, port), timeout):
+            return True
+    except Exception:
+        return False
+
+
+def my_addresses():
+    """Οι διευθύνσεις αυτού του μηχανήματος — για να μην τις περάσουμε για ζυγό."""
+    import socket
+    dikes_mas = set(["127.0.0.1"])
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("10.255.255.255", 1))
+        dikes_mas.add(s.getsockname()[0])
+        s.close()
+    except Exception:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            dikes_mas.add(info[4][0])
+    except Exception:
+        pass
+    return dikes_mas
+
+
+def scan_for_scales(subnet, log=None, stop_event=None, timeout=0.6, workers=120):
+    """Σαρώνει ένα δίκτυο /24 και επιστρέφει [(IP, μάρκα, θύρα), …].
+
+    Δοκιμάζουμε 120 διευθύνσεις ταυτόχρονα: σειριακά, 254 διευθύνσεις × 2 θύρες
+    με μισό δευτερόλεπτο η καθεμία θα ήθελαν πάνω από τέσσερα λεπτά.
+
+    Το ίδιο μας το μηχάνημα εξαιρείται: αν τρέχει εδώ κάποιο εργαλείο δοκιμών
+    στην ίδια θύρα, θα εμφανιζόταν σαν ζυγός.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    vrethikan = []
+    dikes_mas = my_addresses()
+    zeugaria = [("%s%d" % (subnet, n), port, onoma)
+                for n in range(1, 255) for port, onoma in SCALE_KINDS
+                if "%s%d" % (subnet, n) not in dikes_mas]
+
+    def dokimi(z):
+        ip, port, onoma = z
+        if stop_event is not None and stop_event.is_set():
+            return None
+        return (ip, onoma, port) if probe_scale(ip, port, timeout) else None
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for apotelesma in pool.map(dokimi, zeugaria):
+            if apotelesma:
+                vrethikan.append(apotelesma)
+                if log:
+                    log("     βρέθηκε %s στη %s (θύρα %d)"
+                        % (apotelesma[1], apotelesma[0], apotelesma[2]))
+    vrethikan.sort(key=lambda t: [int(x) for x in t[0].split(".")])
+    return vrethikan
+
+
+def scales_status(cfg, timeout=1.5):
+    """Ποιοι από τους ρυθμισμένους ζυγούς απαντούν αυτή τη στιγμή.
+
+    Επιστρέφει [(IP, μάρκα, ανοιχτός, σε εκκρεμότητα), …].
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    ekkremotites = load_pending()
+    zygoi = [(ip, "T-Scale", SCALE_PORT) for ip in parse_ips(cfg.get("scale_ips", ""))]
+    zygoi += [(ip, "Ishida", ISHIDA_PORT) for ip in parse_ips(cfg.get("ishida_ips", ""))]
+    if not zygoi:
+        return []
+    with ThreadPoolExecutor(max_workers=max(1, len(zygoi))) as pool:
+        anoixtoi = list(pool.map(lambda z: probe_scale(z[0], z[2], timeout), zygoi))
+    return [(ip, marka, ok, ekkremotites.get(ip))
+            for (ip, marka, _port), ok in zip(zygoi, anoixtoi)]
+
+
 def _run_ishida(cfg, log, stop_event=None):
     """Οι Ishida απευθείας από εμάς — μόνο αν έχει δοθεί IP.
 
@@ -2240,6 +2358,30 @@ def run_pipeline(cfg, log, stop_event=None):
 # GUI
 # --------------------------------------------------------------------------
 class App(tk.Tk):
+    def report_callback_exception(self, exc, val, tb):
+        """Πιάνει κάθε σφάλμα του παραθύρου, αντί να κλείσει σιωπηλά.
+
+        Χωρίς αυτό, ένα σφάλμα μέσα σε κουμπί ή τικ έβγαινε μόνο στην κονσόλα —
+        που στα Windows δεν υπάρχει — και το πρόγραμμα φαινόταν να «κρασάρει»
+        χωρίς να αφήνει ίχνος. Τώρα γράφεται ολόκληρο στο log.
+        """
+        detail = "".join(traceback.format_exception(exc, val, tb))
+        try:
+            write_log("ΣΦΑΛΜΑ ΠΑΡΑΘΥΡΟΥ:\n" + detail)
+        except Exception:
+            pass
+        try:
+            self.log("Σφάλμα: %s (γράφτηκε ολόκληρο στο log)" % val)
+        except Exception:
+            pass
+        try:
+            messagebox.showerror(
+                APP_NAME,
+                "Κάτι πήγε στραβά, αλλά το πρόγραμμα συνεχίζει.\n\n%s\n\n"
+                "Οι λεπτομέρειες γράφτηκαν στο log:\n%s" % (val, LOG_DIR))
+        except Exception:
+            pass
+
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
@@ -2858,6 +3000,20 @@ class App(tk.Tk):
                        "μένουν όπως είναι. Καινούργια προϊόντα δεν μπαίνουν μόνα τους — "
                        "αυτά τα περνάει ο τεχνικός. Άφησέ το κενό αν δεν υπάρχουν Ishida."
                   ).pack(anchor="w", pady=(4, 10))
+
+        ergaleia = ttk.Frame(f)
+        ergaleia.pack(fill="x", pady=(2, 2))
+        self.btn_scan = ttk.Button(ergaleia, text="🔍  Αυτόματη εύρεση ζυγαριών",
+                                   style="Accent.TButton", command=self.scan_scales_now)
+        self.btn_scan.pack(side="left")
+        ttk.Button(ergaleia, text="Ποιες ζυγαριές είναι ανοιχτές",
+                   command=self.show_scale_status).pack(side="left", padx=8)
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Η αυτόματη εύρεση ψάχνει όλο το δίκτυο του μηχανήματος και "
+                       "ξεχωρίζει μόνη της ποιος ζυγός είναι T-Scale και ποιος Ishida "
+                       "— κάθε μάρκα ακούει σε δική της θύρα. Κρατάει λίγα δευτερόλεπτα "
+                       "και δεν στέλνει τίποτα στους ζυγούς."
+                  ).pack(anchor="w", pady=(4, 8))
 
         ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(2, 8))
 
@@ -3692,6 +3848,170 @@ class App(tk.Tk):
                 text="(αν αντιγράψεις τον φάκελο του προγράμματος T-Scale ως "
                      "«autosend» δίπλα στο δικό μας, βρίσκεται μόνο του)")
             self.btn_bundled.state(["disabled"])
+
+    def scan_scales_now(self):
+        """Ψάχνει μόνο του ζυγούς στο δίκτυο και συμπληρώνει τα πεδία IP."""
+        if getattr(self, "_scanning", False):
+            return
+        self._scanning = True
+        self.btn_scan.configure(text="Ψάχνω…")
+        self.btn_scan.state(["disabled"])
+
+        # Το tkinter δεν είναι thread-safe: το νήμα ΔΕΝ αγγίζει τίποτα γραφικό,
+        # αφήνει το αποτέλεσμα σε μια θέση και το κύριο νήμα το παραλαμβάνει.
+        self._scan_result = None
+        apotelesma = {}
+
+        def douleia():
+            try:
+                diktya = local_subnets()
+                if not diktya:
+                    apotelesma["sfalma"] = "Δεν βρέθηκε δίκτυο σε αυτό το μηχάνημα."
+                else:
+                    vrethentes = []
+                    for net in diktya:
+                        vrethentes += scan_for_scales(net)
+                    apotelesma["zygoi"] = vrethentes
+            except Exception as exc:
+                apotelesma["sfalma"] = str(exc)
+            apotelesma["telos"] = True
+
+        threading.Thread(target=douleia, daemon=True).start()
+
+        def perimene():
+            if not apotelesma.get("telos"):
+                self.after(250, perimene)
+                return
+            self._scan_done(apotelesma.get("zygoi"), apotelesma.get("sfalma"))
+
+        self.after(250, perimene)
+
+    def _scan_done(self, vrethentes, sfalma):
+        self._scanning = False
+        self.btn_scan.configure(text="🔍  Αυτόματη εύρεση ζυγαριών")
+        self.btn_scan.state(["!disabled"])
+        if sfalma:
+            messagebox.showerror(APP_NAME, "Η αναζήτηση δεν ολοκληρώθηκε.\n\n%s" % sfalma)
+            return
+        if not vrethentes:
+            messagebox.showinfo(
+                APP_NAME,
+                "Δεν βρέθηκε καμία ζυγαριά.\n\nΈλεγξε ότι οι ζυγοί είναι ανοιχτοί και "
+                "στο ίδιο δίκτυο με αυτό το μηχάνημα. Μπορείς πάντα να γράψεις τις IP "
+                "με το χέρι.")
+            return
+
+        tscale = [ip for ip, marka, _p in vrethentes if marka == "T-Scale"]
+        ishida = [ip for ip, marka, _p in vrethentes if marka == "Ishida"]
+        grammes = ["Βρέθηκαν %d ζυγαριές:" % len(vrethentes), ""]
+        for ip, marka, port in vrethentes:
+            grammes.append("   %-16s %s   (θύρα %d)" % (ip, marka, port))
+        grammes += ["", "Να μπουν στα πεδία των IP;",
+                    "(ό,τι έχεις ήδη γράψει θα αντικατασταθεί)"]
+        if not messagebox.askyesno(APP_NAME, "\n".join(grammes)):
+            return
+        if tscale:
+            self.v_ips.set(", ".join(tscale))
+        if ishida:
+            self.v_ish_ips.set(", ".join(ishida))
+        self.log("Βρέθηκαν ζυγοί — T-Scale: %s | Ishida: %s"
+                 % (", ".join(tscale) or "κανένας", ", ".join(ishida) or "κανένας"))
+        self.on_save()
+
+    def show_scale_status(self):
+        """Παράθυρο που δείχνει ποιοι ζυγοί απαντούν αυτή τη στιγμή."""
+        win = tk.Toplevel(self)
+        win.title("Κατάσταση ζυγών")
+        win.geometry("560x380")
+        win.transient(self)
+        try:
+            win.iconbitmap(resource("logo.ico"))
+        except Exception:
+            pass
+
+        top = ttk.Frame(win, padding=12)
+        top.pack(fill="both", expand=True)
+        ttk.Label(top, text="Κατάσταση ζυγών", style="Big.TCheckbutton").pack(anchor="w")
+        lbl = ttk.Label(top, style="Hint.TLabel", text="")
+        lbl.pack(anchor="w", pady=(2, 8))
+
+        cols = ("ip", "marka", "katastasi", "simeiosi")
+        tree = ttk.Treeview(top, columns=cols, show="headings", height=10)
+        for c, t, w in (("ip", "Διεύθυνση", 130), ("marka", "Μάρκα", 90),
+                        ("katastasi", "Κατάσταση", 110), ("simeiosi", "Σημείωση", 190)):
+            tree.heading(c, text=t)
+            tree.column(c, width=w, anchor="w")
+        tree.pack(fill="both", expand=True)
+        tree.tag_configure("anoixtos", foreground=COLORS.get("ok", "#1a7f37"))
+        tree.tag_configure("kleistos", foreground=COLORS.get("err", "#b42318"))
+
+        def ananeosi():
+            if not win.winfo_exists():
+                return
+            lbl.configure(text="ελέγχω…")
+            win.update_idletasks()
+            # Το collect() διαβάζει πεδία του παραθύρου, άρα ΠΡΕΠΕΙ να τρέξει
+            # εδώ, στο κύριο νήμα — όχι μέσα στο νήμα που ελέγχει το δίκτυο.
+            cfg = self.collect()
+            apotelesma = {}
+
+            def douleia():
+                try:
+                    apotelesma["katastaseis"] = scales_status(cfg)
+                except Exception as exc:
+                    apotelesma["sfalma"] = str(exc)
+                apotelesma["telos"] = True
+
+            threading.Thread(target=douleia, daemon=True).start()
+
+            def perimene():
+                if not win.winfo_exists():
+                    return
+                if not apotelesma.get("telos"):
+                    win.after(200, perimene)
+                    return
+                if apotelesma.get("sfalma"):
+                    lbl.configure(text="σφάλμα: %s" % apotelesma["sfalma"])
+                    return
+                deixe(apotelesma["katastaseis"])
+
+            win.after(200, perimene)
+
+        def deixe(katastaseis):
+            if not win.winfo_exists():
+                return
+            tree.delete(*tree.get_children())
+            for ip, marka, anoixtos, ekkremotita in katastaseis:
+                tree.insert("", "end", values=(
+                    ip, marka,
+                    "ανοιχτός" if anoixtos else "δεν απαντά",
+                    "περιμένει ενημέρωση" if ekkremotita else ""),
+                    tags=("anoixtos" if anoixtos else "kleistos",))
+            anoixtoi = sum(1 for _i, _m, ok, _e in katastaseis if ok)
+            lbl.configure(text="%d από %d ζυγαριές απαντούν · τελευταίος έλεγχος %s"
+                          % (anoixtoi, len(katastaseis),
+                             datetime.datetime.now().strftime("%H:%M:%S")))
+            if not katastaseis:
+                lbl.configure(text="Δεν έχουν οριστεί ζυγοί στο Βήμα 4.")
+
+        bar = ttk.Frame(top)
+        bar.pack(fill="x", pady=(10, 0))
+        ttk.Button(bar, text="Έλεγχος τώρα", style="Accent.TButton",
+                   command=ananeosi).pack(side="left")
+        auto = tk.BooleanVar(value=True)
+        ttk.Checkbutton(bar, text="αυτόματος έλεγχος κάθε 30 δευτ.",
+                        variable=auto).pack(side="left", padx=12)
+        ttk.Button(bar, text="Κλείσιμο", command=win.destroy).pack(side="right")
+
+        def xronometro():
+            if not win.winfo_exists():
+                return
+            if auto.get():
+                ananeosi()
+            win.after(30000, xronometro)
+
+        ananeosi()
+        win.after(30000, xronometro)
 
     def show_about(self):
         messagebox.showinfo(
