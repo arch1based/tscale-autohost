@@ -272,10 +272,44 @@ AutoProcess : 1.146.229 bytes
 | Πεδίο | Τι είναι |
 |---|---|
 | 0 | κωδικός PLU |
+| 50 | τρόπος πώλησης (1 ή 2) |
 | 68 | όνομα — cp1253, μέσα σε `"…"`, με τους χαρακτήρες ελέγχου ως **κείμενο**: `\x0d\x08\x02ΕΛ ΚΟΝΤΡΑ Μ/Ο\x02` |
 | **70** | **τιμή σε ακέραια λεπτά** — `790` = 7,90 € |
-| 88 | ΦΠΑ (`21`) |
-| 89 | κωδικός PLU, δεύτερη φορά |
+| **86** | **μορφή barcode** — ο αριθμός από τη λίστα παρακάτω (`0` = χωρίς barcode) |
+| 88 | φορολογική κατηγορία (`21` ή `29` στον ERGON) |
+| **89** | **ο κωδικός που μπαίνει μέσα στο barcode** (τα `CCCCC`) |
+
+## Οι μορφές barcode
+
+Η λίστα είναι του ίδιου του ζυγού — βρέθηκε ατόφια μέσα στο `SetupFile/Greece.set`
+του ScaleLink Pro 5. Κάθε γράμμα είναι μία θέση του EAN-13:
+
+`F` σήμανση · `C` κωδικός είδους · `W` βάρος · `P` τιμή · `I` κωδικός καταστήματος
+· `Q` ποσότητα · `(C/D)` ψηφίο ελέγχου · `(/10)` διαίρεση με το 10
+
+| # | Μορφή | | # | Μορφή |
+|---|---|---|---|---|
+| 1 | `FFCCCCC(C/P)PPPP(C/D)` | | 17 | `FFCCCCCPPPPP(/10)(C/D)` |
+| 2 | `FFCCCCCCPPPP(C/D)` | | 18 | `FFCCCCC(C/P)PPPP(/10)(C/D)` |
+| 3 | `FCCCCCC(C/P)PPPP(C/D)` | | 19 | `FFCCCCC(C/W)WWWW(C/D)` |
+| 4 | `FFCCCCCPPPPP(C/D)` | | 20 | `FCCCCCPPPPPP(C/D)` |
+| 5 | `FCCCCCCPPPPP(C/D)` | | 21 | `FFCCCCPPPPPP(C/D)` |
+| 6 | `FFCCCC(C/P)PPPPP(C/D)` | | 22 | `FCCCWWWWPPPP(C/D)` |
+| 7 | `FFCCCCCCWWWW(C/D)` | | 23 | `FFCCCCQQPPPP(C/D)` |
+| 8 | `FCCCCCCWWWWW(C/D)` | | 24 | `FIIIIIIPPPPP(C/D)` |
+| 9 | `FCCCCCIIIIII(C/D)` | | 25 | `FFIIIIIIPPPP(C/D)` |
+| 10 | `FFCCCCCCPPPP(C/D)` | | 26 | `FCCCCPPPPPPP(C/D)` |
+| 11 | `FFCCCCCCWWWW(C/D)` | | 27 | `FIIIIIIPPPPP(/10)(C/D)` |
+| 12 | `FFCCCC(C/W)WWWWW(C/D)` | | 28 | `FFIIIIIIPPPP(/10)(C/D)` |
+| 15 | `FFCCCCC(0)PPPP(C/D)` | | 29 | `FCCCCCCPPPPP(/10)(C/D)` |
+| **16** | **`FFCCCCCWWWWW(C/D)`** | | 30 | `FFCCCCCCPPPP(/10)(C/D)` |
+|  |  | | 31 | `FFCCCCCQQQQQ(C/D)` |
+|  |  | | 32 | `CUSTOM` |
+|  |  | | 34 | `FFSRRR(C/P)PPPPP(C/D)` |
+|  |  | | 35 | `FFSCCC(C/P)PPPPP(C/D)` |
+
+Στον ζυγό του ERGON βρέθηκαν τρεις μόνο τιμές: **16** (βάρος, 238 προϊόντα),
+**4** (τιμή, 31 προϊόντα) και **0** (χωρίς barcode, 112 προϊόντα).
 
 Επειδή η δομή ανάγνωσης και αποστολής ταυτίζεται, η ενημέρωση τιμών γίνεται όπως και στους
 T-Scale: **διαβάζουμε τα πάντα με 2001, αλλάζουμε μόνο το πεδίο 70, τα στέλνουμε πίσω με
