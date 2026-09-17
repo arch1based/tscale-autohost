@@ -1487,10 +1487,332 @@ def run_direct_send(cfg, log, stop_event=None):
     return failures
 
 
+# --------------------------------------------------------------------------
+# Apeftheias apostoli se zygous Ishida UNI-3, xoris to ScaleLink Pro 5
+#
+# Το πρωτόκολλο βγήκε από τον κώδικα του ίδιου του ScaleLink Pro 5 (κλάση
+# Ishida.Slp.ScaleDb.Slp4000Scale) και επαληθεύτηκε με γέφυρα πάνω σε αληθινό
+# ζυγό του πελάτη: 381 προϊόντα, και στις δύο κατευθύνσεις.
+#
+# Το UNI-3 δεν έχει δικό του πρωτόκολλο — μέσα στο SLP-5 είναι μοντέλο UNI7 με
+# τη σημαία m_bUNI_3, οπότε μιλάει UNI-7. Πλήρης τεκμηρίωση: tools/PROTOKOLLO.md
+# --------------------------------------------------------------------------
+ISHIDA_PORT = 8071
+ISHIDA_MSG_SEND = 1001          # εμείς -> ζυγός
+ISHIDA_MSG_READ = 2001          # αίτημα ανάγνωσης
+ISHIDA_SUBHEADER = 10           # 10 bytes στα UNI-7/UNI-3 (αλλού 8)
+ISHIDA_BLOCK = 50               # εγγραφές ανά σύνδεση, όπως το SLP-5
+ISHIDA_FIELDS = 118             # πεδία ανά εγγραφή PLU
+ISHIDA_CODE_FIELD = 0
+ISHIDA_PRICE_FIELD = 70         # τιμή σε ΑΚΕΡΑΙΑ ΛΕΠΤΑ: 790 = 7,90 €
+ISHIDA_ENCODING = "cp1253"
+
+
+def _ishida_bcd(value, nbytes):
+    """Αριθμός σε BCD, όπως η Num2Bcd του SLP-5: 4 ψηφία σε 2 bytes."""
+    out = bytearray(nbytes)
+    for i in range(nbytes - 1, -1, -1):
+        out[i] = (value % 10) | ((value // 10 % 10) << 4)
+        value //= 100
+    return bytes(out)
+
+
+def _ishida_bcd2num(raw, offset, psifia):
+    num = 0
+    for b in bytearray(raw[offset:offset + (psifia + 1) // 2]):
+        num = num * 100 + (b >> 4) * 10 + (b & 0x0F)
+    return num
+
+
+def _ishida_header(msg_no, data_size):
+    """Κεφαλίδα 8 bytes. Προσοχή: το μέγεθος γράφεται ΣΥΝ 8."""
+    head = bytearray(8)
+    head[0:2] = _ishida_bcd(msg_no, 2)
+    total = data_size + 8
+    head[4:8] = bytes([(total >> 24) & 255, (total >> 16) & 255,
+                       (total >> 8) & 255, total & 255])
+    return bytes(head)
+
+
+def _ishida_subheader(msg_no, size):
+    sub = bytearray(ISHIDA_SUBHEADER)
+    sub[0:2] = _ishida_bcd(msg_no, 2)
+    sub[6:10] = bytes([(size >> 24) & 255, (size >> 16) & 255,
+                       (size >> 8) & 255, size & 255])
+    return bytes(sub)
+
+
+def _ishida_recv(sock, n):
+    raw = b""
+    while len(raw) < n:
+        part = sock.recv(n - len(raw))
+        if not part:
+            break
+        raw += part
+    return raw
+
+
+def _ishida_read_message(sock):
+    """Διαβάζει κεφαλίδα + σώμα. Επιστρέφει (μήνυμα, αποτέλεσμα, σώμα)."""
+    head = _ishida_recv(sock, 8)
+    if len(head) < 8:
+        raise StepError("Βήμα 4", "Ο ζυγός Ishida έκλεισε τη σύνδεση.",
+                        "Δεν ήρθε ολόκληρη η κεφαλίδα της απάντησης.")
+    msg_no = _ishida_bcd2num(head, 0, 4)
+    apotelesma = bytearray(head)[3]
+    megethos = int.from_bytes(head[4:8], "big")
+    soma = _ishida_recv(sock, max(megethos - 8, 0))
+    return msg_no, apotelesma, soma
+
+
+def _ishida_split_records(soma):
+    """Σπάει το σώμα σε εγγραφές, με βάση τις υπο-κεφαλίδες."""
+    out, off = [], 0
+    while off + ISHIDA_SUBHEADER <= len(soma):
+        size = int.from_bytes(soma[off + 6:off + ISHIDA_SUBHEADER], "big")
+        if size <= 0 or off + ISHIDA_SUBHEADER + size > len(soma):
+            break
+        out.append(soma[off + ISHIDA_SUBHEADER:off + ISHIDA_SUBHEADER + size])
+        off += ISHIDA_SUBHEADER + size
+    return out
+
+
+def ishida_split_fields(grammi):
+    """Χωρίζει την εγγραφή σε πεδία κρατώντας τα ΑΥΤΟΥΣΙΑ, με τα εισαγωγικά τους.
+
+    Δεν χρησιμοποιούμε τον αναγνώστη CSV της Python: αυτός θα έβγαζε το κείμενο
+    καθαρό, κι όταν το ξαναγράφαμε θα χάνονταν τα εισαγωγικά που βάζει η Ishida
+    ακόμα κι όπου δεν χρειάζονται. Η εγγραφή πρέπει να γυρίσει πίσω απαράλλαχτη
+    εκτός από την τιμή, γι' αυτό κρατάμε τα κομμάτια όπως ήρθαν.
+    """
+    pedia, trexon, mesa = [], [], False
+    for ch in grammi:
+        if ch == '"':
+            mesa = not mesa
+            trexon.append(ch)
+        elif ch == "," and not mesa:
+            pedia.append("".join(trexon))
+            trexon = []
+        else:
+            trexon.append(ch)
+    pedia.append("".join(trexon))
+    return pedia
+
+
+def ishida_price_to_cents(value):
+    """Η τιμή του ERP σε ακέραια λεπτά — ο ζυγός δεν δέχεται τίποτε άλλο.
+
+    Με «5.4» ή «5.40» ο ζυγός δείχνει 0,54: περιμένει 540.
+    """
+    text = str(value).strip().replace(",", ".")
+    if not text:
+        return None
+    try:
+        return int(round(float(text) * 100))
+    except ValueError:
+        return None
+
+
+def ishida_fetch_plus(ip, timeout=90, log=None):
+    """Διαβάζει ΟΛΑ τα PLU του ζυγού. Επιστρέφει {κωδικός: ωμή εγγραφή}.
+
+    Ο ζυγός τα δίνει σε μπλοκ: ζητάμε «από ποιον κωδικό και πέρα» και
+    συνεχίζουμε από τον τελευταίο που μας έδωσε, ώσπου να απαντήσει με
+    αποτέλεσμα 1 και άδειο σώμα.
+    """
+    import socket
+    yparxonta = {}
+    apo = "0"
+    while True:
+        with socket.create_connection((ip, ISHIDA_PORT), timeout) as sock:
+            sock.settimeout(timeout)
+            aitima = ("%s," % apo).encode(ISHIDA_ENCODING)
+            sock.sendall(_ishida_header(ISHIDA_MSG_READ,
+                                        len(aitima) + ISHIDA_SUBHEADER))
+            sock.sendall(_ishida_subheader(ISHIDA_MSG_READ, len(aitima)) + aitima)
+            _msg, apotelesma, soma = _ishida_read_message(sock)
+
+        if apotelesma != 0 or not soma:
+            break                                   # δεν έχει άλλα
+
+        eggrafes = _ishida_split_records(soma)
+        if not eggrafes:
+            break
+        teleftaios = apo
+        for raw in eggrafes:
+            grammi = raw.decode(ISHIDA_ENCODING, "replace")
+            pedia = ishida_split_fields(grammi)
+            if len(pedia) < ISHIDA_FIELDS:
+                continue
+            kodikos = pedia[ISHIDA_CODE_FIELD].strip()
+            yparxonta[kodikos.lstrip("0") or "0"] = grammi
+            teleftaios = kodikos
+        if log:
+            log("     ...%d προϊόντα ως τον κωδικό %s" % (len(yparxonta), teleftaios))
+        if teleftaios == apo:
+            break                                   # δεν προχωράει: σταματάμε
+        apo = teleftaios
+    return yparxonta
+
+
+def ishida_merge_prices(yparxonta, items, log):
+    """Κρατάει τις εγγραφές του ζυγού και αλλάζει ΜΟΝΟ την τιμή.
+
+    Ίδιος λόγος με τους T-Scale: τα ονόματα στον ζυγό είναι γραμμένα με τη
+    γραφή που έβαλε όποιος τα πρωτοέστειλε, μαζί με χαρακτήρες ελέγχου για τη
+    μορφοποίηση της ετικέτας. Δεν έχουμε λόγο να τα αγγίξουμε.
+    """
+    telika, allages, agnosta, akyres = [], 0, [], 0
+    for row in items:
+        kodikos = str(row.get("product_number", "")).strip()
+        kleidi = kodikos.lstrip("0") or "0"
+        palia = yparxonta.get(kleidi)
+        if palia is None:
+            agnosta.append(kodikos)
+            continue
+        lepta = ishida_price_to_cents(row.get("original_price", ""))
+        if lepta is None:
+            akyres += 1
+            continue
+        pedia = ishida_split_fields(palia)
+        if len(pedia) < ISHIDA_FIELDS:
+            continue
+        if pedia[ISHIDA_PRICE_FIELD] == str(lepta):
+            continue                                # ίδια τιμή: δεν τη στέλνουμε
+        pedia[ISHIDA_PRICE_FIELD] = str(lepta)
+        telika.append(",".join(pedia))
+        allages += 1
+
+    log("  ενημέρωση τιμών Ishida: %d άλλαξαν από %d του αρχείου"
+        % (allages, len(items)))
+    if akyres:
+        log("  %d προϊόντα χωρίς αναγνώσιμη τιμή — δεν στάλθηκαν" % akyres)
+    if agnosta:
+        log("  %d προϊόντα δεν υπάρχουν στον ζυγό και ΔΕΝ δημιουργούνται: %s%s"
+            % (len(agnosta), ", ".join(agnosta[:8]),
+               " …" if len(agnosta) > 8 else ""))
+        log("  (νέα προϊόντα θέλουν ονόματα και μορφή ετικέτας — τα φτιάχνει ο τεχνικός)")
+    return telika
+
+
+def ishida_send_plus(ip, eggrafes, log, timeout=180):
+    """Στέλνει τις εγγραφές σε μπλοκ, νέα σύνδεση για κάθε μπλοκ.
+
+    Η νέα σύνδεση ανά μπλοκ δεν είναι δική μας ιδέα: έτσι κάνει και το SLP-5
+    (ReconnectUni7Socket) όταν στέλνει PLU σε UNI-7.
+    """
+    import socket
+    stalthikan = enimerothikan = me_sfalma = 0
+    for start in range(0, len(eggrafes), ISHIDA_BLOCK):
+        block = eggrafes[start:start + ISHIDA_BLOCK]
+        soma = b""
+        for grammi in block:
+            raw = grammi.encode(ISHIDA_ENCODING, "replace")
+            soma += _ishida_subheader(ISHIDA_MSG_SEND, len(raw)) + raw
+        with socket.create_connection((ip, ISHIDA_PORT), timeout) as sock:
+            sock.settimeout(timeout)
+            sock.sendall(_ishida_header(ISHIDA_MSG_SEND, len(soma)))
+            sock.sendall(soma)
+            _msg, apotelesma, apantisi = _ishida_read_message(sock)
+
+        if len(apantisi) < 12:
+            raise StepError("Βήμα 4", "Ο ζυγός Ishida δεν απάντησε σωστά.",
+                            "%s — απάντηση %d bytes αντί για 12" % (ip, len(apantisi)))
+        elavan = _ishida_bcd2num(apantisi, 4, 4)
+        enimerosan = _ishida_bcd2num(apantisi, 6, 4)
+        sfalmata = _ishida_bcd2num(apantisi, 8, 4)
+        kodikos_sfalmatos = int.from_bytes(apantisi[10:12], "big")
+        stalthikan += len(block)
+        enimerothikan += enimerosan
+        me_sfalma += sfalmata
+        log("     μπλοκ %d-%d: στάλθηκαν %d, ελήφθησαν %d, ενημερώθηκαν %d%s"
+            % (start + 1, start + len(block), len(block), elavan, enimerosan,
+               ", ΜΕ ΣΦΑΛΜΑ %d" % sfalmata if sfalmata else ""))
+        if kodikos_sfalmatos or apotelesma:
+            return False, ("ο ζυγός ανέφερε σφάλμα %d (αποτέλεσμα %d) στο μπλοκ %d-%d"
+                           % (kodikos_sfalmatos, apotelesma,
+                              start + 1, start + len(block)))
+        time.sleep(0.3)
+    if me_sfalma:
+        return False, "%d εγγραφές απορρίφθηκαν από τον ζυγό" % me_sfalma
+    return True, "στάλθηκαν %d, ενημερώθηκαν %d" % (stalthikan, enimerothikan)
+
+
+def ishida_reachable(ip, timeout=5):
+    import socket
+    try:
+        with socket.create_connection((ip, ISHIDA_PORT), timeout):
+            return True, ""
+    except Exception as exc:
+        return False, "δεν απαντά στη θύρα %d (%s)" % (ISHIDA_PORT, exc)
+
+
+def run_ishida_direct(cfg, log, stop_event=None):
+    """Βήμα 4 για τους Ishida, χωρίς το ScaleLink Pro 5."""
+    ips = parse_ips(cfg.get("ishida_ips", ""))
+    if not ips:
+        raise StepError("Βήμα 4", "Δεν έχει οριστεί IP ζυγού Ishida.",
+                        "Συμπλήρωσε τις διευθύνσεις στο πεδίο «IP ζυγών Ishida».")
+    path = (cfg.get("step2_output") or "").strip()
+    if not path or not os.path.isfile(path):
+        raise StepError("Βήμα 4", "Δεν βρέθηκε το αρχείο προϊόντων για τον Ishida.",
+                        "Διαδρομή: %s" % path)
+
+    items = build_products_json(path, cfg, log)
+    log("  -> Ishida: %d προϊόντα σε %d ζυγό(ους), θύρα %d  [μόνο τιμές]"
+        % (len(items), len(ips), ISHIDA_PORT))
+
+    failures = []
+    for ip in ips:
+        if stop_event is not None and stop_event.is_set():
+            break
+        ok, giati = ishida_reachable(ip)
+        if not ok:
+            log("  -> %s: ο ζυγός δεν απαντά (%s)" % (ip, giati))
+            failures.append("%s — %s" % (ip, giati))
+            mark_pending(ip, giati)
+            continue
+        try:
+            yparxonta = ishida_fetch_plus(ip, log=log)
+            log("  -> %s: διαβάστηκαν %d προϊόντα από τον ζυγό" % (ip, len(yparxonta)))
+            if not yparxonta:
+                raise StepError("Βήμα 4", "Ο ζυγός Ishida δεν επέστρεψε προϊόντα.",
+                                "%s — χωρίς τη βάση του δεν μπορούμε να αλλάξουμε "
+                                "τιμές, γιατί θα σβήναμε τα ονόματα." % ip)
+            pros_apostoli = ishida_merge_prices(yparxonta, items, log)
+        except StepError:
+            raise
+        except Exception as exc:
+            log("  -> %s: ΑΠΟΤΥΧΙΑ ανάγνωσης (%s)" % (ip, exc))
+            failures.append("%s — δεν διαβάστηκε η βάση του ζυγού: %s" % (ip, exc))
+            mark_pending(ip, "δεν διαβάστηκε η βάση: %s" % exc)
+            continue
+
+        if not pros_apostoli:
+            log("  -> %s: καμία αλλαγή τιμής — δεν στάλθηκε τίποτα" % ip)
+            clear_pending(ip, log)
+            continue
+        try:
+            ok, msg = ishida_send_plus(ip, pros_apostoli, log)
+        except StepError:
+            raise
+        except Exception as exc:
+            ok, msg = False, str(exc)
+        if ok:
+            log("  -> %s: ΕΠΙΤΥΧΙΑ  (%s)" % (ip, msg))
+            clear_pending(ip, log)
+        else:
+            log("  -> %s: ΑΠΟΤΥΧΙΑ  (%s)" % (ip, msg))
+            failures.append("%s — %s" % (ip, msg))
+            mark_pending(ip, msg)
+    return failures
+
+
 def run_step3(cfg, log, stop_event=None):
     """Βήμα 4: στέλνει σε T-Scale και, προαιρετικά, σε Ishida / ILS."""
     if cfg.get("direct_send"):
         failures = run_direct_send(cfg, log, stop_event)
+        failures += _run_ishida(cfg, log, stop_event)
         _run_extra_senders(cfg, log, stop_event)      # οι υπόλοιποι ζυγοί κανονικά
         if failures:
             raise StepError(
@@ -1516,12 +1838,31 @@ def run_step3(cfg, log, stop_event=None):
             log("  -> ενημερώθηκε το ip.xml: %s" % ", ".join(ips))
 
     run_sender(exe, secs, cfg.get("step3_kill", True), log, stop_event, "T-Scale")
+    failures = _run_ishida(cfg, log, stop_event)
     _run_extra_senders(cfg, log, stop_event)
+    if failures:
+        raise StepError(
+            "Βήμα 4", "Δεν ενημερώθηκαν %d ζυγοί Ishida." % len(failures),
+            "\n".join(failures) +
+            "\n\nΟι υπόλοιποι ενημερώθηκαν κανονικά και η προσπάθεια θα "
+            "επαναληφθεί στην επόμενη αλλαγή του ERP.")
+
+
+def _run_ishida(cfg, log, stop_event=None):
+    """Οι Ishida απευθείας από εμάς — αν δεν ζητήθηκε, δεν γίνεται τίποτα."""
+    if not cfg.get("ishida_direct"):
+        return []
+    return run_ishida_direct(cfg, log, stop_event)
 
 
 def _run_extra_senders(cfg, log, stop_event=None):
     for key, label in EXTRA_SENDERS:
         if not cfg.get("%s_enabled" % key):
+            continue
+        # Αν τους Ishida τους στέλνουμε πια μόνοι μας, το ScaleLink Pro 5
+        # δεν έχει λόγο να ανοίξει — θα έστελνε τα ίδια δεδομένα δεύτερη φορά.
+        if key == "ishida" and cfg.get("ishida_direct"):
+            log("  -> Ishida: στάλθηκε απευθείας, το πρόγραμμα του ζυγού δεν ανοίγει")
             continue
         x_exe = (cfg.get("%s_exe" % key) or "").strip()
         if not x_exe or not os.path.isfile(x_exe):
@@ -1758,6 +2099,15 @@ def build_preview(cfg):
             "" if not wanted or current == wanted else "  → θα ενημερωθεί πριν την αποστολή"))
 
         for key, label in EXTRA_SENDERS:
+            if key == "ishida" and cfg.get("ishida_direct"):
+                ish = parse_ips(cfg.get("ishida_ips", ""))
+                add("  %-8s: ΑΠΕΥΘΕΙΑΣ από εμάς, θύρα %d  [μόνο τιμές]"
+                    % (label, ISHIDA_PORT))
+                add("            IP ζυγών: %s" % (", ".join(ish) or "—  ΠΡΟΣΟΧΗ: κανένα"))
+                for ip in ish:
+                    ok, giati = ishida_reachable(ip)
+                    add("            %s: %s" % (ip, "απαντά" if ok else "ΔΕΝ απαντά — %s" % giati))
+                continue
             if not cfg.get("%s_enabled" % key):
                 add("  %-8s: απενεργοποιημένο" % label)
                 continue
@@ -2548,6 +2898,26 @@ class App(tk.Tk):
         head.pack(fill="x")
         ttk.Checkbutton(head, text="Αποστολή σε %s" % label,
                         variable=v["enabled"]).pack(side="left")
+
+        if key == "ishida":
+            v["direct"] = tk.BooleanVar(value=False)
+            v["ips"] = tk.StringVar()
+            direct_row = ttk.Frame(box)
+            direct_row.pack(fill="x", pady=(2, 0))
+            ttk.Checkbutton(direct_row,
+                            text="Απευθείας αποστολή (χωρίς το ScaleLink Pro 5)",
+                            variable=v["direct"],
+                            command=self.on_ishida_direct_toggle).pack(side="left")
+            ttk.Label(direct_row, text="IP ζυγών Ishida:",
+                      style="Hint.TLabel").pack(side="left", padx=(16, 3))
+            self.e_ishida_ips = ttk.Entry(direct_row, textvariable=v["ips"], width=34)
+            self.e_ishida_ips.pack(side="left")
+            ttk.Label(box, style="Hint.TLabel", justify="left", wraplength=880,
+                      text="Στέλνουμε μόνο τιμές, στη θύρα 8071: διαβάζουμε πρώτα τη βάση "
+                           "του ζυγού και αλλάζουμε μόνο την τιμή, ώστε τα ονόματα και η "
+                           "μορφή της ετικέτας να μείνουν άθικτα. Νέα προϊόντα δεν "
+                           "δημιουργούνται — θέλουν ονόματα και ετικέτα."
+                      ).pack(anchor="w", padx=(20, 0), pady=(2, 2))
         ttk.Label(head, text="διάρκεια:", style="Hint.TLabel").pack(side="left", padx=(16, 3))
         ttk.Entry(head, textvariable=v["seconds"], width=6).pack(side="left")
         ttk.Checkbutton(head, text="κλείσε το μετά",
@@ -2558,6 +2928,25 @@ class App(tk.Tk):
         self._pick_row(grid, "Πρόγραμμα %s:" % label, v["exe"], "exe", 0)
         self._pick_row(grid, "Αρχείο host προς αποστολή:", v["src"], "file", 1)
         self._pick_row(grid, "Να αντιγράφεται εδώ:", v["dst"], "save", 2)
+        if key == "ishida":
+            self.ishida_exe_grid = grid
+            self.on_ishida_direct_toggle()
+
+    def on_ishida_direct_toggle(self):
+        """Με απευθείας αποστολή, το πρόγραμμα της Ishida δεν χρειάζεται πια."""
+        v = self.v_extra.get("ishida")
+        if not v or "direct" not in v:
+            return
+        apeftheias = v["direct"].get()
+        try:
+            self.e_ishida_ips.configure(state="normal" if apeftheias else "disabled")
+            for child in self.ishida_exe_grid.winfo_children():
+                try:
+                    child.configure(state="disabled" if apeftheias else "normal")
+                except tk.TclError:
+                    pass                      # οι ετικέτες δεν έχουν state
+        except AttributeError:
+            pass                              # δεν έχουν φτιαχτεί ακόμα
 
     def _load_logo(self, height):
         try:
@@ -2760,6 +3149,10 @@ class App(tk.Tk):
             v["dst"].set(c.get("%s_dst" % key, ""))
             v["seconds"].set(str(c.get("%s_seconds" % key, 120)))
             v["kill"].set(bool(c.get("%s_kill" % key, True)))
+            if key == "ishida" and "direct" in v:
+                v["direct"].set(bool(c.get("ishida_direct", False)))
+                v["ips"].set(c.get("ishida_ips", ""))
+                self.on_ishida_direct_toggle()
         self.refresh_tree()
         self.refresh_bundled_hint()
         if self.v_auto.get():
@@ -2849,6 +3242,9 @@ class App(tk.Tk):
             except ValueError:
                 c["%s_seconds" % key] = 120
             c["%s_kill" % key] = v["kill"].get()
+            if key == "ishida" and "direct" in v:
+                c["ishida_direct"] = v["direct"].get()
+                c["ishida_ips"] = v["ips"].get().strip()
         return c
 
     def on_save(self):

@@ -107,6 +107,8 @@
   "direct_quirk": false,
   "direct_wire_encoding": "utf-8",
   "direct_all_fields": false,
+  "ishida_direct": false,
+  "ishida_ips": "",
   "ishida_enabled": false,
   "ishida_exe": "",
   "ishida_src": "",
