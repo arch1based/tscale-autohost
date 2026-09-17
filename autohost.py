@@ -1599,18 +1599,76 @@ def ishida_split_fields(grammi):
     return pedia
 
 
-def ishida_price_to_cents(value):
-    """Η τιμή του ERP σε ακέραια λεπτά — ο ζυγός δεν δέχεται τίποτε άλλο.
+def ishida_price_to_cents(value, idi_se_lepta=True):
+    """Η τιμή σε ακέραια λεπτά — ο ζυγός δεν δέχεται τίποτε άλλο.
 
     Με «5.4» ή «5.40» ο ζυγός δείχνει 0,54: περιμένει 540.
+
+    Από το αρχείο του Βήματος 3β η τιμή έρχεται **ήδη σε λεπτά** (το προφίλ την
+    έχει μετατρέψει), γι' αυτό δεν την ξαναπολλαπλασιάζουμε. Αν κάποιος στήσει
+    το αρχείο με τιμές σε ευρώ, ξε-τσεκάρει τη ρύθμιση και μετατρέπουμε εμείς.
     """
     text = str(value).strip().replace(",", ".")
     if not text:
         return None
     try:
+        if idi_se_lepta:
+            return int(round(float(text)))
         return int(round(float(text) * 100))
     except ValueError:
         return None
+
+
+def ishida_read_price_file(cfg, log):
+    """Διαβάζει το αρχείο που έφτιαξε το Βήμα 3β για την Ishida.
+
+    Είναι το ίδιο αρχείο που έβγαινε πάντα (host2.csv) — με τις μετατροπές του
+    προφίλ, δηλαδή με την τιμή ήδη σε λεπτά. Δεν το ξαναπειράζουμε εδώ: ό,τι
+    γράφει το προφίλ, αυτό στέλνουμε.
+
+    Η τιμή διαβάζεται από το ΤΕΛΟΣ της γραμμής (προεπιλογή: τρίτη από το τέλος).
+    Έτσι, αν κάποια περιγραφή έχει μέσα κόμμα και μετατοπίσει τις στήλες, η τιμή
+    βρίσκεται πάλι σωστά — το ίδιο κόλπο που χρησιμοποιεί και το Βήμα 3.
+    """
+    path = (cfg.get("ishida_file") or cfg.get("step2b_output") or "").strip()
+    if not path:
+        folder = cfg.get("output_dir") or os.path.dirname(cfg.get("watch_file", "") or "")
+        path = os.path.join(folder, "host2.csv")
+    if not os.path.isfile(path):
+        raise StepError("Βήμα 4", "Δεν βρέθηκε το αρχείο της Ishida.",
+                        "%s\n\nΤο φτιάχνει το Βήμα 3β. Άνοιξε το «Φτιάξε και δεύτερο "
+                        "αρχείο» και διάλεξε το προφίλ της Ishida." % path)
+
+    enc = cfg.get("step2b_encoding") or "cp1253"
+    delim = cfg.get("ishida_delimiter", ",") or ","
+    kodikos_col = int(cfg.get("ishida_code_col", 1) or 1)      # 1 = πρώτη στήλη
+    timi_col = int(cfg.get("ishida_price_col", -3) or -3)      # -3 = τρίτη από το τέλος
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    text = raw.decode(enc, "replace")
+
+    items, akyres = [], 0
+    for line in text.replace("\r\n", "\n").split("\n"):
+        if not line.strip():
+            continue
+        cols = line.split(delim)
+        try:
+            kodikos = cols[kodikos_col - 1 if kodikos_col > 0 else kodikos_col].strip()
+            timi = cols[timi_col - 1 if timi_col > 0 else timi_col].strip()
+        except IndexError:
+            akyres += 1
+            continue
+        if not kodikos:
+            akyres += 1
+            continue
+        items.append({"product_number": kodikos, "original_price": timi})
+    log("  αρχείο Ishida: %s" % path)
+    log("  διαβάστηκαν %d προϊόντα (κωδικός: στήλη %d, τιμή: στήλη %d από %s)"
+        % (len(items), abs(kodikos_col), abs(timi_col),
+           "την αρχή" if timi_col > 0 else "το τέλος"))
+    if akyres:
+        log("  %d γραμμές δεν διαβάστηκαν σωστά και προσπεράστηκαν" % akyres)
+    return items
 
 
 def ishida_fetch_plus(ip, timeout=90, log=None):
@@ -1655,7 +1713,7 @@ def ishida_fetch_plus(ip, timeout=90, log=None):
     return yparxonta
 
 
-def ishida_merge_prices(yparxonta, items, log):
+def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True):
     """Κρατάει τις εγγραφές του ζυγού και αλλάζει ΜΟΝΟ την τιμή.
 
     Ίδιος λόγος με τους T-Scale: τα ονόματα στον ζυγό είναι γραμμένα με τη
@@ -1670,7 +1728,7 @@ def ishida_merge_prices(yparxonta, items, log):
         if palia is None:
             agnosta.append(kodikos)
             continue
-        lepta = ishida_price_to_cents(row.get("original_price", ""))
+        lepta = ishida_price_to_cents(row.get("original_price", ""), idi_se_lepta)
         if lepta is None:
             akyres += 1
             continue
@@ -1752,12 +1810,8 @@ def run_ishida_direct(cfg, log, stop_event=None):
     if not ips:
         raise StepError("Βήμα 4", "Δεν έχει γραφτεί IP ζυγού Ishida.",
                         "Συμπλήρωσε τις διευθύνσεις στο πεδίο «IP ζυγών Ishida».")
-    path = (cfg.get("step2_output") or "").strip()
-    if not path or not os.path.isfile(path):
-        raise StepError("Βήμα 4", "Δεν βρέθηκε το αρχείο προϊόντων για τον Ishida.",
-                        "Διαδρομή: %s" % path)
-
-    items = build_products_json(path, cfg, log)
+    items = ishida_read_price_file(cfg, log)
+    se_lepta = bool(cfg.get("ishida_price_cents", True))
     log("  -> Ishida: %d προϊόντα προς %d ζυγό(ους)  [αλλάζουν μόνο οι τιμές]"
         % (len(items), len(ips)))
 
@@ -1779,7 +1833,7 @@ def run_ishida_direct(cfg, log, stop_event=None):
                                 "%s — για να αλλάξουμε τιμές πρέπει πρώτα να "
                                 "διαβάσουμε τι έχει μέσα. Αλλιώς θα σβήναμε τα "
                                 "ονόματα." % ip)
-            pros_apostoli = ishida_merge_prices(yparxonta, items, log)
+            pros_apostoli = ishida_merge_prices(yparxonta, items, log, se_lepta)
         except StepError:
             raise
         except Exception as exc:
@@ -2911,8 +2965,19 @@ class App(tk.Tk):
                       style="Hint.TLabel").pack(side="left", padx=(16, 3))
             self.e_ishida_ips = ttk.Entry(direct_row, textvariable=v["ips"], width=34)
             self.e_ishida_ips.pack(side="left")
+            v["cents"] = tk.BooleanVar(value=True)
+            timi_row = ttk.Frame(box)
+            timi_row.pack(fill="x", padx=(20, 0), pady=(2, 0))
+            ttk.Checkbutton(timi_row,
+                            text="Η τιμή στο αρχείο είναι ήδη σε λεπτά (540 = 5,40 €)",
+                            variable=v["cents"]).pack(side="left")
             ttk.Label(box, style="Hint.TLabel", justify="left", wraplength=880,
-                      text="Αλλάζουν μόνο οι τιμές. Τα ονόματα και οι ετικέτες του ζυγού "
+                      text="Στέλνεται το αρχείο που φτιάχνει το «Φτιάξε και δεύτερο αρχείο» "
+                           "(Βήμα 3), με τις μετατροπές του προφίλ — το ίδιο αρχείο που "
+                           "έβγαινε πάντα. Κάθε φορά που αλλάζει το αρχείο του ERP "
+                           "ξαναφτιάχνεται και ξαναστέλνεται μόνο του, όπως και στους "
+                           "T-Scale.\n"
+                           "Αλλάζουν μόνο οι τιμές: τα ονόματα και οι ετικέτες του ζυγού "
                            "μένουν όπως είναι. Καινούργια προϊόντα δεν μπαίνουν μόνα τους — "
                            "αυτά τα περνάει ο τεχνικός."
                       ).pack(anchor="w", padx=(20, 0), pady=(2, 2))
@@ -3150,6 +3215,7 @@ class App(tk.Tk):
             if key == "ishida" and "direct" in v:
                 v["direct"].set(bool(c.get("ishida_direct", False)))
                 v["ips"].set(c.get("ishida_ips", ""))
+                v["cents"].set(bool(c.get("ishida_price_cents", True)))
                 self.on_ishida_direct_toggle()
         self.refresh_tree()
         self.refresh_bundled_hint()
@@ -3243,6 +3309,7 @@ class App(tk.Tk):
             if key == "ishida" and "direct" in v:
                 c["ishida_direct"] = v["direct"].get()
                 c["ishida_ips"] = v["ips"].get().strip()
+                c["ishida_price_cents"] = v["cents"].get()
         return c
 
     def on_save(self):
