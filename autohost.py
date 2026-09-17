@@ -183,7 +183,7 @@ def write_ips(exe_path, ips):
     path = ip_xml_path(exe_path)
     if not path:
         raise StepError("Βήμα 4", "Δεν έχει οριστεί η εφαρμογή του ζυγού.",
-                        "Διάλεξε πρώτα το AutoProcess.exe.")
+                        "Διάλεξε πρώτα το πρόγραμμα T-Scale του κατασκευαστή.")
     bad = [ip for ip in ips if not RE_IP.match(ip)]
     if bad:
         raise StepError("Βήμα 4", "Μη έγκυρη διεύθυνση IP: %s" % ", ".join(bad),
@@ -1408,7 +1408,7 @@ def retry_pending_scales(cfg, log, stop_event=None):
 
 
 def run_direct_send(cfg, log, stop_event=None):
-    """Βήμα 4 χωρίς AutoProcess: στέλνει το ίδιο το πρόγραμμα."""
+    """Βήμα 4 για τους T-Scale: στέλνει το ίδιο το πρόγραμμα."""
     ips = parse_ips(cfg.get("scale_ips", ""))
     if not ips:
         raise StepError("Βήμα 4", "Δεν έχει οριστεί IP ζυγού.",
@@ -1863,7 +1863,7 @@ def run_ishida_direct(cfg, log, stop_event=None):
 
 
 def run_step3(cfg, log, stop_event=None):
-    """Βήμα 4: στέλνει σε T-Scale και, προαιρετικά, σε Ishida / ILS."""
+    """Βήμα 4: στέλνει σε T-Scale και σε Ishida — και τα δύο από εμάς."""
     if cfg.get("direct_send"):
         failures = run_direct_send(cfg, log, stop_event)
         failures += _run_ishida(cfg, log, stop_event)
@@ -1873,14 +1873,16 @@ def run_step3(cfg, log, stop_event=None):
                 "Βήμα 4", "Δεν ενημερώθηκαν %d ζυγοί." % len(failures),
                 "\n".join(failures) +
                 "\n\nΟι υπόλοιποι ενημερώθηκαν κανονικά και η προσπάθεια θα "
-                "επαναληφθεί στην επόμενη αλλαγή του ERP.\nΑν επιμένει, ξε-τσέκαρε "
-                "την «Απευθείας αποστολή» για να ξαναδουλέψει μέσω AutoProcess.")
+                "επαναληφθεί στην επόμενη αλλαγή του ERP.\nΑν επιμένει, δες τα "
+                "«Για προχωρημένους» στο Βήμα 4.")
         return
 
     exe = (cfg.get("step3_exe") or "").strip()
     secs = int(cfg.get("step3_seconds", 120) or 120)
     if not exe or not os.path.isfile(exe):
-        raise StepError("Βήμα 4", "Δεν βρέθηκε η εφαρμογή του ζυγού.", exe)
+        raise StepError("Βήμα 4", "Δεν βρέθηκε το πρόγραμμα T-Scale του κατασκευαστή.",
+                        "%s\n\nΕίτε δείξε πού είναι, στα «Για προχωρημένους» του "
+                        "Βήματος 4, είτε ξανα-τσέκαρε την «Απευθείας αποστολή»." % exe)
 
     # Οι IP γράφονται λίγο πριν την εκκίνηση, ώστε να μη μείνει ποτέ το
     # AutoProcess με παλιές διευθύνσεις επειδή ξεχάστηκε μια αποθήκευση.
@@ -1903,8 +1905,12 @@ def run_step3(cfg, log, stop_event=None):
 
 
 def _run_ishida(cfg, log, stop_event=None):
-    """Οι Ishida απευθείας από εμάς — αν δεν ζητήθηκε, δεν γίνεται τίποτα."""
-    if not cfg.get("ishida_direct"):
+    """Οι Ishida απευθείας από εμάς — μόνο αν έχει δοθεί IP.
+
+    Δεν υπάρχει ξεχωριστό τικ: κενό πεδίο IP σημαίνει «δεν υπάρχουν Ishida εδώ»,
+    και δεν είναι σφάλμα — τα περισσότερα καταστήματα έχουν μόνο T-Scale.
+    """
+    if not parse_ips(cfg.get("ishida_ips", "")):
         return []
     return run_ishida_direct(cfg, log, stop_event)
 
@@ -2127,7 +2133,7 @@ def build_preview(cfg):
         add("  απενεργοποιημένο")
     else:
         if cfg.get("direct_send"):
-            add("  ΤΡΟΠΟΣ: απευθείας από το πρόγραμμά μας (χωρίς AutoProcess)")
+            add("  ΤΡΟΠΟΣ: στέλνουμε εμείς, χωρίς το πρόγραμμα του κατασκευαστή")
             add("  POST http://<IP>:%d/products   Content-Type: application/json" % SCALE_PORT)
             src = (cfg.get("step2_output") or "").strip()
             if os.path.isfile(src):
@@ -2450,10 +2456,10 @@ class App(tk.Tk):
 
         tk.Frame(self, height=3, bg=COLORS["brand"], bd=0).pack(fill="x")
 
-        nb = ttk.Notebook(self)
+        nb = self.nb = ttk.Notebook(self)
         pages = []
         for title in ("  Βήμα 1 · Αρχείο ERP  ", "  Βήμα 2 · Μετατροπή  ",
-                      "  Βήμα 3 · Αρχείο προϊόντων  ", "  Βήμα 4 · Εφαρμογή ζυγού  "):
+                      "  Βήμα 3 · Αρχείο προϊόντων  ", "  Βήμα 4 · Αποστολή στους ζυγούς  "):
             page = ttk.Frame(nb, style="Card.TFrame")
             nb.add(page, text=title)
             pages.append(self._scrollable(page))
@@ -2792,21 +2798,54 @@ class App(tk.Tk):
     def _build_tab3(self):
         f = self.tab3
         self.v_s3 = tk.BooleanVar()
-        ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 4 — Εφαρμογή ζυγού", variable=self.v_s3).pack(anchor="w")
-        direct = ttk.Frame(f)
-        direct.pack(fill="x", pady=(6, 2))
-        self.v_direct = tk.BooleanVar(value=True)
-        ttk.Checkbutton(direct, text="Απευθείας αποστολή στη ζυγαριά",
-                        variable=self.v_direct, command=self.on_direct_toggle,
-                        style="Big.TCheckbutton").pack(side="left")
-        self.lbl_direct = ttk.Label(direct, style="Hint.TLabel")
-        self.lbl_direct.pack(side="left", padx=10)
+        ttk.Checkbutton(f, style="Big.TCheckbutton",
+                        text="Ενεργοποίηση Βήματος 4 — Αποστολή στους ζυγούς",
+                        variable=self.v_s3).pack(anchor="w")
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Στέλνει το ίδιο το πρόγραμμα, στο παρασκήνιο, χωρίς να ανοίγει "
-                       "τίποτα. Δίνει πραγματική επιβεβαίωση ανά ζυγό. Ξε-τσέκαρέ το για "
-                       "να ξαναδουλέψει μέσω AutoProcess."
-                  ).pack(anchor="w", pady=(0, 4))
+                       "τίποτα άλλο. Γράψε τις IP των ζυγών και τελείωσες — παίρνεις "
+                       "πραγματική επιβεβαίωση για κάθε ζυγό ξεχωριστά."
+                  ).pack(anchor="w", pady=(0, 8))
 
+        # ---------------- T-Scale ----------------
+        ttk.Label(f, text="Ζυγοί T-Scale", style="Big.TCheckbutton").pack(anchor="w")
+        ipf = ttk.Frame(f)
+        ipf.pack(fill="x", pady=(2, 0))
+        ttk.Label(ipf, text="IP ζυγών:").pack(side="left")
+        self.v_ips = tk.StringVar()
+        self._add_edit_menu(ttk.Entry(ipf, textvariable=self.v_ips, width=40)).pack(side="left", padx=6)
+        ttk.Button(ipf, text="Αποθήκευση IP", style="Accent.TButton",
+                   command=self.save_ips).pack(side="left")
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Χωρισμένες με κόμμα (π.χ. 10.130.20.49, 10.130.20.46). "
+                       "Αποθηκεύονται αυτόματα και πριν από κάθε εκτέλεση. "
+                       "Άφησέ το κενό αν το κατάστημα δεν έχει T-Scale."
+                  ).pack(anchor="w", pady=(4, 10))
+
+        # ---------------- Ishida UNI-3 ----------------
+        ttk.Label(f, text="Ζυγοί Ishida UNI-3", style="Big.TCheckbutton").pack(anchor="w")
+        self.v_ish_direct = tk.BooleanVar(value=True)
+        self.v_ish_ips = tk.StringVar()
+        self.v_ish_cents = tk.BooleanVar(value=True)
+        ishf = ttk.Frame(f)
+        ishf.pack(fill="x", pady=(2, 0))
+        ttk.Label(ishf, text="IP ζυγών:").pack(side="left")
+        self._add_edit_menu(ttk.Entry(ishf, textvariable=self.v_ish_ips, width=40)).pack(side="left", padx=6)
+        ttk.Checkbutton(ishf, text="Η τιμή στο αρχείο είναι ήδη σε λεπτά (540 = 5,40 €)",
+                        variable=self.v_ish_cents).pack(side="left", padx=10)
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Στέλνεται το αρχείο που φτιάχνει το «Φτιάξε και δεύτερο αρχείο» "
+                       "στο Βήμα 3, με τις μετατροπές του προφίλ — το ίδιο αρχείο που "
+                       "έβγαινε πάντα. Όποτε αλλάζει το αρχείο του ERP, ξαναφτιάχνεται "
+                       "και ξαναφεύγει μόνο του.\n"
+                       "Αλλάζουν μόνο οι τιμές: τα ονόματα και οι ετικέτες του ζυγού "
+                       "μένουν όπως είναι. Καινούργια προϊόντα δεν μπαίνουν μόνα τους — "
+                       "αυτά τα περνάει ο τεχνικός. Άφησέ το κενό αν δεν υπάρχουν Ishida."
+                  ).pack(anchor="w", pady=(4, 10))
+
+        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(2, 8))
+
+        # ---------------- κοινές ρυθμίσεις ----------------
         rebuild = ttk.Frame(f)
         rebuild.pack(fill="x", pady=(2, 0))
         self.v_rebuild = tk.BooleanVar(value=False)
@@ -2820,7 +2859,8 @@ class App(tk.Tk):
                   text="Κανονικά ενημερώνονται ΜΟΝΟ ΟΙ ΤΙΜΕΣ: το πρόγραμμα διαβάζει πρώτα "
                        "τι έχει ο ζυγός και αγγίζει μόνο την τιμή, οπότε τα ελληνικά "
                        "ονόματα μένουν ακριβώς όπως είναι. Τσέκαρέ το μόνο όταν άλλαξαν "
-                       "ονόματα ή μπήκαν πολλά νέα προϊόντα — τότε ξαναγράφονται όλα."
+                       "ονόματα ή μπήκαν πολλά νέα προϊόντα — τότε ξαναγράφονται όλα. "
+                       "Αφορά μόνο τους T-Scale."
                   ).pack(anchor="w", pady=(0, 4))
 
         rt = ttk.Frame(f)
@@ -2856,38 +2896,42 @@ class App(tk.Tk):
                        "αλλιώς όσα δεν άλλαξαν θα έμοιαζαν καταργημένα."
                   ).pack(anchor="w", pady=(0, 4))
 
-        ipf = ttk.Frame(f)
-        ipf.pack(fill="x", pady=(6, 0))
-        ttk.Label(ipf, text="IP ζυγών:").pack(side="left")
-        self.v_ips = tk.StringVar()
-        self._add_edit_menu(ttk.Entry(ipf, textvariable=self.v_ips, width=40)).pack(side="left", padx=6)
-        ttk.Button(ipf, text="Αποθήκευση IP", style="Accent.TButton",
-                   command=self.save_ips).pack(side="left")
-        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Οι διευθύνσεις των ζυγών, χωρισμένες με κόμμα (π.χ. 10.130.20.49, "
-                       "10.130.20.46). Αποθηκεύονται αυτόματα και πριν από κάθε εκτέλεση."
-                  ).pack(anchor="w", pady=(4, 8))
-
-        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(4, 8))
+        # ---------------- για προχωρημένους ----------------
+        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(10, 8))
         bar3m = ttk.Frame(f)
         bar3m.pack(fill="x")
-        self.btn_adv3m = ttk.Button(bar3m, text="⚙  Ρυθμίσεις AutoProcess  ▾",
+        self.btn_adv3m = ttk.Button(bar3m, text="⚙  Για προχωρημένους  ▾",
                                     style="Ghost.TButton", command=self.toggle_adv3m)
         self.btn_adv3m.pack(side="left")
         ttk.Label(bar3m, style="Hint.TLabel",
-                  text="χρειάζεται μόνο αν ξε-τσεκάρεις την απευθείας αποστολή"
+                  text="ο παλιός τρόπος, μέσα από τα προγράμματα των κατασκευαστών"
                   ).pack(side="left", padx=8)
 
         self.adv3m = ttk.Frame(f)
         ttk.Label(self.adv3m, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Χρησιμοποιείται όσο η «Απευθείας αποστολή» παραπάνω είναι "
-                       "ξε-τσεκαρισμένη."
-                  ).pack(anchor="w", pady=(4, 6))
+                  text="ΔΕΝ χρειάζεται σε κανονική εγκατάσταση. Είναι ο παλιός τρόπος: "
+                       "αντί να στείλουμε εμείς, ανοίγει το πρόγραμμα του κατασκευαστή "
+                       "για λίγα δευτερόλεπτα και στέλνει εκείνο. Άσε τα κλειστά εκτός "
+                       "αν κάτι δεν δουλεύει με τον κανονικό τρόπο."
+                  ).pack(anchor="w", pady=(4, 8))
+
+        direct = ttk.Frame(self.adv3m)
+        direct.pack(fill="x", pady=(0, 2))
+        self.v_direct = tk.BooleanVar(value=True)
+        ttk.Checkbutton(direct, text="Απευθείας αποστολή στους T-Scale (κανονικά ανοιχτό)",
+                        variable=self.v_direct, command=self.on_direct_toggle,
+                        style="Big.TCheckbutton").pack(side="left")
+        self.lbl_direct = ttk.Label(direct, style="Hint.TLabel")
+        self.lbl_direct.pack(side="left", padx=10)
+        ttk.Label(self.adv3m, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Ξε-τσέκαρέ το μόνο για να ξαναδουλέψει μέσω του προγράμματος "
+                       "T-Scale του κατασκευαστή, με τις ρυθμίσεις από κάτω."
+                  ).pack(anchor="w", pady=(0, 6))
 
         g = ttk.Frame(self.adv3m)
         g.pack(fill="x", pady=4)
         self.v_s3exe = tk.StringVar()
-        self._pick_row(g, "Πρόγραμμα T-Scale (AutoProcess.exe):", self.v_s3exe, "exe", 0)
+        self._pick_row(g, "Πρόγραμμα T-Scale του κατασκευαστή:", self.v_s3exe, "exe", 0)
 
         bundled = ttk.Frame(self.adv3m)
         bundled.pack(fill="x", pady=(4, 0))
@@ -2899,11 +2943,11 @@ class App(tk.Tk):
 
         loadipf = ttk.Frame(self.adv3m)
         loadipf.pack(fill="x", pady=(6, 0))
-        ttk.Button(loadipf, text="Ανάγνωση IP από AutoProcess", style="Ghost.TButton",
-                   command=self.load_ips).pack(side="left")
+        ttk.Button(loadipf, text="Ανάγνωση IP από το πρόγραμμα T-Scale",
+                   style="Ghost.TButton", command=self.load_ips).pack(side="left")
         ttk.Label(self.adv3m, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Οι IP γράφονται στο ip.xml δίπλα στο AutoProcess — δεν χρειάζεται "
-                       "να το ανοίξεις με το χέρι."
+                  text="Οι IP γράφονται στο ip.xml δίπλα του — δεν χρειάζεται να το "
+                       "ανοίξεις με το χέρι."
                   ).pack(anchor="w", pady=(2, 0))
 
         r = ttk.Frame(self.adv3m)
@@ -2912,27 +2956,18 @@ class App(tk.Tk):
         self.v_s3kill = tk.BooleanVar(value=True)
         ttk.Label(r, text="Διάρκεια (δευτερόλεπτα):").pack(side="left")
         ttk.Entry(r, textvariable=self.v_s3sec, width=7).pack(side="left", padx=6)
-        ttk.Checkbutton(r, text="Κλείσε την αυτόματα όταν περάσει ο χρόνος",
+        ttk.Checkbutton(r, text="Κλείσε το αυτόματα όταν περάσει ο χρόνος",
                         variable=self.v_s3kill).pack(side="left", padx=12)
+
+        ttk.Separator(self.adv3m, orient="horizontal").pack(fill="x", pady=(12, 8))
+        ttk.Label(self.adv3m, text="Άλλοι ζυγοί, μέσα από το δικό τους πρόγραμμα",
+                  style="Big.TCheckbutton").pack(anchor="w")
         ttk.Label(self.adv3m, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Το AutoProcess είναι το πρόγραμμα του κατασκευαστή που στέλνει τα "
-                       "δεδομένα στους ζυγούς T-Scale. Δείξε πού είναι εγκατεστημένο στο "
-                       "μηχάνημα του πελάτη.").pack(anchor="w", pady=(8, 0))
-
-        ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(12, 8))
-        bar4 = ttk.Frame(f)
-        bar4.pack(fill="x")
-        self.btn_adv4 = ttk.Button(bar4, text="⚙  Επιπλέον ζυγοί (Ishida / ILS)  ▾",
-                                   style="Ghost.TButton", command=self.toggle_adv4)
-        self.btn_adv4.pack(side="left")
-        ttk.Label(bar4, style="Hint.TLabel",
-                  text="μόνο αν στέλνει και σε άλλον ζυγό αυτόματα"
-                  ).pack(side="left", padx=8)
-
-        self.adv4 = ttk.Frame(f)
-        ttk.Label(self.adv4, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Τρέχουν στην ίδια εκτέλεση, αμέσως μετά τους T-Scale. Αν περνάς το "
-                       "αρχείο χειροκίνητα, άφησέ τα κλειστά.").pack(anchor="w", pady=(4, 6))
+                  text="Για ζυγούς που δεν τους στέλνουμε εμείς. Οι Ishida UNI-3 δεν "
+                       "χρειάζονται τίποτα από εδώ — μπαίνουν πάνω, με την IP τους."
+                  ).pack(anchor="w", pady=(2, 6))
+        self.adv4 = ttk.Frame(self.adv3m)
+        self.adv4.pack(fill="x")
         self.v_extra = {}
         for key, label in EXTRA_SENDERS:
             self._build_extra_sender(self.adv4, key, label)
@@ -2952,65 +2987,11 @@ class App(tk.Tk):
         ttk.Checkbutton(head, text="Αποστολή σε %s" % label,
                         variable=v["enabled"]).pack(side="left")
 
-        if key == "ishida":
-            v["direct"] = tk.BooleanVar(value=False)
-            v["ips"] = tk.StringVar()
-            direct_row = ttk.Frame(box)
-            direct_row.pack(fill="x", pady=(2, 0))
-            ttk.Checkbutton(direct_row,
-                            text="Απευθείας αποστολή (χωρίς το ScaleLink Pro 5)",
-                            variable=v["direct"],
-                            command=self.on_ishida_direct_toggle).pack(side="left")
-            ttk.Label(direct_row, text="IP ζυγών Ishida:",
-                      style="Hint.TLabel").pack(side="left", padx=(16, 3))
-            self.e_ishida_ips = ttk.Entry(direct_row, textvariable=v["ips"], width=34)
-            self.e_ishida_ips.pack(side="left")
-            v["cents"] = tk.BooleanVar(value=True)
-            timi_row = ttk.Frame(box)
-            timi_row.pack(fill="x", padx=(20, 0), pady=(2, 0))
-            ttk.Checkbutton(timi_row,
-                            text="Η τιμή στο αρχείο είναι ήδη σε λεπτά (540 = 5,40 €)",
-                            variable=v["cents"]).pack(side="left")
-            ttk.Label(box, style="Hint.TLabel", justify="left", wraplength=880,
-                      text="Στέλνεται το αρχείο που φτιάχνει το «Φτιάξε και δεύτερο αρχείο» "
-                           "(Βήμα 3), με τις μετατροπές του προφίλ — το ίδιο αρχείο που "
-                           "έβγαινε πάντα. Κάθε φορά που αλλάζει το αρχείο του ERP "
-                           "ξαναφτιάχνεται και ξαναστέλνεται μόνο του, όπως και στους "
-                           "T-Scale.\n"
-                           "Αλλάζουν μόνο οι τιμές: τα ονόματα και οι ετικέτες του ζυγού "
-                           "μένουν όπως είναι. Καινούργια προϊόντα δεν μπαίνουν μόνα τους — "
-                           "αυτά τα περνάει ο τεχνικός."
-                      ).pack(anchor="w", padx=(20, 0), pady=(2, 2))
-        ttk.Label(head, text="διάρκεια:", style="Hint.TLabel").pack(side="left", padx=(16, 3))
-        ttk.Entry(head, textvariable=v["seconds"], width=6).pack(side="left")
-        ttk.Checkbutton(head, text="κλείσε το μετά",
-                        variable=v["kill"]).pack(side="left", padx=8)
-
         grid = ttk.Frame(box)
         grid.pack(fill="x", padx=(20, 0))
         self._pick_row(grid, "Πρόγραμμα %s:" % label, v["exe"], "exe", 0)
         self._pick_row(grid, "Αρχείο host προς αποστολή:", v["src"], "file", 1)
         self._pick_row(grid, "Να αντιγράφεται εδώ:", v["dst"], "save", 2)
-        if key == "ishida":
-            self.ishida_exe_grid = grid
-            self.on_ishida_direct_toggle()
-
-    def on_ishida_direct_toggle(self):
-        """Με απευθείας αποστολή, το πρόγραμμα της Ishida δεν χρειάζεται πια."""
-        v = self.v_extra.get("ishida")
-        if not v or "direct" not in v:
-            return
-        apeftheias = v["direct"].get()
-        try:
-            self.e_ishida_ips.configure(state="normal" if apeftheias else "disabled")
-            for child in self.ishida_exe_grid.winfo_children():
-                try:
-                    child.configure(state="disabled" if apeftheias else "normal")
-                except tk.TclError:
-                    pass                      # οι ετικέτες δεν έχουν state
-        except AttributeError:
-            pass                              # δεν έχουν φτιαχτεί ακόμα
-
     def _load_logo(self, height):
         try:
             from PIL import Image, ImageTk
@@ -3198,6 +3179,8 @@ class App(tk.Tk):
         self.v_s3kill.set(bool(c.get("step3_kill", True)))
         self.v_ips.set(c.get("scale_ips", "") or ", ".join(read_ips(c.get("step3_exe", ""))))
         self.v_direct.set(bool(c.get("direct_send", True)))
+        self.v_ish_ips.set(c.get("ishida_ips", ""))
+        self.v_ish_cents.set(bool(c.get("ishida_price_cents", True)))
         self.v_rebuild.set(bool(c.get("direct_rebuild", False)))
         self.v_fullcat.set(bool(c.get("erp_full_catalog", False)))
         self.v_pending_min.set(str(c.get("pending_retry_minutes", 15)))
@@ -3212,11 +3195,6 @@ class App(tk.Tk):
             v["dst"].set(c.get("%s_dst" % key, ""))
             v["seconds"].set(str(c.get("%s_seconds" % key, 120)))
             v["kill"].set(bool(c.get("%s_kill" % key, True)))
-            if key == "ishida" and "direct" in v:
-                v["direct"].set(bool(c.get("ishida_direct", False)))
-                v["ips"].set(c.get("ishida_ips", ""))
-                v["cents"].set(bool(c.get("ishida_price_cents", True)))
-                self.on_ishida_direct_toggle()
         self.refresh_tree()
         self.refresh_bundled_hint()
         if self.v_auto.get():
@@ -3289,6 +3267,11 @@ class App(tk.Tk):
         c["step3_kill"] = self.v_s3kill.get()
         c["scale_ips"] = self.v_ips.get().strip()
         c["direct_send"] = self.v_direct.get()
+        c["ishida_ips"] = self.v_ish_ips.get().strip()
+        c["ishida_price_cents"] = self.v_ish_cents.get()
+        # Οι Ishida στέλνονται από εμάς όποτε έχει δοθεί IP — δεν χρειάζεται
+        # ξεχωριστό τικ: αν το πεδίο είναι κενό, απλώς δεν γίνεται τίποτα.
+        c["ishida_direct"] = bool(parse_ips(c["ishida_ips"]))
         c["direct_rebuild"] = self.v_rebuild.get()
         c["erp_full_catalog"] = self.v_fullcat.get()
         try:
@@ -3306,10 +3289,6 @@ class App(tk.Tk):
             except ValueError:
                 c["%s_seconds" % key] = 120
             c["%s_kill" % key] = v["kill"].get()
-            if key == "ishida" and "direct" in v:
-                c["ishida_direct"] = v["direct"].get()
-                c["ishida_ips"] = v["ips"].get().strip()
-                c["ishida_price_cents"] = v["cents"].get()
         return c
 
     def on_save(self):
@@ -3549,7 +3528,7 @@ class App(tk.Tk):
         return result["ok"]
 
     def save_ips(self, silent=False):
-        """Γράφει τις IP στο ip.xml του AutoProcess."""
+        """Γράφει τις IP στο ip.xml του προγράμματος T-Scale."""
         exe = self.v_s3exe.get().strip()
         if not exe:
             if not silent:
@@ -3576,26 +3555,19 @@ class App(tk.Tk):
         exe = self.v_s3exe.get().strip()
         ips = read_ips(exe)
         if not ips:
-            messagebox.showinfo(APP_NAME, "Δεν βρέθηκαν IP στο ip.xml του AutoProcess.")
+            messagebox.showinfo(APP_NAME,
+                                "Δεν βρέθηκαν IP στο ip.xml του προγράμματος T-Scale.")
             return
         self.v_ips.set(", ".join(ips))
-        self.log("Διαβάστηκαν IP από το AutoProcess: %s" % ", ".join(ips))
-
-    def toggle_adv4(self):
-        if self.adv4.winfo_ismapped():
-            self.adv4.pack_forget()
-            self.btn_adv4.configure(text="⚙  Επιπλέον ζυγοί (Ishida / ILS)  ▾")
-        else:
-            self.adv4.pack(fill="x")
-            self.btn_adv4.configure(text="⚙  Επιπλέον ζυγοί (Ishida / ILS)  ▴")
+        self.log("Διαβάστηκαν IP από το πρόγραμμα T-Scale: %s" % ", ".join(ips))
 
     def toggle_adv3m(self):
         if self.adv3m.winfo_ismapped():
             self.adv3m.pack_forget()
-            self.btn_adv3m.configure(text="⚙  Ρυθμίσεις AutoProcess  ▾")
+            self.btn_adv3m.configure(text="⚙  Για προχωρημένους  ▾")
         else:
             self.adv3m.pack(fill="x")
-            self.btn_adv3m.configure(text="⚙  Ρυθμίσεις AutoProcess  ▴")
+            self.btn_adv3m.configure(text="⚙  Για προχωρημένους  ▴")
 
     def refresh_pending_hint(self):
         """Δείχνει ποιοι ζυγοί περιμένουν ακόμα — αλλιώς δεν το μαθαίνει κανείς."""
@@ -3648,23 +3620,23 @@ class App(tk.Tk):
     def on_direct_toggle(self):
         """Δείχνει τι θα γίνει με την τρέχουσα επιλογή."""
         if self.v_direct.get():
-            self.lbl_direct.configure(
-                text="→ στέλνει απευθείας, χωρίς AutoProcess")
+            self.lbl_direct.configure(text="→ στέλνουμε εμείς")
         else:
-            self.lbl_direct.configure(text="→ θα σταλεί μέσω AutoProcess")
+            self.lbl_direct.configure(
+                text="→ θα ανοίγει το πρόγραμμα T-Scale του κατασκευαστή")
 
     def use_bundled_autoprocess(self):
         p = bundled_autoprocess()
         if not p:
             messagebox.showinfo(
                 APP_NAME,
-                "Δεν βρέθηκε AutoProcess δίπλα στο πρόγραμμα.\n\nΤο AutoProcess είναι "
+                "Δεν βρέθηκε το πρόγραμμα T-Scale δίπλα στο δικό μας.\n\nΕίναι "
                 "λογισμικό του κατασκευαστή των ζυγών και δεν έρχεται μαζί μας. Διάλεξέ "
                 "το με «Αναζήτηση…», ή αντίγραψε τον φάκελό του ως «autosend» δίπλα στο "
                 "πρόγραμμα για να βρίσκεται αυτόματα.")
             return
         self.v_s3exe.set(p)
-        self.log("Βρέθηκε AutoProcess δίπλα στο πρόγραμμα: %s" % p)
+        self.log("Βρέθηκε το πρόγραμμα T-Scale δίπλα στο δικό μας: %s" % p)
         self.refresh_bundled_hint()
         if not self.v_ips.get().strip():
             existing = read_ips(p)
@@ -3701,8 +3673,8 @@ class App(tk.Tk):
             self.btn_bundled.state(["!disabled"])
         else:
             self.lbl_bundled.configure(
-                text="(αν αντιγράψεις τον φάκελο του AutoProcess ως «autosend» δίπλα "
-                     "στο πρόγραμμα, βρίσκεται μόνο του)")
+                text="(αν αντιγράψεις τον φάκελο του προγράμματος T-Scale ως "
+                     "«autosend» δίπλα στο δικό μας, βρίσκεται μόνο του)")
             self.btn_bundled.state(["disabled"])
 
     def show_about(self):
