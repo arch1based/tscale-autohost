@@ -1662,6 +1662,22 @@ def ishida_read_price_file(cfg, log):
             akyres += 1
             continue
         items.append({"product_number": kodikos, "original_price": timi})
+    # Δικλείδα: αν το αρχείο έχει τιμές με υποδιαστολή ενώ έχει δηλωθεί ότι
+    # είναι σε λεπτά, το «8.50» θα γινόταν 8 λεπτά — δηλαδή λάθος τιμή στο ράφι,
+    # χωρίς κανένα σφάλμα. Καλύτερα να σταματήσουμε και να το πούμε.
+    if bool(cfg.get("ishida_price_cents", True)):
+        me_ypodiastoli = [r["original_price"] for r in items
+                          if "." in r["original_price"] or "," in r["original_price"]]
+        if len(me_ypodiastoli) > max(2, len(items) // 20):
+            raise StepError(
+                "Βήμα 4",
+                "Οι τιμές στο αρχείο της Ishida μοιάζουν σε ευρώ, όχι σε λεπτά.",
+                "Βρέθηκαν %d τιμές με υποδιαστολή, π.χ. %s.\n\nΈτσι όπως είναι, το "
+                "«8,50 €» θα έφτανε στον ζυγό ως 8 λεπτά.\n\nΉ ξε-τσέκαρε το «Η τιμή "
+                "στο αρχείο είναι ήδη σε λεπτά» στο Βήμα 4, ή διάλεξε στο Βήμα 3 προφίλ "
+                "που μετατρέπει την τιμή σε λεπτά."
+                % (len(me_ypodiastoli), ", ".join(me_ypodiastoli[:5])))
+
     log("  αρχείο Ishida: %s" % path)
     log("  διαβάστηκαν %d προϊόντα (κωδικός: στήλη %d, τιμή: στήλη %d από %s)"
         % (len(items), abs(kodikos_col), abs(timi_col),
