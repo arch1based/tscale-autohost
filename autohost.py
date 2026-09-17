@@ -1683,15 +1683,15 @@ def ishida_merge_prices(yparxonta, items, log):
         telika.append(",".join(pedia))
         allages += 1
 
-    log("  ενημέρωση τιμών Ishida: %d άλλαξαν από %d του αρχείου"
+    log("  άλλαξαν οι τιμές σε %d από τα %d προϊόντα του αρχείου"
         % (allages, len(items)))
     if akyres:
-        log("  %d προϊόντα χωρίς αναγνώσιμη τιμή — δεν στάλθηκαν" % akyres)
+        log("  %d προϊόντα δεν είχαν σωστή τιμή και προσπεράστηκαν" % akyres)
     if agnosta:
-        log("  %d προϊόντα δεν υπάρχουν στον ζυγό και ΔΕΝ δημιουργούνται: %s%s"
+        log("  %d προϊόντα δεν τα έχει ο ζυγός: %s%s"
             % (len(agnosta), ", ".join(agnosta[:8]),
                " …" if len(agnosta) > 8 else ""))
-        log("  (νέα προϊόντα θέλουν ονόματα και μορφή ετικέτας — τα φτιάχνει ο τεχνικός)")
+        log("  (δεν τα φτιάχνουμε εμείς — θέλουν όνομα και ετικέτα, τα περνάει ο τεχνικός)")
     return telika
 
 
@@ -1725,17 +1725,16 @@ def ishida_send_plus(ip, eggrafes, log, timeout=180):
         stalthikan += len(block)
         enimerothikan += enimerosan
         me_sfalma += sfalmata
-        log("     μπλοκ %d-%d: στάλθηκαν %d, ελήφθησαν %d, ενημερώθηκαν %d%s"
-            % (start + 1, start + len(block), len(block), elavan, enimerosan,
-               ", ΜΕ ΣΦΑΛΜΑ %d" % sfalmata if sfalmata else ""))
+        log("     προϊόντα %d-%d: ο ζυγός πήρε %d, ενημέρωσε %d%s"
+            % (start + 1, start + len(block), elavan, enimerosan,
+               "  ΔΕΝ ΔΕΧΤΗΚΕ %d" % sfalmata if sfalmata else ""))
         if kodikos_sfalmatos or apotelesma:
-            return False, ("ο ζυγός ανέφερε σφάλμα %d (αποτέλεσμα %d) στο μπλοκ %d-%d"
-                           % (kodikos_sfalmatos, apotelesma,
-                              start + 1, start + len(block)))
+            return False, ("ο ζυγός σταμάτησε με σφάλμα %d στα προϊόντα %d-%d"
+                           % (kodikos_sfalmatos, start + 1, start + len(block)))
         time.sleep(0.3)
     if me_sfalma:
-        return False, "%d εγγραφές απορρίφθηκαν από τον ζυγό" % me_sfalma
-    return True, "στάλθηκαν %d, ενημερώθηκαν %d" % (stalthikan, enimerothikan)
+        return False, "ο ζυγός δεν δέχτηκε %d προϊόντα" % me_sfalma
+    return True, "%d προϊόντα, ενημερώθηκαν %d" % (stalthikan, enimerothikan)
 
 
 def ishida_reachable(ip, timeout=5):
@@ -1751,7 +1750,7 @@ def run_ishida_direct(cfg, log, stop_event=None):
     """Βήμα 4 για τους Ishida, χωρίς το ScaleLink Pro 5."""
     ips = parse_ips(cfg.get("ishida_ips", ""))
     if not ips:
-        raise StepError("Βήμα 4", "Δεν έχει οριστεί IP ζυγού Ishida.",
+        raise StepError("Βήμα 4", "Δεν έχει γραφτεί IP ζυγού Ishida.",
                         "Συμπλήρωσε τις διευθύνσεις στο πεδίο «IP ζυγών Ishida».")
     path = (cfg.get("step2_output") or "").strip()
     if not path or not os.path.isfile(path):
@@ -1759,8 +1758,8 @@ def run_ishida_direct(cfg, log, stop_event=None):
                         "Διαδρομή: %s" % path)
 
     items = build_products_json(path, cfg, log)
-    log("  -> Ishida: %d προϊόντα σε %d ζυγό(ους), θύρα %d  [μόνο τιμές]"
-        % (len(items), len(ips), ISHIDA_PORT))
+    log("  -> Ishida: %d προϊόντα προς %d ζυγό(ους)  [αλλάζουν μόνο οι τιμές]"
+        % (len(items), len(ips)))
 
     failures = []
     for ip in ips:
@@ -1776,9 +1775,10 @@ def run_ishida_direct(cfg, log, stop_event=None):
             yparxonta = ishida_fetch_plus(ip, log=log)
             log("  -> %s: διαβάστηκαν %d προϊόντα από τον ζυγό" % (ip, len(yparxonta)))
             if not yparxonta:
-                raise StepError("Βήμα 4", "Ο ζυγός Ishida δεν επέστρεψε προϊόντα.",
-                                "%s — χωρίς τη βάση του δεν μπορούμε να αλλάξουμε "
-                                "τιμές, γιατί θα σβήναμε τα ονόματα." % ip)
+                raise StepError("Βήμα 4", "Ο ζυγός Ishida δεν έδωσε κανένα προϊόν.",
+                                "%s — για να αλλάξουμε τιμές πρέπει πρώτα να "
+                                "διαβάσουμε τι έχει μέσα. Αλλιώς θα σβήναμε τα "
+                                "ονόματα." % ip)
             pros_apostoli = ishida_merge_prices(yparxonta, items, log)
         except StepError:
             raise
@@ -1862,7 +1862,7 @@ def _run_extra_senders(cfg, log, stop_event=None):
         # Αν τους Ishida τους στέλνουμε πια μόνοι μας, το ScaleLink Pro 5
         # δεν έχει λόγο να ανοίξει — θα έστελνε τα ίδια δεδομένα δεύτερη φορά.
         if key == "ishida" and cfg.get("ishida_direct"):
-            log("  -> Ishida: στάλθηκε απευθείας, το πρόγραμμα του ζυγού δεν ανοίγει")
+            log("  -> Ishida: στείλαμε εμείς, οπότε το πρόγραμμα της Ishida δεν ανοίγει")
             continue
         x_exe = (cfg.get("%s_exe" % key) or "").strip()
         if not x_exe or not os.path.isfile(x_exe):
@@ -2101,8 +2101,7 @@ def build_preview(cfg):
         for key, label in EXTRA_SENDERS:
             if key == "ishida" and cfg.get("ishida_direct"):
                 ish = parse_ips(cfg.get("ishida_ips", ""))
-                add("  %-8s: ΑΠΕΥΘΕΙΑΣ από εμάς, θύρα %d  [μόνο τιμές]"
-                    % (label, ISHIDA_PORT))
+                add("  %-8s: στέλνουμε εμείς  [αλλάζουν μόνο οι τιμές]" % label)
                 add("            IP ζυγών: %s" % (", ".join(ish) or "—  ΠΡΟΣΟΧΗ: κανένα"))
                 for ip in ish:
                     ok, giati = ishida_reachable(ip)
@@ -2913,10 +2912,9 @@ class App(tk.Tk):
             self.e_ishida_ips = ttk.Entry(direct_row, textvariable=v["ips"], width=34)
             self.e_ishida_ips.pack(side="left")
             ttk.Label(box, style="Hint.TLabel", justify="left", wraplength=880,
-                      text="Στέλνουμε μόνο τιμές, στη θύρα 8071: διαβάζουμε πρώτα τη βάση "
-                           "του ζυγού και αλλάζουμε μόνο την τιμή, ώστε τα ονόματα και η "
-                           "μορφή της ετικέτας να μείνουν άθικτα. Νέα προϊόντα δεν "
-                           "δημιουργούνται — θέλουν ονόματα και ετικέτα."
+                      text="Αλλάζουν μόνο οι τιμές. Τα ονόματα και οι ετικέτες του ζυγού "
+                           "μένουν όπως είναι. Καινούργια προϊόντα δεν μπαίνουν μόνα τους — "
+                           "αυτά τα περνάει ο τεχνικός."
                       ).pack(anchor="w", padx=(20, 0), pady=(2, 2))
         ttk.Label(head, text="διάρκεια:", style="Hint.TLabel").pack(side="left", padx=(16, 3))
         ttk.Entry(head, textvariable=v["seconds"], width=6).pack(side="left")
