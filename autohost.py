@@ -1411,8 +1411,10 @@ def run_direct_send(cfg, log, stop_event=None):
     """Βήμα 4 για τους T-Scale: στέλνει το ίδιο το πρόγραμμα."""
     ips = parse_ips(cfg.get("scale_ips", ""))
     if not ips:
-        raise StepError("Βήμα 4", "Δεν έχει οριστεί IP ζυγού.",
-                        "Συμπλήρωσε τις διευθύνσεις στο πεδίο «IP ζυγών».")
+        raise StepError(
+            "Βήμα 4", "Δηλώθηκαν ζυγοί T-Scale, αλλά χωρίς IP.",
+            "Γράψε τις διευθύνσεις στο Βήμα 4 — ή ξε-τσέκαρε το «Το κατάστημα έχει "
+            "ζυγούς T-Scale» αν δεν υπάρχουν.")
     path = (cfg.get("step2_output") or "").strip()
     if not path or not os.path.isfile(path):
         raise StepError("Βήμα 4", "Δεν βρέθηκε το αρχείο προϊόντων για αποστολή.",
@@ -1922,19 +1924,73 @@ def run_ishida_direct(cfg, log, stop_event=None):
     return failures
 
 
+def apologismos(cfg, failures, log):
+    """Λέει καθαρά, στο τέλος, ποιοι ζυγοί ενημερώθηκαν και ποιοι όχι.
+
+    Χωρίς αυτό, ένας σβηστός ζυγός χανόταν μέσα στις γραμμές του log και ο
+    τεχνικός έφευγε από το κατάστημα νομίζοντας ότι πήγαν όλα καλά.
+    """
+    oloi = [(ip, "T-Scale") for ip in parse_ips(cfg.get("scale_ips", ""))
+            if cfg.get("tscale_on", True)]
+    oloi += [(ip, "Ishida") for ip in parse_ips(cfg.get("ishida_ips", ""))
+             if cfg.get("ishida_on", False)]
+    if not oloi:
+        return
+    apetyxan = {}
+    for grammi in failures:
+        ip = grammi.split(" ", 1)[0].strip()
+        apetyxan[ip] = grammi.split("—", 1)[-1].strip() if "—" in grammi else ""
+
+    log("")
+    log("  ── ΑΠΟΛΟΓΙΣΜΟΣ ─────────────────────────────────────────")
+    for ip, marka in oloi:
+        if ip in apetyxan:
+            log("  ✗ %-16s %-9s ΔΕΝ ΕΝΗΜΕΡΩΘΗΚΕ — %s" % (ip, marka, apetyxan[ip]))
+        else:
+            log("  ✓ %-16s %-9s ενημερώθηκε" % (ip, marka))
+    if apetyxan:
+        log("  Οι %d παραπάνω θα ξαναδοκιμαστούν μόνες τους μόλις ανοίξουν."
+            % len(apetyxan))
+    log("  ────────────────────────────────────────────────────────")
+
+
 def run_step3(cfg, log, stop_event=None):
     """Βήμα 4: στέλνει σε T-Scale και σε Ishida — και τα δύο από εμάς."""
+    # Το κατάστημα μπορεί να έχει μόνο τη μία μάρκα. Η κλειστή παραλείπεται
+    # ολόκληρη: ούτε ελέγχεται, ούτε βγάζει σφάλμα που δεν έχει IP.
+    exei_tscale = bool(cfg.get("tscale_on", True))
+    exei_ishida = bool(cfg.get("ishida_on", False))
+    if not exei_tscale and not exei_ishida:
+        raise StepError(
+            "Βήμα 4", "Δεν έχει δηλωθεί καμία μάρκα ζυγού.",
+            "Τσέκαρε στο Βήμα 4 τι έχει το κατάστημα — T-Scale, Ishida UNI-3, ή και τα "
+            "δύο — και γράψε τις IP.\n\nΑν δεν θέλεις να στέλνεται τίποτα, κλείσε "
+            "ολόκληρο το Βήμα 4.")
+
     if cfg.get("direct_send"):
-        failures = run_direct_send(cfg, log, stop_event)
+        failures = []
+        if exei_tscale:
+            failures += run_direct_send(cfg, log, stop_event)
+        else:
+            log("  -> T-Scale: δεν υπάρχουν σε αυτό το κατάστημα, παραλείπονται")
         failures += _run_ishida(cfg, log, stop_event)
         _run_extra_senders(cfg, log, stop_event)      # οι υπόλοιποι ζυγοί κανονικά
+        apologismos(cfg, failures, log)
         if failures:
             raise StepError(
                 "Βήμα 4", "Δεν ενημερώθηκαν %d ζυγοί." % len(failures),
                 "\n".join(failures) +
                 "\n\nΟι υπόλοιποι ενημερώθηκαν κανονικά και η προσπάθεια θα "
-                "επαναληφθεί στην επόμενη αλλαγή του ERP.\nΑν επιμένει, δες τα "
-                "«Για προχωρημένους» στο Βήμα 4.")
+                "επαναληφθεί μόνη της μόλις ανοίξουν — δεν χάνεται η ενημέρωση.")
+        return
+
+    if not exei_tscale:
+        failures = _run_ishida(cfg, log, stop_event)
+        _run_extra_senders(cfg, log, stop_event)
+        apologismos(cfg, failures, log)
+        if failures:
+            raise StepError("Βήμα 4", "Δεν ενημερώθηκαν %d ζυγοί Ishida." % len(failures),
+                            "\n".join(failures))
         return
 
     exe = (cfg.get("step3_exe") or "").strip()
@@ -2088,8 +2144,13 @@ def _run_ishida(cfg, log, stop_event=None):
     Δεν υπάρχει ξεχωριστό τικ: κενό πεδίο IP σημαίνει «δεν υπάρχουν Ishida εδώ»,
     και δεν είναι σφάλμα — τα περισσότερα καταστήματα έχουν μόνο T-Scale.
     """
-    if not parse_ips(cfg.get("ishida_ips", "")):
+    if not cfg.get("ishida_on", False):
         return []
+    if not parse_ips(cfg.get("ishida_ips", "")):
+        raise StepError(
+            "Βήμα 4", "Δηλώθηκαν ζυγοί Ishida, αλλά χωρίς IP.",
+            "Γράψε τις διευθύνσεις στο Βήμα 4 — ή ξε-τσέκαρε το «Το κατάστημα έχει "
+            "ζυγούς Ishida UNI-3» αν δεν υπάρχουν.")
     return run_ishida_direct(cfg, log, stop_event)
 
 
@@ -2337,7 +2398,7 @@ def build_preview(cfg):
             "" if not wanted or current == wanted else "  → θα ενημερωθεί πριν την αποστολή"))
 
         for key, label in EXTRA_SENDERS:
-            if key == "ishida" and cfg.get("ishida_direct"):
+            if key == "ishida" and cfg.get("ishida_on"):
                 ish = parse_ips(cfg.get("ishida_ips", ""))
                 add("  %-8s: στέλνουμε εμείς  [αλλάζουν μόνο οι τιμές]" % label)
                 add("            IP ζυγών: %s" % (", ".join(ish) or "—  ΠΡΟΣΟΧΗ: κανένα"))
@@ -3010,31 +3071,42 @@ class App(tk.Tk):
                   ).pack(anchor="w", pady=(0, 8))
 
         # ---------------- T-Scale ----------------
-        ttk.Label(f, text="Ζυγοί T-Scale", style="Big.TCheckbutton").pack(anchor="w")
+        self.v_tscale_on = tk.BooleanVar(value=True)
+        ttk.Checkbutton(f, text="Το κατάστημα έχει ζυγούς T-Scale",
+                        variable=self.v_tscale_on, style="Big.TCheckbutton",
+                        command=self.on_marka_toggle).pack(anchor="w")
         ipf = ttk.Frame(f)
         ipf.pack(fill="x", pady=(2, 0))
         ttk.Label(ipf, text="IP ζυγών:").pack(side="left")
         self.v_ips = tk.StringVar()
-        self._add_edit_menu(ttk.Entry(ipf, textvariable=self.v_ips, width=40)).pack(side="left", padx=6)
-        ttk.Button(ipf, text="Αποθήκευση IP", style="Accent.TButton",
-                   command=self.save_ips).pack(side="left")
+        self.e_ips = self._add_edit_menu(ttk.Entry(ipf, textvariable=self.v_ips, width=40))
+        self.e_ips.pack(side="left", padx=6)
+        self.btn_save_ips = ttk.Button(ipf, text="Αποθήκευση IP", style="Accent.TButton",
+                                       command=self.save_ips)
+        self.btn_save_ips.pack(side="left")
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Χωρισμένες με κόμμα (π.χ. 10.130.20.49, 10.130.20.46). "
-                       "Αποθηκεύονται αυτόματα και πριν από κάθε εκτέλεση. "
-                       "Άφησέ το κενό αν το κατάστημα δεν έχει T-Scale."
+                       "Αποθηκεύονται αυτόματα και πριν από κάθε εκτέλεση."
                   ).pack(anchor="w", pady=(4, 10))
 
         # ---------------- Ishida UNI-3 ----------------
-        ttk.Label(f, text="Ζυγοί Ishida UNI-3", style="Big.TCheckbutton").pack(anchor="w")
+        self.v_ish_on = tk.BooleanVar(value=False)
+        ttk.Checkbutton(f, text="Το κατάστημα έχει ζυγούς Ishida UNI-3",
+                        variable=self.v_ish_on, style="Big.TCheckbutton",
+                        command=self.on_marka_toggle).pack(anchor="w")
         self.v_ish_direct = tk.BooleanVar(value=True)
         self.v_ish_ips = tk.StringVar()
         self.v_ish_cents = tk.BooleanVar(value=True)
         ishf = ttk.Frame(f)
         ishf.pack(fill="x", pady=(2, 0))
         ttk.Label(ishf, text="IP ζυγών:").pack(side="left")
-        self._add_edit_menu(ttk.Entry(ishf, textvariable=self.v_ish_ips, width=40)).pack(side="left", padx=6)
-        ttk.Checkbutton(ishf, text="Η τιμή στο αρχείο είναι ήδη σε λεπτά (540 = 5,40 €)",
-                        variable=self.v_ish_cents).pack(side="left", padx=10)
+        self.e_ish_ips = self._add_edit_menu(
+            ttk.Entry(ishf, textvariable=self.v_ish_ips, width=40))
+        self.e_ish_ips.pack(side="left", padx=6)
+        self.chk_ish_cents = ttk.Checkbutton(
+            ishf, text="Η τιμή στο αρχείο είναι ήδη σε λεπτά (540 = 5,40 €)",
+            variable=self.v_ish_cents)
+        self.chk_ish_cents.pack(side="left", padx=10)
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Στέλνεται το αρχείο που φτιάχνει το «Φτιάξε και δεύτερο αρχείο» "
                        "στο Βήμα 3, με τις μετατροπές του προφίλ — το ίδιο αρχείο που "
@@ -3042,7 +3114,7 @@ class App(tk.Tk):
                        "και ξαναφεύγει μόνο του.\n"
                        "Αλλάζουν μόνο οι τιμές: τα ονόματα και οι ετικέτες του ζυγού "
                        "μένουν όπως είναι. Καινούργια προϊόντα δεν μπαίνουν μόνα τους — "
-                       "αυτά τα περνάει ο τεχνικός. Άφησέ το κενό αν δεν υπάρχουν Ishida."
+                       "αυτά τα περνάει ο τεχνικός."
                   ).pack(anchor="w", pady=(4, 10))
 
         ergaleia = ttk.Frame(f)
@@ -3397,6 +3469,11 @@ class App(tk.Tk):
         self.v_direct.set(bool(c.get("direct_send", True)))
         self.v_ish_ips.set(c.get("ishida_ips", ""))
         self.v_ish_cents.set(bool(c.get("ishida_price_cents", True)))
+        # Παλιές ρυθμίσεις δεν έχουν τα τικ: τα συμπεραίνουμε από το αν είχαν IP,
+        # ώστε να μη «σβήσει» ξαφνικά η αποστολή σε όποιον έχει ήδη στήσει ζυγούς.
+        self.v_tscale_on.set(bool(c.get("tscale_on", bool(parse_ips(c.get("scale_ips", ""))))))
+        self.v_ish_on.set(bool(c.get("ishida_on", bool(parse_ips(c.get("ishida_ips", ""))))))
+        self.on_marka_toggle()
         self.v_rebuild.set(bool(c.get("direct_rebuild", False)))
         self.v_fullcat.set(bool(c.get("erp_full_catalog", False)))
         self.v_pending_min.set(str(c.get("pending_retry_minutes", 15)))
@@ -3485,9 +3562,9 @@ class App(tk.Tk):
         c["direct_send"] = self.v_direct.get()
         c["ishida_ips"] = self.v_ish_ips.get().strip()
         c["ishida_price_cents"] = self.v_ish_cents.get()
-        # Οι Ishida στέλνονται από εμάς όποτε έχει δοθεί IP — δεν χρειάζεται
-        # ξεχωριστό τικ: αν το πεδίο είναι κενό, απλώς δεν γίνεται τίποτα.
-        c["ishida_direct"] = bool(parse_ips(c["ishida_ips"]))
+        c["tscale_on"] = self.v_tscale_on.get()
+        c["ishida_on"] = self.v_ish_on.get()
+        c["ishida_direct"] = c["ishida_on"] and bool(parse_ips(c["ishida_ips"]))
         c["direct_rebuild"] = self.v_rebuild.get()
         c["erp_full_catalog"] = self.v_fullcat.get()
         try:
@@ -3833,6 +3910,25 @@ class App(tk.Tk):
             self.lbl_rebuild.configure(
                 text="→ ξαναγράφονται τα ονόματα (τίποτα δεν σβήνεται)")
 
+    def on_marka_toggle(self):
+        """Ξε-τσεκαρισμένη μάρκα σημαίνει «δεν υπάρχει εδώ»: τα πεδία της κλείνουν.
+
+        Έτσι φαίνεται με μια ματιά τι θα σταλεί, και κανείς δεν γράφει IP σε
+        μάρκα που δεν θα χρησιμοποιηθεί.
+        """
+        tscale = self.v_tscale_on.get()
+        ishida = self.v_ish_on.get()
+        for w in (self.e_ips, self.btn_save_ips):
+            try:
+                w.configure(state="normal" if tscale else "disabled")
+            except tk.TclError:
+                pass
+        for w in (self.e_ish_ips, self.chk_ish_cents):
+            try:
+                w.configure(state="normal" if ishida else "disabled")
+            except tk.TclError:
+                pass
+
     def on_direct_toggle(self):
         """Δείχνει τι θα γίνει με την τρέχουσα επιλογή."""
         if self.v_direct.get():
@@ -3945,21 +4041,38 @@ class App(tk.Tk):
                 "με το χέρι.")
             return
 
-        tscale = [ip for ip, marka, _p in vrethentes if marka == "T-Scale"]
-        ishida = [ip for ip, marka, _p in vrethentes if marka == "Ishida"]
+        # ΠΡΟΣΘΕΤΟΥΜΕ, δεν αντικαθιστούμε: ένας ζυγός που είναι σβηστός τώρα δεν
+        # θα βρεθεί, και δεν υπάρχει λόγος να χαθεί η διεύθυνσή του.
+        yparxon_ts = parse_ips(self.v_ips.get())
+        yparxon_ish = parse_ips(self.v_ish_ips.get())
+        nea_ts = [ip for ip, marka, _p in vrethentes
+                  if marka == "T-Scale" and ip not in yparxon_ts]
+        nea_ish = [ip for ip, marka, _p in vrethentes
+                   if marka == "Ishida" and ip not in yparxon_ish]
+
         grammes = ["Βρέθηκαν %d ζυγαριές:" % len(vrethentes), ""]
         for ip, marka, port in vrethentes:
-            grammes.append("   %-16s %s   (θύρα %d)" % (ip, marka, port))
-        grammes += ["", "Να μπουν στα πεδία των IP;",
-                    "(ό,τι έχεις ήδη γράψει θα αντικατασταθεί)"]
+            simeiosi = "" if (ip in yparxon_ts or ip in yparxon_ish) else "   ← ΚΑΙΝΟΥΡΓΙΑ"
+            grammes.append("   %-16s %-9s (θύρα %d)%s" % (ip, marka, port, simeiosi))
+        if not nea_ts and not nea_ish:
+            grammes += ["", "Όλες είναι ήδη στη λίστα σου — δεν χρειάζεται αλλαγή."]
+            messagebox.showinfo(APP_NAME, "\n".join(grammes))
+            return
+        grammes += ["", "Να προστεθούν οι %d καινούργιες στη λίστα;"
+                    % (len(nea_ts) + len(nea_ish)),
+                    "(όσες έχεις ήδη γράψει μένουν όπως είναι)"]
         if not messagebox.askyesno(APP_NAME, "\n".join(grammes)):
             return
-        if tscale:
-            self.v_ips.set(", ".join(tscale))
-        if ishida:
-            self.v_ish_ips.set(", ".join(ishida))
-        self.log("Βρέθηκαν ζυγοί — T-Scale: %s | Ishida: %s"
-                 % (", ".join(tscale) or "κανένας", ", ".join(ishida) or "κανένας"))
+
+        if nea_ts:
+            self.v_ips.set(", ".join(yparxon_ts + nea_ts))
+            self.v_tscale_on.set(True)
+        if nea_ish:
+            self.v_ish_ips.set(", ".join(yparxon_ish + nea_ish))
+            self.v_ish_on.set(True)
+        self.on_marka_toggle()
+        self.log("Προστέθηκαν ζυγοί — T-Scale: %s | Ishida: %s"
+                 % (", ".join(nea_ts) or "καμία νέα", ", ".join(nea_ish) or "καμία νέα"))
         self.on_save()
 
     def show_scale_status(self):
