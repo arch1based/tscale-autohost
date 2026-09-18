@@ -11,7 +11,9 @@ Roi ergasias:
 
 import os
 import re
+import io
 import sys
+import glob
 import hashlib
 import csv
 import json
@@ -2654,10 +2656,7 @@ class App(tk.Tk):
         except Exception:
             pass
         try:
-            messagebox.showerror(
-                APP_NAME,
-                "Κάτι πήγε στραβά, αλλά το πρόγραμμα συνεχίζει.\n\n%s\n\n"
-                "Οι λεπτομέρειες γράφτηκαν στο log:\n%s" % (val, LOG_DIR))
+            self.show_error_bar("Κάτι πήγε στραβά, αλλά το πρόγραμμα συνεχίζει: %s" % val)
         except Exception:
             pass
 
@@ -2938,6 +2937,22 @@ class App(tk.Tk):
 
         self.txt_log = self._console(self, 5, ("Consolas", 9))
         self.txt_log.pack(side="bottom", fill="x", padx=12, pady=(0, 8))
+
+        # Μπάρα σφάλματος: μένει μέσα στο παράθυρο και ΔΕΝ μπλοκάρει.
+        # Το πρόγραμμα ζει σε server καταστήματος, χωρίς άνθρωπο μπροστά — ένα
+        # παράθυρο που περιμένει «ΟΚ» θα σταματούσε κάθε επόμενη ενημέρωση.
+        self.err_bar = tk.Frame(self, bg=COLORS["err"])
+        self.err_lbl = tk.Label(self.err_bar, bg=COLORS["err"], fg="white",
+                                anchor="w", justify="left", font=("Segoe UI", 9, "bold"))
+        self.err_lbl.pack(side="left", fill="x", expand=True, padx=(12, 6), pady=6)
+        tk.Button(self.err_bar, text="Λεπτομέρειες", relief="flat", bd=0,
+                  bg="white", fg=COLORS["err"], font=("Segoe UI", 9),
+                  command=self.show_last_errors, cursor="hand2"
+                  ).pack(side="right", padx=4, pady=5)
+        tk.Button(self.err_bar, text="✕", relief="flat", bd=0, bg=COLORS["err"],
+                  fg="white", font=("Segoe UI", 10, "bold"),
+                  command=self.clear_error_bar, cursor="hand2"
+                  ).pack(side="right", padx=(0, 10), pady=5)
         for tag, col in (("ok", "#4ade80"), ("err", "#f87171"),
                          ("info", COLORS["console_fg"]), ("dim", "#7b8ca3")):
             self.txt_log.tag_configure(tag, foreground=col)
@@ -3610,15 +3625,11 @@ class App(tk.Tk):
         self.deiconify()
         self.lift()
         self.focus_force()
+        # Το σφάλμα το δείχνει η μπάρα, όχι παράθυρο που περιμένει «ΟΚ»:
+        # μπορεί να άνοιξε το παράθυρο κάποιος που περνούσε, όχι ο τεχνικός.
         err = getattr(self, "pending_error", None)
         if err:
-            self.pending_error = None
-            if getattr(self, "tray", None) is not None:
-                try:
-                    self.tray.title = APP_NAME
-                except Exception:
-                    pass
-            messagebox.showerror(APP_NAME, err)
+            self.show_error_bar(err)
 
     def quit_app(self):
         self.watching = False
@@ -4650,14 +4661,16 @@ class App(tk.Tk):
             return True
 
     def notify_error(self, text):
-        """Κρυμμένο = ειδοποίηση κάτω δεξιά. Ορατό = κανονικό παράθυρο σφάλματος.
+        """Δείχνει το σφάλμα ΧΩΡΙΣ να σταματήσει το πρόγραμμα.
 
-        Ποτέ modal παράθυρο πάνω σε κρυμμένο window: δεν φαίνεται και μπλοκάρει τη ροή.
+        Το πρόγραμμα τρέχει σε server καταστήματος, αφύλακτο. Ένα modal παράθυρο
+        θα έμενε ανοιχτό μέχρι να το δει κάποιος — και ώσπου να πατηθεί το «ΟΚ»
+        καμία επόμενη αλλαγή τιμών δεν θα περνούσε στους ζυγούς. Γι' αυτό το
+        σφάλμα μένει σε μπάρα μέσα στο παράθυρο, στο log, και στο εικονίδιο
+        κάτω δεξιά: φαίνεται, αλλά δεν μπλοκάρει τίποτα.
         """
         self.pending_error = text
-        if not self.is_hidden():
-            messagebox.showerror(APP_NAME, text)
-            return
+        self.show_error_bar(text)
         first = text.strip().split("\n")[0]
         if getattr(self, "tray", None) is not None:
             try:
@@ -4668,6 +4681,67 @@ class App(tk.Tk):
             except Exception:
                 pass
         self.bell()
+
+    def show_error_bar(self, text):
+        """Κόκκινη λωρίδα με το τελευταίο σφάλμα — δεν περιμένει κανένα κλικ."""
+        proti = text.strip().split("\n")[0]
+        try:
+            self.err_lbl.configure(
+                text="⚠  %s   (%s)" % (proti[:150],
+                                       datetime.datetime.now().strftime("%H:%M")))
+            self.err_bar.pack(side="bottom", fill="x", before=self.txt_log)
+        except Exception:
+            pass
+
+    def clear_error_bar(self):
+        self.pending_error = None
+        try:
+            self.err_bar.pack_forget()
+        except Exception:
+            pass
+        if getattr(self, "tray", None) is not None:
+            try:
+                self.tray.title = APP_NAME
+            except Exception:
+                pass
+
+    def show_last_errors(self):
+        """Τα σφάλματα των τελευταίων ημερών, από τα αρχεία log."""
+        grammes = []
+        try:
+            arxeia = sorted(glob.glob(os.path.join(LOG_DIR, "*.log")))[-3:]
+            for path in reversed(arxeia):
+                with io.open(path, encoding="utf-8", errors="replace") as fh:
+                    keimeno = fh.read()
+                mera = os.path.basename(path)
+                for blok in keimeno.split("\n"):
+                    if "ΣΦΑΛΜΑ" in blok or "ΑΠΟΤΥΧΙΑ" in blok or "ΔΕΝ ΕΝΗΜΕΡΩΘΗΚΕ" in blok:
+                        grammes.append("%s  %s" % (mera[-14:-4], blok.strip()))
+        except Exception as exc:
+            grammes = ["Δεν διαβάστηκαν τα log: %s" % exc]
+        if not grammes:
+            grammes = ["Κανένα σφάλμα στα τελευταία αρχεία log."]
+
+        win = tk.Toplevel(self)
+        win.title("Τελευταία σφάλματα")
+        win.geometry("900x460")
+        win.transient(self)
+        f = ttk.Frame(win, padding=12)
+        f.pack(fill="both", expand=True)
+        ttk.Label(f, text="Τελευταία σφάλματα", style="Big.TCheckbutton").pack(anchor="w")
+        ttk.Label(f, style="Hint.TLabel",
+                  text="Από τα αρχεία log των τελευταίων ημερών. Το πρόγραμμα δεν "
+                       "σταμάτησε για κανένα από αυτά."
+                  ).pack(anchor="w", pady=(2, 8))
+        box = self._console(f, 18, ("Consolas", 9))
+        box.pack(fill="both", expand=True)
+        box.insert("1.0", "\n".join(grammes[-400:]))
+        box.see("end")
+        bar = ttk.Frame(f)
+        bar.pack(fill="x", pady=(8, 0))
+        ttk.Button(bar, text="Άνοιγμα αρχείου log",
+                   command=self.open_log_file).pack(side="left")
+        ttk.Button(bar, text="Κλείσιμο", command=win.destroy).pack(side="right")
 
     # ---------------- daemon ----------------
     def toggle_watch(self):
