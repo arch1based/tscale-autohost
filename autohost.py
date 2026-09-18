@@ -743,6 +743,7 @@ XFORMS = {
     "digits": "μόνο ψηφία",
     "upper": "ΚΕΦΑΛΑΙΑ",
     "nospace": "χωρίς διπλά κενά",
+    "nocomma": "χωρίς κόμματα (για ILS: ΣΑΛΑΜΙ, ΔΡΑΜΑΣ → ΣΑΛΑΜΙ ΔΡΑΜΑΣ)",
     "strip0": "χωρίς μηδενικά μπροστά",
     "cents2comma": "λεπτά → τιμή με κόμμα (00315 → 3,15)",
     "cents2dot": "λεπτά → τιμή με τελεία (00315 → 3.15)",
@@ -798,6 +799,10 @@ def apply_xform(value, kind):
         return value.upper()
     if kind == "nospace":
         return " ".join(value.split())
+    if kind == "nocomma":
+        # Το αρχείο του ILS χωρίζεται με κόμμα και ΔΕΝ δέχεται εισαγωγικά: μια
+        # περιγραφή σαν «ΣΑΛΑΜΙ, ΔΡΑΜΑΣ» θα μετατόπιζε όλες τις επόμενες στήλες.
+        return " ".join(value.replace(",", " ").replace(";", " ").split())
     if kind == "strip0":
         return value.lstrip("0") or "0"
     if kind in ("cents2comma", "cents2dot"):
@@ -2349,34 +2354,88 @@ def _run_extra_senders(cfg, log, stop_event=None):
                    cfg.get("%s_kill" % key, True), log, stop_event, label)
 
 
-def build_second_output(cfg, fallback_input, log):
-    """Φτιάχνει δεύτερο αρχείο με άλλο προφίλ, από τα ίδια δεδομένα.
+def build_extra_output(cfg, fallback_input, log, key="step2b",
+                       default_name="host2", label="δεύτερο αρχείο"):
+    """Φτιάχνει ακόμα ένα αρχείο με άλλο προφίλ, από τα ίδια δεδομένα.
 
-    Χρησιμεύει όταν το κατάστημα έχει και άλλου τύπου ζυγό που θέλει τη δική
-    του γραφή — π.χ. οι Ishida δεν δέχονται «5.4», θέλουν «5,40».
+    Κάθε μάρκα ζυγού θέλει τη δική της γραφή: οι Ishida την τιμή σε λεπτά, το
+    ILS τις στήλες στη σειρά που περιμένει το «Field settings» του. Όλα βγαίνουν
+    στην ίδια εκτέλεση, από το ίδιο αρχείο του ERP.
     """
-    name = (cfg.get("step2b_profile") or "").strip()
+    name = (cfg.get("%s_profile" % key) or "").strip()
     name, entry = resolve_profile(cfg.get("profiles") or {}, name)
     if not entry:
-        raise StepError("Βήμα 3β", "Δεν βρέθηκε το προφίλ «%s» για το δεύτερο αρχείο." % name,
+        raise StepError("Βήμα 3β", "Δεν βρέθηκε το προφίλ «%s» για το %s." % (name, label),
                         "Διάλεξε προφίλ στην καρτέλα «Βήμα 3».")
     fields = entry.get("fields", entry) if isinstance(entry, dict) else entry
     settings = entry.get("settings", {}) if isinstance(entry, dict) else {}
 
-    dst = (cfg.get("step2b_output") or "").strip()
+    dst = (cfg.get("%s_output" % key) or "").strip()
     if not dst:
         fmt = settings.get("step2_format", cfg.get("step2_format", "csv"))
         ext = ".csv" if fmt in ("csv", "semicolon") else ".txt"
         folder = cfg.get("output_dir") or os.path.dirname(cfg.get("watch_file", "") or "")
-        dst = os.path.join(folder, "host2" + ext)
+        dst = os.path.join(folder, default_name + ext)
 
     sub = dict(cfg)
     sub.update(settings)
     sub["step2_fields"] = fields
     sub["step2_input"] = (cfg.get("step2_input") or "").strip()
     sub["step2_output"] = dst
-    log("  δεύτερο αρχείο με προφίλ «%s»:" % name)
+    log("  %s με προφίλ «%s»:" % (label, name))
     return run_step2(sub, fallback_input, log)
+
+
+def build_second_output(cfg, fallback_input, log):
+    """Το αρχείο για τους Ishida (host2)."""
+    return build_extra_output(cfg, fallback_input, log, "step2b", "host2",
+                              "δεύτερο αρχείο")
+
+
+# Τα όρια που επιβάλλει το «Field settings» του ILS1100, ανά στήλη του hostILS.
+# Ό,τι τα ξεπεράσει το κόβει ο ίδιος ο ζυγός, σιωπηλά — γι' αυτό τα ελέγχουμε.
+ILS_LIMITS = ((1, "Update flag", 1), (2, "Code", 5), (3, "Plu Name", 30),
+              (4, "Unit Price", 5), (5, "Pricing type", 1))
+
+
+def build_ils_output(cfg, fallback_input, log):
+    """Το αρχείο για το ILS (hostILS), με έλεγχο ότι χωράνε όλα στα πεδία του."""
+    dst = build_extra_output(cfg, fallback_input, log, "step2c", "hostILS",
+                             "αρχείο ILS")
+    check_ils_limits(dst, cfg, log)
+    return dst
+
+
+def check_ils_limits(path, cfg, log):
+    """Προειδοποιεί αν κάποια στήλη δεν χωράει στο αντίστοιχο πεδίο του ILS.
+
+    Το ILS δεν παραπονιέται: κόβει ό,τι περισσεύει. Μια τιμή 1.250,00 € σε πεδίο
+    πέντε ψηφίων θα γινόταν άλλη τιμή στο ράφι, χωρίς κανένα σφάλμα πουθενά.
+    """
+    enc = cfg.get("step2c_encoding") or "cp1253"
+    try:
+        with io.open(path, encoding=enc, errors="replace") as fh:
+            grammes = [l for l in fh.read().replace("\r\n", "\n").split("\n") if l.strip()]
+    except Exception:
+        return
+    problimata = []
+    for thesi, onoma, orio in ILS_LIMITS:
+        megisto, deigma = 0, ""
+        for gr in grammes:
+            cols = gr.split(",")
+            if len(cols) < thesi:
+                continue
+            if len(cols[thesi - 1]) > megisto:
+                megisto, deigma = len(cols[thesi - 1]), cols[thesi - 1]
+        if megisto > orio:
+            problimata.append("%s: %d χαρακτήρες ενώ το ILS δέχεται %d (π.χ. «%s»)"
+                              % (onoma, megisto, orio, deigma))
+    if problimata:
+        log("  ΠΡΟΣΟΧΗ — το ILS θα κόψει τα παρακάτω:")
+        for pr in problimata:
+            log("     %s" % pr)
+    else:
+        log("  όλες οι στήλες χωράνε στα πεδία του ILS")
 
 
 # --------------------------------------------------------------------------
@@ -2622,6 +2681,10 @@ def run_pipeline(cfg, log, stop_event=None):
     if cfg.get("step2b_enabled"):
         produced.append(build_second_output(cfg, current, log))
         log("Βήμα 3β: δεύτερο αρχείο. OK")
+
+    if cfg.get("step2c_enabled"):
+        produced.append(build_ils_output(cfg, current, log))
+        log("Βήμα 3γ: αρχείο ILS. OK")
 
     if cfg.get("backup_enabled", True):
         archive_run(cfg, produced, log)
@@ -3123,6 +3186,29 @@ class App(tk.Tk):
         ttk.Label(second, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Ίδια δεδομένα, άλλη γραφή — φτιάχνεται στην ίδια εκτέλεση με το "
                        "product.csv. Κενή διαδρομή = host2.csv στον φάκελο εξόδου."
+                  ).pack(anchor="w", pady=(2, 0))
+
+        third = ttk.Frame(f)
+        third.pack(fill="x", pady=(6, 4))
+        ttk.Separator(third, orient="horizontal").pack(fill="x", pady=(0, 6))
+        trow = ttk.Frame(third)
+        trow.pack(fill="x")
+        self.v_s2c = tk.BooleanVar(value=False)
+        ttk.Checkbutton(trow, text="Φτιάξε και αρχείο για ILS (hostILS)",
+                        variable=self.v_s2c).pack(side="left")
+        ttk.Label(trow, text="μορφή:").pack(side="left", padx=(14, 3))
+        self.v_s2c_profile = tk.StringVar()
+        self.cmb_s2c = ttk.Combobox(trow, textvariable=self.v_s2c_profile, state="readonly",
+                                    width=34, values=list(self.cfg.get("profiles", {})))
+        self.cmb_s2c.pack(side="left")
+        g3 = ttk.Frame(third)
+        g3.pack(fill="x")
+        self.v_s2c_out = tk.StringVar()
+        self._pick_row(g3, "Να δημιουργείται εδώ:", self.v_s2c_out, "save", 0)
+        ttk.Label(third, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Για ζυγούς ILS1100. Κενή διαδρομή = hostILS.csv στον φάκελο "
+                       "εξόδου. Στο ILS, οι θέσεις των στηλών ορίζονται στο «Field "
+                       "settings» — δες τον πίνακα στο README."
                   ).pack(anchor="w", pady=(2, 0))
 
         advbar = ttk.Frame(f)
@@ -3687,6 +3773,10 @@ class App(tk.Tk):
         saved_p = c.get("step2b_profile", "")
         self.v_s2b_profile.set(resolve_profile(c.get("profiles", {}), saved_p)[0] if saved_p else "")
         self.v_s2b_out.set(c.get("step2b_output", ""))
+        self.v_s2c.set(bool(c.get("step2c_enabled", False)))
+        self.cmb_s2c.configure(values=list(c.get("profiles", {})))
+        self.v_s2c_profile.set(c.get("step2c_profile", ""))
+        self.v_s2c_out.set(c.get("step2c_output", ""))
         self.v_finalnl.set(bool(c.get("step2_final_newline", True)))
         self.v_s3.set(bool(c.get("step3_enabled", True)))
         self.v_s3exe.set(c.get("step3_exe", ""))
@@ -3780,6 +3870,9 @@ class App(tk.Tk):
         c["step2b_enabled"] = self.v_s2b.get()
         c["step2b_profile"] = self.v_s2b_profile.get()
         c["step2b_output"] = self.v_s2b_out.get().strip()
+        c["step2c_enabled"] = self.v_s2c.get()
+        c["step2c_profile"] = self.v_s2c_profile.get()
+        c["step2c_output"] = self.v_s2c_out.get().strip()
         c["step2_final_newline"] = self.v_finalnl.get()
         c["step3_enabled"] = self.v_s3.get()
         c["step3_exe"] = self.v_s3exe.get().strip()

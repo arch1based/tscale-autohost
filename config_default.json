@@ -378,8 +378,77 @@
           "xform": ""
         }
       ]
+    },
+    "ERGON · ILS1100 — hostILS": {
+      "settings": {
+        "step2_input_type": "delimited",
+        "step2_input_delimiter": ",",
+        "step2_trailing_delim": false,
+        "step2_quotes": false,
+        "step2_in_encoding": "auto",
+        "step2_out_encoding": "cp1253",
+        "step2_final_newline": true,
+        "step2_write_header": false,
+        "step2_sanitize": true,
+        "step2_dedupe": false,
+        "step2_positions_bytes": false,
+        "step2_startline": 1,
+        "step2_onebased": true,
+        "step2_format": "csv",
+        "step2_delimiter": ","
+      },
+      "fields": [
+        {
+          "name": "Update flag",
+          "enabled": true,
+          "pos": 0,
+          "len": 0,
+          "extra": "1",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "Code",
+          "enabled": true,
+          "pos": 1,
+          "len": 0,
+          "extra": "",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "Plu Name",
+          "enabled": true,
+          "pos": 2,
+          "len": 30,
+          "extra": "",
+          "xform": "nocomma",
+          "align": ""
+        },
+        {
+          "name": "Unit Price",
+          "enabled": true,
+          "pos": -3,
+          "len": 0,
+          "extra": "",
+          "xform": "tocents",
+          "align": ""
+        },
+        {
+          "name": "Pricing type",
+          "enabled": true,
+          "pos": 0,
+          "len": 0,
+          "extra": "0",
+          "xform": "",
+          "align": ""
+        }
+      ]
     }
   },
   "step2_final_newline": true,
-  "show_success_popup": false
+  "show_success_popup": false,
+  "step2c_enabled": false,
+  "step2c_profile": "",
+  "step2c_output": ""
 }
