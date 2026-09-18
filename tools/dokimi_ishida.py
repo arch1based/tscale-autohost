@@ -160,6 +160,34 @@ class PsefticosZygos(object):
             sock.close()
 
 
+def sygkrisi_me_katagrafi(fakelos):
+    """Συγκρίνει ό,τι στέλνουμε με ό,τι έστελνε το ScaleLink Pro 5, byte προς byte.
+
+    Δεν αρκεί να «δουλεύει»: πρέπει ο ζυγός να βλέπει ακριβώς ό,τι συνήθιζε.
+    Μια σημαία που λείπει από την υπο-κεφαλίδα τον κάνει να απαντήσει ότι δεν
+    έχει προϊόντα — χωρίς κανένα σφάλμα πουθενά.
+    """
+    arxeia = glob.glob(os.path.join(fakelos, "*", "SLP_*msg2001.bin"))
+    if not arxeia:
+        return []
+    raw = open(arxeia[0], "rb").read()
+    lathi, off = [], 0
+    while off + SUB <= len(raw):
+        n = int.from_bytes(raw[off + 6:off + SUB], "big")
+        if n <= 0 or off + SUB + n > len(raw):
+            break
+        slp = raw[off:off + SUB + n]
+        aitima = raw[off + SUB:off + SUB + n]
+        diko_mas = A._ishida_subheader(A.ISHIDA_MSG_READ, n, zitao_ki_alla=True) + aitima
+        simadi = "✓" if slp == diko_mas else "✗ ΔΙΑΦΕΡΕΙ"
+        print("   %-8s %s" % (repr(aitima.decode("cp1253")), simadi))
+        if slp != diko_mas:
+            lathi.append("το αίτημα %r δεν είναι ίδιο με του SLP-5"
+                         % aitima.decode("cp1253"))
+        off += SUB + n
+    return lathi
+
+
 def main():
     A.ISHIDA_PORT = PORT
     fakelos = sys.argv[1] if len(sys.argv) > 1 else None
@@ -173,6 +201,11 @@ def main():
     zygos = PsefticosZygos(eggrafes)
     log = lambda m: print("   " + m)
     lathi = []
+
+    if fakelos:
+        print("0) ΤΑ ΑΙΤΗΜΑΤΑ ΜΑΣ, ΔΙΠΛΑ ΣΕ ΑΥΤΑ ΤΟΥ SCALELINK PRO 5")
+        lathi += sygkrisi_me_katagrafi(fakelos)
+        print()
 
     print("1) ΑΝΑΓΝΩΣΗ")
     yparxonta = A.ishida_fetch_plus("127.0.0.1", log=log)

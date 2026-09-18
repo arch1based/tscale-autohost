@@ -1507,7 +1507,60 @@ ISHIDA_BLOCK = 50               # εγγραφές ανά σύνδεση, όπω
 ISHIDA_FIELDS = 118             # πεδία ανά εγγραφή PLU
 ISHIDA_CODE_FIELD = 0
 ISHIDA_PRICE_FIELD = 70         # τιμή σε ΑΚΕΡΑΙΑ ΛΕΠΤΑ: 790 = 7,90 €
+ISHIDA_BCFORMAT_FIELD = 86      # ποια μορφή barcode τυπώνει το προϊόν
+ISHIDA_BCCODE_FIELD = 89        # ο κωδικός που μπαίνει ΜΕΣΑ στο barcode (τα CCCCC)
 ISHIDA_ENCODING = "cp1253"
+
+# Οι μορφές barcode του ζυγού. Η λίστα είναι δική του — βρέθηκε ατόφια μέσα στο
+# SetupFile/Greece.set του ScaleLink Pro 5. Κάθε γράμμα είναι μία θέση του EAN-13:
+#   F σήμανση · C κωδικός είδους · W βάρος · P τιμή · I κωδικός καταστήματος
+#   Q ποσότητα · (C/D) ψηφίο ελέγχου · (/10) διαίρεση με το 10
+ISHIDA_BARCODE_FORMATS = [
+    (0,  "χωρίς barcode"),
+    (1,  "FFCCCCC(C/P)PPPP(C/D)"),
+    (2,  "FFCCCCCCPPPP(C/D)"),
+    (3,  "FCCCCCC(C/P)PPPP(C/D)"),
+    (4,  "FFCCCCCPPPPP(C/D)          κωδικός 5 + τιμή 5"),
+    (5,  "FCCCCCCPPPPP(C/D)"),
+    (6,  "FFCCCC(C/P)PPPPP(C/D)"),
+    (7,  "FFCCCCCCWWWW(C/D)"),
+    (8,  "FCCCCCCWWWWW(C/D)"),
+    (9,  "FCCCCCIIIIII(C/D)"),
+    (10, "FFCCCCCCPPPP(C/D) *"),
+    (11, "FFCCCCCCWWWW(C/D) *"),
+    (12, "FFCCCC(C/W)WWWWW(C/D)"),
+    (15, "FFCCCCC(0)PPPP(C/D)"),
+    (16, "FFCCCCCWWWWW(C/D)          κωδικός 5 + βάρος 5"),
+    (17, "FFCCCCCPPPPP(/10)(C/D)"),
+    (18, "FFCCCCC(C/P)PPPP(/10)(C/D)"),
+    (19, "FFCCCCC(C/W)WWWW(C/D)"),
+    (20, "FCCCCCPPPPPP(C/D)"),
+    (21, "FFCCCCPPPPPP(C/D)"),
+    (22, "FCCCWWWWPPPP(C/D)"),
+    (23, "FFCCCCQQPPPP(C/D)"),
+    (24, "FIIIIIIPPPPP(C/D)"),
+    (25, "FFIIIIIIPPPP(C/D)"),
+    (26, "FCCCCPPPPPPP(C/D)"),
+    (27, "FIIIIIIPPPPP(/10)(C/D)"),
+    (28, "FFIIIIIIPPPP(/10)(C/D)"),
+    (29, "FCCCCCCPPPPP(/10)(C/D)"),
+    (30, "FFCCCCCCPPPP(/10)(C/D)"),
+    (31, "FFCCCCCQQQQQ(C/D)"),
+    (32, "CUSTOM"),
+    (34, "FFSRRR(C/P)PPPPP(C/D)"),
+    (35, "FFSCCC(C/P)PPPPP(C/D)"),
+]
+ISHIDA_BC_KEEP = -1             # «μην την αλλάζεις» — η προεπιλογή
+
+
+def ishida_barcode_label(arithmos):
+    """Η μορφή όπως τη δείχνουμε στον χρήστη: «16 · FFCCCCCWWWWW(C/D)»."""
+    if arithmos == ISHIDA_BC_KEEP:
+        return "μην την αλλάζεις (όπως είναι στον ζυγό)"
+    for n, perigrafi in ISHIDA_BARCODE_FORMATS:
+        if n == arithmos:
+            return "%d · %s" % (n, perigrafi)
+    return str(arithmos)
 
 
 def _ishida_bcd(value, nbytes):
@@ -1536,9 +1589,18 @@ def _ishida_header(msg_no, data_size):
     return bytes(head)
 
 
-def _ishida_subheader(msg_no, size):
+def _ishida_subheader(msg_no, size, zitao_ki_alla=False):
+    """Υπο-κεφαλίδα 10 bytes.
+
+    Το byte 2 είναι η σημαία «θέλω κι άλλα» και **είναι απαραίτητη στα αιτήματα
+    ανάγνωσης**: χωρίς αυτήν ο ζυγός απαντά ότι δεν έχει κανένα προϊόν, χωρίς
+    κανένα σφάλμα. Το ScaleLink Pro 5 τη στέλνει πάντα όταν ζητάει δεδομένα και
+    ποτέ όταν στέλνει (SendSubHeader, bIsNextRequest).
+    """
     sub = bytearray(ISHIDA_SUBHEADER)
     sub[0:2] = _ishida_bcd(msg_no, 2)
+    if zitao_ki_alla:
+        sub[2] = 1
     sub[6:10] = bytes([(size >> 24) & 255, (size >> 16) & 255,
                        (size >> 8) & 255, size & 255])
     return bytes(sub)
@@ -1735,7 +1797,8 @@ def ishida_fetch_plus(ip, timeout=90, log=None):
             aitima = ("%s," % apo).encode(ISHIDA_ENCODING)
             sock.sendall(_ishida_header(ISHIDA_MSG_READ,
                                         len(aitima) + ISHIDA_SUBHEADER))
-            sock.sendall(_ishida_subheader(ISHIDA_MSG_READ, len(aitima)) + aitima)
+            sock.sendall(_ishida_subheader(ISHIDA_MSG_READ, len(aitima),
+                                           zitao_ki_alla=True) + aitima)
             _msg, apotelesma, soma = _ishida_read_message(sock)
 
         # Αποτέλεσμα 1 με άδειο σώμα σημαίνει «δεν έχω άλλα» και είναι το
@@ -1775,7 +1838,8 @@ def ishida_fetch_plus(ip, timeout=90, log=None):
     return yparxonta
 
 
-def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True):
+def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
+                       morfi_barcode=ISHIDA_BC_KEEP, kodikos_sto_barcode=False):
     """Κρατάει τις εγγραφές του ζυγού και αλλάζει ΜΟΝΟ την τιμή.
 
     Ίδιος λόγος με τους T-Scale: τα ονόματα στον ζυγό είναι γραμμένα με τη
@@ -1783,6 +1847,7 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True):
     μορφοποίηση της ετικέτας. Δεν έχουμε λόγο να τα αγγίξουμε.
     """
     telika, allages, agnosta, akyres = [], 0, [], 0
+    barcode_allages = 0
     for row in items:
         kodikos = str(row.get("product_number", "")).strip()
         kleidi = kodikos.lstrip("0") or "0"
@@ -1797,14 +1862,36 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True):
         pedia = ishida_split_fields(palia)
         if len(pedia) < ISHIDA_FIELDS:
             continue
-        if pedia[ISHIDA_PRICE_FIELD] == str(lepta):
-            continue                                # ίδια τιμή: δεν τη στέλνουμε
+        idia_timi = pedia[ISHIDA_PRICE_FIELD] == str(lepta)
+
+        # Η μορφή του barcode αλλάζει μόνο αν έχει ζητηθεί ρητά. Δεν είναι τιμή
+        # που «διορθώνεται»: καθορίζει τι διαβάζει το ταμείο από την ετικέτα.
+        piraxe_barcode = False
+        if morfi_barcode != ISHIDA_BC_KEEP:
+            if pedia[ISHIDA_BCFORMAT_FIELD] != str(morfi_barcode):
+                pedia[ISHIDA_BCFORMAT_FIELD] = str(morfi_barcode)
+                piraxe_barcode = True
+            if kodikos_sto_barcode:
+                # Τα CCCCC της μορφής: ο κωδικός του είδους, χωρίς μηδενικά μπροστά.
+                gymnos = kodikos.lstrip("0") or "0"
+                if pedia[ISHIDA_BCCODE_FIELD] != gymnos:
+                    pedia[ISHIDA_BCCODE_FIELD] = gymnos
+                    piraxe_barcode = True
+
+        if idia_timi and not piraxe_barcode:
+            continue                                # τίποτα δεν άλλαξε: δεν το στέλνουμε
         pedia[ISHIDA_PRICE_FIELD] = str(lepta)
         telika.append(",".join(pedia))
-        allages += 1
+        if not idia_timi:
+            allages += 1
+        if piraxe_barcode:
+            barcode_allages += 1
 
     log("  άλλαξαν οι τιμές σε %d από τα %d προϊόντα του αρχείου"
         % (allages, len(items)))
+    if morfi_barcode != ISHIDA_BC_KEEP:
+        log("  μορφή barcode -> %s: άλλαξε σε %d προϊόντα"
+            % (ishida_barcode_label(morfi_barcode), barcode_allages))
     if akyres:
         log("  %d προϊόντα δεν είχαν σωστή τιμή και προσπεράστηκαν" % akyres)
     if agnosta:
@@ -1895,7 +1982,10 @@ def run_ishida_direct(cfg, log, stop_event=None):
                                 "%s — για να αλλάξουμε τιμές πρέπει πρώτα να "
                                 "διαβάσουμε τι έχει μέσα. Αλλιώς θα σβήναμε τα "
                                 "ονόματα." % ip)
-            pros_apostoli = ishida_merge_prices(yparxonta, items, log, se_lepta)
+            pros_apostoli = ishida_merge_prices(
+                yparxonta, items, log, se_lepta,
+                morfi_barcode=int(cfg.get("ishida_barcode", ISHIDA_BC_KEEP)),
+                kodikos_sto_barcode=bool(cfg.get("ishida_barcode_code", False)))
         except StepError:
             raise
         except Exception as exc:
@@ -3107,6 +3197,31 @@ class App(tk.Tk):
             ishf, text="Η τιμή στο αρχείο είναι ήδη σε λεπτά (540 = 5,40 €)",
             variable=self.v_ish_cents)
         self.chk_ish_cents.pack(side="left", padx=10)
+
+        bcf = ttk.Frame(f)
+        bcf.pack(fill="x", pady=(6, 0))
+        ttk.Label(bcf, text="Μορφή barcode:").pack(side="left")
+        self.v_ish_bc = tk.StringVar(value=ishida_barcode_label(ISHIDA_BC_KEEP))
+        self.cmb_ish_bc = ttk.Combobox(
+            bcf, textvariable=self.v_ish_bc, width=44, state="readonly",
+            values=[ishida_barcode_label(ISHIDA_BC_KEEP)] +
+                   [ishida_barcode_label(n) for n, _p in ISHIDA_BARCODE_FORMATS])
+        self.cmb_ish_bc.pack(side="left", padx=6)
+        self.v_ish_bc_code = tk.BooleanVar(value=False)
+        self.chk_ish_bc_code = ttk.Checkbutton(
+            bcf, text="και ο κωδικός του είδους μέσα στο barcode",
+            variable=self.v_ish_bc_code)
+        self.chk_ish_bc_code.pack(side="left", padx=10)
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Η δομή του EAN-13 που τυπώνει ο ζυγός. Κάθε γράμμα είναι μία "
+                       "θέση: F σήμανση, C ο κωδικός του είδους, W το βάρος, P η τιμή, "
+                       "(C/D) το ψηφίο ελέγχου. Το 16 (FFCCCCCWWWWW) βάζει κωδικό πέντε "
+                       "ψηφίων και βάρος πέντε ψηφίων· το 4 βάζει τιμή στη θέση του "
+                       "βάρους.\n"
+                       "Η προεπιλογή είναι να ΜΗΝ την αλλάζουμε — καθορίζει τι διαβάζει "
+                       "το ταμείο από την ετικέτα, και κάθε προϊόν μπορεί να έχει δική "
+                       "του. Άλλαξέ την μόνο όταν το ζητάει ο πελάτης."
+                  ).pack(anchor="w", pady=(4, 10))
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Στέλνεται το αρχείο που φτιάχνει το «Φτιάξε και δεύτερο αρχείο» "
                        "στο Βήμα 3, με τις μετατροπές του προφίλ — το ίδιο αρχείο που "
@@ -3469,6 +3584,8 @@ class App(tk.Tk):
         self.v_direct.set(bool(c.get("direct_send", True)))
         self.v_ish_ips.set(c.get("ishida_ips", ""))
         self.v_ish_cents.set(bool(c.get("ishida_price_cents", True)))
+        self.v_ish_bc.set(ishida_barcode_label(int(c.get("ishida_barcode", ISHIDA_BC_KEEP))))
+        self.v_ish_bc_code.set(bool(c.get("ishida_barcode_code", False)))
         # Παλιές ρυθμίσεις δεν έχουν τα τικ: τα συμπεραίνουμε από το αν είχαν IP,
         # ώστε να μη «σβήσει» ξαφνικά η αποστολή σε όποιον έχει ήδη στήσει ζυγούς.
         self.v_tscale_on.set(bool(c.get("tscale_on", bool(parse_ips(c.get("scale_ips", ""))))))
@@ -3562,6 +3679,10 @@ class App(tk.Tk):
         c["direct_send"] = self.v_direct.get()
         c["ishida_ips"] = self.v_ish_ips.get().strip()
         c["ishida_price_cents"] = self.v_ish_cents.get()
+        keimeno = self.v_ish_bc.get()
+        c["ishida_barcode"] = (int(keimeno.split("·")[0].strip())
+                               if "·" in keimeno else ISHIDA_BC_KEEP)
+        c["ishida_barcode_code"] = self.v_ish_bc_code.get()
         c["tscale_on"] = self.v_tscale_on.get()
         c["ishida_on"] = self.v_ish_on.get()
         c["ishida_direct"] = c["ishida_on"] and bool(parse_ips(c["ishida_ips"]))
@@ -3923,11 +4044,15 @@ class App(tk.Tk):
                 w.configure(state="normal" if tscale else "disabled")
             except tk.TclError:
                 pass
-        for w in (self.e_ish_ips, self.chk_ish_cents):
+        for w in (self.e_ish_ips, self.chk_ish_cents, self.chk_ish_bc_code):
             try:
                 w.configure(state="normal" if ishida else "disabled")
             except tk.TclError:
                 pass
+        try:
+            self.cmb_ish_bc.configure(state="readonly" if ishida else "disabled")
+        except tk.TclError:
+            pass
 
     def on_direct_toggle(self):
         """Δείχνει τι θα γίνει με την τρέχουσα επιλογή."""
