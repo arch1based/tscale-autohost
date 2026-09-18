@@ -254,6 +254,24 @@ def main():
     except A.StepError as exc:
         print("   ✓ %s" % exc.message)
 
+    print("\n6) ΑΔΕΙΑ ΖΥΓΑΡΙΑ — πρέπει να γεμίσει, όχι να βγάλει σφάλμα")
+    kena = A.ishida_merge_prices(
+        {}, [{"product_number": "4242", "original_price": "1250",
+              "product_name": "ΔΟΚΙΜΑΣΤΙΚΟ ΠΡΟΪΟΝ", "tax": "13"}],
+        lambda m: None, True, dimiourgia=True)
+    if not kena:
+        lathi.append("σε άδειο ζυγό δεν φτιάχτηκε καμία εγγραφή")
+        print("   ✗ δεν φτιάχτηκε τίποτα")
+    else:
+        pedia = A.ishida_split_fields(kena[0])
+        print("   ✓ φτιάχτηκε εγγραφή %d πεδίων: κωδ=%s τιμή=%s ΦΠΑ=%s όνομα=%s"
+              % (len(pedia), pedia[A.ISHIDA_CODE_FIELD],
+                 pedia[A.ISHIDA_PRICE_FIELD], pedia[A.ISHIDA_TAX_FIELD], pedia[68]))
+        if len(pedia) != A.ISHIDA_FIELDS:
+            lathi.append("η νέα εγγραφή δεν έχει %d πεδία" % A.ISHIDA_FIELDS)
+        if "" == pedia[A.ISHIDA_BCFORMAT_FIELD]:
+            lathi.append("η νέα εγγραφή έχει κενή μορφή barcode")
+
     print("\n" + ("ΟΛΑ ΚΑΛΑ" if not lathi else "ΠΡΟΒΛΗΜΑΤΑ:\n  - " + "\n  - ".join(lathi)))
     return 1 if lathi else 0
 

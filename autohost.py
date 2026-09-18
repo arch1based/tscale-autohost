@@ -1552,6 +1552,34 @@ ISHIDA_BARCODE_FORMATS = [
 ]
 ISHIDA_BC_KEEP = -1             # «μην την αλλάζεις» — η προεπιλογή
 
+# Πρότυπο για προϊόν που δεν υπάρχει ακόμα στον ζυγό.
+#
+# Δεν το επινοήσαμε: βγήκε από τις 381 εγγραφές ενός αληθινού UNI-3, κρατώντας
+# τα 110 πεδία που ήταν ΙΔΙΑ σε όλα. Τα υπόλοιπα οκτώ (κωδικός, τρόπος πώλησης,
+# ομάδα, όνομα, τιμή, μορφή barcode, ΦΠΑ, κωδικός barcode) τα γεμίζουμε εμείς.
+#
+# Χρησιμοποιείται ΜΟΝΟ όταν ο ζυγός είναι εντελώς άδειος. Αν έχει έστω ένα
+# προϊόν, προτιμάμε εκείνο ως πρότυπο: ξέρει καλύτερα από εμάς πώς είναι
+# στημένη η συγκεκριμένη εγκατάσταση.
+ISHIDA_TEMPLATE = ',0,1,0,0,1,0,1000,0,2,0,1,,,,0,0,0,0,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,,,,0,,,,,,2,,,0,0,2,1,0,0,0,0,0,0,1,0,3,0,0,0,0,,,0,,0,,0,0,0,,0,0,0,0,0,0,,,,,0,0,1,0,,0,,0,0,0,0,0,0,0,0,,,,,,,,0,0,,,,0,0,0,0,0,'
+
+ISHIDA_SALEMODE_FIELD = 50      # 2 = ζυγιζόμενο, 1 = τεμάχιο
+ISHIDA_TAX_FIELD = 88
+
+
+def ishida_format_name(onoma):
+    """Το όνομα όπως το αποθηκεύει ο ζυγός, με τις εντολές μορφοποίησης.
+
+    Στον ζυγό τα ονόματα δεν είναι σκέτο κείμενο: έχουν μέσα χαρακτήρες που
+    λένε στην ετικέτα πού αλλάζει γραμμή και τι μέγεθος γράμματα να βάλει,
+    γραμμένους ως κείμενο («\\x0d»), όχι ως πραγματικά bytes.
+
+    Κρατάμε την απλούστερη μορφή που χρησιμοποιεί ο ίδιος ο ζυγός — μία γραμμή,
+    προεπιλεγμένο μέγεθος. Έτσι είναι γραμμένα 81 από τα 381 προϊόντα του.
+    """
+    katharo = (onoma or "").replace('"', "").replace(",", " ").strip()
+    return '"\\x0d\\x0d%s"' % katharo
+
 
 def ishida_barcode_label(arithmos):
     """Η μορφή όπως τη δείχνουμε στον χρήστη: «16 · FFCCCCCWWWWW(C/D)»."""
@@ -1711,21 +1739,37 @@ def ishida_read_price_file(cfg, log):
         raw = fh.read()
     text = raw.decode(enc, "replace")
 
+    onoma_col = int(cfg.get("ishida_name_col", 2) or 2)        # 2η στήλη
+    fpa_col = int(cfg.get("ishida_tax_col", -1) or -1)         # τελευταία
+
+    def stili(cols, thesi):
+        """Στήλη με θετική ή αρνητική θέση (αρνητική = από το τέλος)."""
+        return cols[thesi - 1 if thesi > 0 else thesi].strip()
+
     items, akyres = [], 0
     for line in text.replace("\r\n", "\n").split("\n"):
         if not line.strip():
             continue
         cols = line.split(delim)
         try:
-            kodikos = cols[kodikos_col - 1 if kodikos_col > 0 else kodikos_col].strip()
-            timi = cols[timi_col - 1 if timi_col > 0 else timi_col].strip()
+            kodikos = stili(cols, kodikos_col)
+            timi = stili(cols, timi_col)
         except IndexError:
             akyres += 1
             continue
         if not kodikos:
             akyres += 1
             continue
-        items.append({"product_number": kodikos, "original_price": timi})
+        try:
+            onoma = stili(cols, onoma_col)
+        except IndexError:
+            onoma = ""
+        try:
+            fpa = stili(cols, fpa_col)
+        except IndexError:
+            fpa = ""
+        items.append({"product_number": kodikos, "original_price": timi,
+                      "product_name": onoma, "tax": fpa})
     # Δικλείδα: αν το αρχείο έχει τιμές με υποδιαστολή ενώ έχει δηλωθεί ότι
     # είναι σε λεπτά, το «8.50» θα γινόταν 8 λεπτά — δηλαδή λάθος τιμή στο ράφι,
     # χωρίς κανένα σφάλμα. Καλύτερα να σταματήσουμε και να το πούμε.
@@ -1838,8 +1882,24 @@ def ishida_fetch_plus(ip, timeout=90, log=None):
     return yparxonta
 
 
+def ishida_new_record(protypo, kodikos, onoma, lepta, fpa, morfi_barcode):
+    """Φτιάχνει εγγραφή για προϊόν που δεν υπάρχει ακόμα στον ζυγό."""
+    pedia = ishida_split_fields(protypo)
+    gymnos = kodikos.lstrip("0") or "0"
+    pedia[ISHIDA_CODE_FIELD] = gymnos
+    pedia[ISHIDA_PRICE_FIELD] = str(lepta)
+    pedia[68] = ishida_format_name(onoma)
+    pedia[ISHIDA_BCCODE_FIELD] = gymnos
+    if fpa:
+        pedia[ISHIDA_TAX_FIELD] = fpa
+    if morfi_barcode != ISHIDA_BC_KEEP:
+        pedia[ISHIDA_BCFORMAT_FIELD] = str(morfi_barcode)
+    return ",".join(pedia)
+
+
 def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
-                       morfi_barcode=ISHIDA_BC_KEEP, kodikos_sto_barcode=False):
+                       morfi_barcode=ISHIDA_BC_KEEP, kodikos_sto_barcode=False,
+                       dimiourgia=False):
     """Κρατάει τις εγγραφές του ζυγού και αλλάζει ΜΟΝΟ την τιμή.
 
     Ίδιος λόγος με τους T-Scale: τα ονόματα στον ζυγό είναι γραμμένα με τη
@@ -1847,15 +1907,31 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
     μορφοποίηση της ετικέτας. Δεν έχουμε λόγο να τα αγγίξουμε.
     """
     telika, allages, agnosta, akyres = [], 0, [], 0
-    barcode_allages = 0
+    barcode_allages, kaina = 0, 0
+    # Πρότυπο για τα καινούργια: προτιμάμε ένα υπαρκτό προϊόν του ίδιου του
+    # ζυγού — ξέρει καλύτερα από εμάς πώς είναι στημένη η εγκατάσταση. Μόνο σε
+    # εντελώς άδειο ζυγό πέφτουμε στο ενσωματωμένο.
+    protypo = ISHIDA_TEMPLATE
+    if dimiourgia and yparxonta:
+        protypo = next(iter(yparxonta.values()))
     for row in items:
         kodikos = str(row.get("product_number", "")).strip()
         kleidi = kodikos.lstrip("0") or "0"
         palia = yparxonta.get(kleidi)
-        if palia is None:
-            agnosta.append(kodikos)
-            continue
         lepta = ishida_price_to_cents(row.get("original_price", ""), idi_se_lepta)
+        if palia is None:
+            if not dimiourgia:
+                agnosta.append(kodikos)
+                continue
+            onoma = (row.get("product_name") or "").strip()
+            if not onoma or lepta is None:
+                akyres += 1
+                continue
+            telika.append(ishida_new_record(
+                protypo, kodikos, onoma, lepta, (row.get("tax") or "").strip(),
+                morfi_barcode))
+            kaina += 1
+            continue
         if lepta is None:
             akyres += 1
             continue
@@ -1894,6 +1970,10 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
             % (ishida_barcode_label(morfi_barcode), barcode_allages))
     if akyres:
         log("  %d προϊόντα δεν είχαν σωστή τιμή και προσπεράστηκαν" % akyres)
+    if kaina:
+        log("  δημιουργήθηκαν %d καινούργια προϊόντα%s"
+            % (kaina, " (ο ζυγός ήταν άδειος — με το ενσωματωμένο πρότυπο)"
+               if not yparxonta else ""))
     if agnosta:
         log("  %d προϊόντα δεν τα έχει ο ζυγός: %s%s"
             % (len(agnosta), ", ".join(agnosta[:8]),
@@ -1977,15 +2057,19 @@ def run_ishida_direct(cfg, log, stop_event=None):
         try:
             yparxonta = ishida_fetch_plus(ip, log=log)
             log("  -> %s: διαβάστηκαν %d προϊόντα από τον ζυγό" % (ip, len(yparxonta)))
+            # Άδειος ζυγός (καινούργιος, ή μόλις τον άδειασε ο τεχνικός): εδώ δεν
+            # υπάρχει τίποτα να χαλάσουμε — δεν υπάρχουν ονόματα να σβηστούν —
+            # οπότε τον γεμίζουμε από το αρχείο χωρίς να ρωτήσουμε.
+            dimiourgia = bool(cfg.get("ishida_create", False))
             if not yparxonta:
-                raise StepError("Βήμα 4", "Ο ζυγός Ishida δεν έδωσε κανένα προϊόν.",
-                                "%s — για να αλλάξουμε τιμές πρέπει πρώτα να "
-                                "διαβάσουμε τι έχει μέσα. Αλλιώς θα σβήναμε τα "
-                                "ονόματα." % ip)
+                dimiourgia = True
+                log("  -> %s: ο ζυγός είναι άδειος — γράφονται όλα τα προϊόντα "
+                    "από την αρχή" % ip)
             pros_apostoli = ishida_merge_prices(
                 yparxonta, items, log, se_lepta,
                 morfi_barcode=int(cfg.get("ishida_barcode", ISHIDA_BC_KEEP)),
-                kodikos_sto_barcode=bool(cfg.get("ishida_barcode_code", False)))
+                kodikos_sto_barcode=bool(cfg.get("ishida_barcode_code", False)),
+                dimiourgia=dimiourgia)
         except StepError:
             raise
         except Exception as exc:
@@ -1995,7 +2079,7 @@ def run_ishida_direct(cfg, log, stop_event=None):
             continue
 
         if not pros_apostoli:
-            log("  -> %s: καμία αλλαγή τιμής — δεν στάλθηκε τίποτα" % ip)
+            log("  -> %s: καμία αλλαγή — δεν στάλθηκε τίποτα" % ip)
             clear_pending(ip, log)
             continue
         try:
@@ -3212,6 +3296,23 @@ class App(tk.Tk):
             bcf, text="και ο κωδικός του είδους μέσα στο barcode",
             variable=self.v_ish_bc_code)
         self.chk_ish_bc_code.pack(side="left", padx=10)
+
+        crf = ttk.Frame(f)
+        crf.pack(fill="x", pady=(6, 0))
+        self.v_ish_create = tk.BooleanVar(value=False)
+        self.chk_ish_create = ttk.Checkbutton(
+            crf, text="Γράψε και τα προϊόντα που λείπουν από τον ζυγό",
+            variable=self.v_ish_create)
+        self.chk_ish_create.pack(side="left")
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Σε ΑΔΕΙΑ ζυγαριά — καινούργια, ή μόλις σβήστηκαν τα προϊόντα της "
+                       "— γράφονται όλα από την αρχή χωρίς να χρειάζεται αυτό το τικ: "
+                       "δεν υπάρχει τίποτα να χαλάσει.\n"
+                       "Τσέκαρέ το μόνο για ζυγαριά που ΕΧΕΙ ήδη προϊόντα και θέλεις να "
+                       "μπουν και τα καινούργια του αρχείου. Το όνομα και ο ΦΠΑ έρχονται "
+                       "από το αρχείο, και τα υπόλοιπα αντιγράφονται από προϊόν που έχει "
+                       "ήδη ο ζυγός — ώστε οι ετικέτες να βγαίνουν όπως οι υπόλοιπες."
+                  ).pack(anchor="w", pady=(4, 10))
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Η δομή του EAN-13 που τυπώνει ο ζυγός. Κάθε γράμμα είναι μία "
                        "θέση: F σήμανση, C ο κωδικός του είδους, W το βάρος, P η τιμή, "
@@ -3586,6 +3687,7 @@ class App(tk.Tk):
         self.v_ish_cents.set(bool(c.get("ishida_price_cents", True)))
         self.v_ish_bc.set(ishida_barcode_label(int(c.get("ishida_barcode", ISHIDA_BC_KEEP))))
         self.v_ish_bc_code.set(bool(c.get("ishida_barcode_code", False)))
+        self.v_ish_create.set(bool(c.get("ishida_create", False)))
         # Παλιές ρυθμίσεις δεν έχουν τα τικ: τα συμπεραίνουμε από το αν είχαν IP,
         # ώστε να μη «σβήσει» ξαφνικά η αποστολή σε όποιον έχει ήδη στήσει ζυγούς.
         self.v_tscale_on.set(bool(c.get("tscale_on", bool(parse_ips(c.get("scale_ips", ""))))))
@@ -3683,6 +3785,7 @@ class App(tk.Tk):
         c["ishida_barcode"] = (int(keimeno.split("·")[0].strip())
                                if "·" in keimeno else ISHIDA_BC_KEEP)
         c["ishida_barcode_code"] = self.v_ish_bc_code.get()
+        c["ishida_create"] = self.v_ish_create.get()
         c["tscale_on"] = self.v_tscale_on.get()
         c["ishida_on"] = self.v_ish_on.get()
         c["ishida_direct"] = c["ishida_on"] and bool(parse_ips(c["ishida_ips"]))
@@ -4044,7 +4147,8 @@ class App(tk.Tk):
                 w.configure(state="normal" if tscale else "disabled")
             except tk.TclError:
                 pass
-        for w in (self.e_ish_ips, self.chk_ish_cents, self.chk_ish_bc_code):
+        for w in (self.e_ish_ips, self.chk_ish_cents, self.chk_ish_bc_code,
+                  self.chk_ish_create):
             try:
                 w.configure(state="normal" if ishida else "disabled")
             except tk.TclError:
