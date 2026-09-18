@@ -1687,6 +1687,34 @@ def ishida_read_price_file(cfg, log):
     return items
 
 
+ISHIDA_MSG_STATUS = 3013        # έλεγχος κατάστασης — η «χειραψία» πριν από τα άλλα
+
+
+def ishida_status_check(ip, timeout=15, log=None):
+    """Η πρώτη κουβέντα με τον ζυγό, ακριβώς όπως την κάνει το ScaleLink Pro 5.
+
+    Στην καταγραφή, το SLP-5 ανοίγει πρώτα μια σύνδεση σκέτα γι' αυτό και μόνο
+    μετά ζητάει προϊόντα. Το αντιγράφουμε: ο ζυγός το περιμένει, και χωρίς αυτό
+    μπορεί να μην απαντήσει με δεδομένα.
+
+    Επιστρέφει (απάντησε, τι είπε).
+    """
+    import socket
+    try:
+        with socket.create_connection((ip, ISHIDA_PORT), timeout) as sock:
+            sock.settimeout(timeout)
+            sock.sendall(_ishida_header(ISHIDA_MSG_STATUS, ISHIDA_SUBHEADER))
+            sock.sendall(_ishida_subheader(ISHIDA_MSG_STATUS, 0))
+            _msg, apotelesma, soma = _ishida_read_message(sock)
+    except Exception as exc:
+        return False, str(exc)
+    katastasi = _ishida_bcd2num(soma, 0, 2) if len(soma) >= 12 else -1
+    if log:
+        log("  -> %s: ο ζυγός απάντησε στον έλεγχο (αποτέλεσμα %d, κατάσταση %d)"
+            % (ip, apotelesma, katastasi))
+    return True, "αποτέλεσμα %d, κατάσταση %d" % (apotelesma, katastasi)
+
+
 def ishida_fetch_plus(ip, timeout=90, log=None):
     """Διαβάζει ΟΛΑ τα PLU του ζυγού. Επιστρέφει {κωδικός: ωμή εγγραφή}.
 
@@ -1695,8 +1723,10 @@ def ishida_fetch_plus(ip, timeout=90, log=None):
     αποτέλεσμα 1 και άδειο σώμα.
     """
     import socket
+    ishida_status_check(ip, log=log)               # πρώτα η χειραψία, όπως το SLP-5
     yparxonta = {}
     apo = "0"
+    proti = True
     while True:
         with socket.create_connection((ip, ISHIDA_PORT), timeout) as sock:
             sock.settimeout(timeout)
@@ -1706,12 +1736,26 @@ def ishida_fetch_plus(ip, timeout=90, log=None):
             sock.sendall(_ishida_subheader(ISHIDA_MSG_READ, len(aitima)) + aitima)
             _msg, apotelesma, soma = _ishida_read_message(sock)
 
+        # Αποτέλεσμα 1 με άδειο σώμα σημαίνει «δεν έχω άλλα» και είναι το
+        # φυσιολογικό τέλος. Οτιδήποτε άλλο είναι άρνηση, και ΔΕΝ πρέπει να
+        # περάσει για τέλος δεδομένων — αλλιώς φεύγουμε με άδεια χέρια χωρίς
+        # να μάθει κανείς γιατί.
         if apotelesma != 0 or not soma:
-            break                                   # δεν έχει άλλα
+            teliko = (apotelesma == 1 and not soma)
+            if proti and not teliko:
+                raise StepError(
+                    "Βήμα 4", "Ο ζυγός Ishida αρνήθηκε να δώσει τα προϊόντα του.",
+                    "%s — απάντησε στο αίτημα ανάγνωσης με αποτέλεσμα %d και "
+                    "%d bytes δεδομένων.\n\nΣυνήθως σημαίνει ότι ο ζυγός είναι "
+                    "απασχολημένος (τυπώνει ή ζυγίζει) ή ότι κάποιος τον έχει "
+                    "ανοιχτό από το ScaleLink Pro 5. Δοκίμασε ξανά σε λίγο."
+                    % (ip, apotelesma, len(soma)))
+            break
 
         eggrafes = _ishida_split_records(soma)
         if not eggrafes:
             break
+        proti = False
         teleftaios = apo
         for raw in eggrafes:
             grammi = raw.decode(ISHIDA_ENCODING, "replace")
