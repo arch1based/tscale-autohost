@@ -964,16 +964,35 @@ def run_step2(cfg, fallback_input, log):
         if fmt == "fixed":
             # Σταθερό πλάτος: κάθε πεδίο γεμίζει το δικό του μήκος. Η στοίχιση
             # μετράει — π.χ. οι Ishida θέλουν την τιμή δεξιά μέσα στο πεδίο.
+            # Ό,τι δεν χωράει στο πλάτος του κόβεται. Σιωπηλά, αυτό είναι
+            # επικίνδυνο: μια τιμή 1.250,00 € σε πεδίο πέντε ψηφίων γίνεται
+            # άλλη τιμή στο ράφι. Τα μετράμε και τα λέμε.
+            kommena = {}
+
             def cell(v, f):
                 w = int(f.get("len") or 0)
+                if len(v) > w:
+                    palio = kommena.get(f["name"])
+                    if palio is None or len(v) > len(palio[0]):
+                        kommena[f["name"]] = (v, w)
                 v = v[:w]
-                return v.rjust(w) if f.get("align") == "right" else v.ljust(w)
+                align = f.get("align")
+                if align == "zero":
+                    # Με μηδενικά μπροστά: οι ζυγοί ILS θέλουν «000009» και
+                    # «02500», όχι «     9» και «  2500».
+                    return v.rjust(w, "0")
+                return v.rjust(w) if align == "right" else v.ljust(w)
 
             with open(dst, "w", encoding=out_enc, errors="replace", newline="\r\n") as fh:
                 if cfg.get("step2_write_header", True):
                     fh.write("".join(cell(f["name"], f) for f in fields) + "\n")
                 for row in rows:
                     fh.write("".join(cell(v, f) for v, f in zip(row, fields)) + "\n")
+            if kommena:
+                log("  ΠΡΟΣΟΧΗ — δεν χώρεσαν και κόπηκαν:")
+                for onoma, (timi, platos) in kommena.items():
+                    log("     %s: «%s» (%d χαρακτήρες) σε πεδίο %d"
+                        % (onoma, timi, len(timi), platos))
         else:
             delim = {"csv": ",", "tab": "\t", "semicolon": ";"}.get(
                 fmt, cfg.get("step2_delimiter", ",") or ",")
@@ -2392,50 +2411,10 @@ def build_second_output(cfg, fallback_input, log):
                               "δεύτερο αρχείο")
 
 
-# Τα όρια που επιβάλλει το «Field settings» του ILS1100, ανά στήλη του hostILS.
-# Ό,τι τα ξεπεράσει το κόβει ο ίδιος ο ζυγός, σιωπηλά — γι' αυτό τα ελέγχουμε.
-ILS_LIMITS = ((1, "Update flag", 1), (2, "Code", 5), (3, "Plu Name", 30),
-              (4, "Unit Price", 5), (5, "Pricing type", 1))
-
-
 def build_ils_output(cfg, fallback_input, log):
-    """Το αρχείο για το ILS (hostILS), με έλεγχο ότι χωράνε όλα στα πεδία του."""
-    dst = build_extra_output(cfg, fallback_input, log, "step2c", "hostILS",
-                             "αρχείο ILS")
-    check_ils_limits(dst, cfg, log)
-    return dst
-
-
-def check_ils_limits(path, cfg, log):
-    """Προειδοποιεί αν κάποια στήλη δεν χωράει στο αντίστοιχο πεδίο του ILS.
-
-    Το ILS δεν παραπονιέται: κόβει ό,τι περισσεύει. Μια τιμή 1.250,00 € σε πεδίο
-    πέντε ψηφίων θα γινόταν άλλη τιμή στο ράφι, χωρίς κανένα σφάλμα πουθενά.
-    """
-    enc = cfg.get("step2c_encoding") or "cp1253"
-    try:
-        with io.open(path, encoding=enc, errors="replace") as fh:
-            grammes = [l for l in fh.read().replace("\r\n", "\n").split("\n") if l.strip()]
-    except Exception:
-        return
-    problimata = []
-    for thesi, onoma, orio in ILS_LIMITS:
-        megisto, deigma = 0, ""
-        for gr in grammes:
-            cols = gr.split(",")
-            if len(cols) < thesi:
-                continue
-            if len(cols[thesi - 1]) > megisto:
-                megisto, deigma = len(cols[thesi - 1]), cols[thesi - 1]
-        if megisto > orio:
-            problimata.append("%s: %d χαρακτήρες ενώ το ILS δέχεται %d (π.χ. «%s»)"
-                              % (onoma, megisto, orio, deigma))
-    if problimata:
-        log("  ΠΡΟΣΟΧΗ — το ILS θα κόψει τα παρακάτω:")
-        for pr in problimata:
-            log("     %s" % pr)
-    else:
-        log("  όλες οι στήλες χωράνε στα πεδία του ILS")
+    """Το αρχείο για το ILS (hostILS)."""
+    return build_extra_output(cfg, fallback_input, log, "step2c", "hostILS",
+                              "αρχείο ILS")
 
 
 # --------------------------------------------------------------------------
@@ -3991,9 +3970,14 @@ class App(tk.Tk):
         xf = tk.StringVar(value=XFORMS.get(f.get("xform", ""), "—"))
         ttk.Combobox(win, textvariable=xf, values=labels, state="readonly",
                      width=32).grid(row=4, column=1, padx=8, pady=4)
-        al = tk.BooleanVar(value=f.get("align") == "right")
-        ttk.Checkbutton(win, text="Στοίχιση δεξιά (σταθερό πλάτος)",
-                        variable=al).grid(row=5, column=1, sticky="w", padx=8)
+        ALIGNS = [("", "αριστερά (προεπιλογή)"), ("right", "δεξιά, με κενά"),
+                  ("zero", "δεξιά, με μηδενικά (000009)")]
+        al_labels = [lbl for _k, lbl in ALIGNS]
+        al_keys = [k for k, _l in ALIGNS]
+        al = tk.StringVar(value=dict(ALIGNS).get(f.get("align", ""), al_labels[0]))
+        ttk.Label(win, text="Στοίχιση (σταθερό πλάτος):").grid(row=5, column=0, sticky="e", padx=8)
+        ttk.Combobox(win, textvariable=al, values=al_labels, state="readonly",
+                     width=32).grid(row=5, column=1, sticky="w", padx=8)
         ttk.Checkbutton(win, text="Για έξοδο σε αρχείο", variable=en).grid(row=6, column=1, sticky="w", padx=8)
 
         def ok():
@@ -4007,7 +3991,7 @@ class App(tk.Tk):
             f["extra"] = vals["extra"].get()
             f["enabled"] = en.get()
             f["xform"] = keys[labels.index(xf.get())] if xf.get() in labels else ""
-            f["align"] = "right" if al.get() else ""
+            f["align"] = al_keys[al_labels.index(al.get())] if al.get() in al_labels else ""
             win.destroy()
             self.refresh_tree()
             self.tree.selection_set(str(i))

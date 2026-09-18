@@ -394,52 +394,88 @@
         "step2_positions_bytes": false,
         "step2_startline": 1,
         "step2_onebased": true,
-        "step2_format": "csv",
+        "step2_format": "fixed",
         "step2_delimiter": ","
       },
       "fields": [
         {
-          "name": "Update flag",
-          "enabled": true,
-          "pos": 0,
-          "len": 0,
-          "extra": "1",
-          "xform": "",
-          "align": ""
-        },
-        {
-          "name": "Code",
+          "name": "Κωδικός",
           "enabled": true,
           "pos": 1,
-          "len": 0,
+          "len": 6,
           "extra": "",
-          "xform": "",
-          "align": ""
+          "xform": "digits",
+          "align": "zero"
         },
         {
-          "name": "Plu Name",
+          "name": "Όνομα",
           "enabled": true,
           "pos": 2,
-          "len": 30,
+          "len": 40,
           "extra": "",
           "xform": "nocomma",
           "align": ""
         },
         {
-          "name": "Unit Price",
+          "name": "(κενό)",
           "enabled": true,
-          "pos": -3,
-          "len": 0,
+          "pos": 0,
+          "len": 15,
           "extra": "",
-          "xform": "tocents",
+          "xform": "",
           "align": ""
         },
         {
-          "name": "Pricing type",
+          "name": "Σταθερό 01",
           "enabled": true,
           "pos": 0,
-          "len": 0,
+          "len": 2,
+          "extra": "01",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "Τιμή",
+          "enabled": true,
+          "pos": -3,
+          "len": 5,
+          "extra": "",
+          "xform": "tocents",
+          "align": "zero"
+        },
+        {
+          "name": "Τύπος",
+          "enabled": true,
+          "pos": 0,
+          "len": 1,
           "extra": "0",
+          "xform": "",
+          "align": ""
+        },
+        {
+          "name": "ΦΠΑ",
+          "enabled": true,
+          "pos": -1,
+          "len": 2,
+          "extra": "",
+          "xform": "digits",
+          "align": "zero"
+        },
+        {
+          "name": "Κωδικός ξανά",
+          "enabled": true,
+          "pos": 1,
+          "len": 5,
+          "extra": "",
+          "xform": "digits",
+          "align": "zero"
+        },
+        {
+          "name": "(κενό τέλος)",
+          "enabled": true,
+          "pos": 0,
+          "len": 40,
+          "extra": "",
           "xform": "",
           "align": ""
         }
