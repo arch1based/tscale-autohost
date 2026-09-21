@@ -486,5 +486,6 @@
   "show_success_popup": false,
   "step2c_enabled": false,
   "step2c_profile": "",
-  "step2c_output": ""
+  "step2c_output": "",
+  "ishida_update_names": true
 }

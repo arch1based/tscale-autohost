@@ -1908,6 +1908,60 @@ def ishida_fetch_plus(ip, timeout=90, log=None):
     return yparxonta
 
 
+def ishida_name_text(pedio):
+    """Το σκέτο κείμενο του ονόματος, χωρίς τις εντολές μορφοποίησης.
+
+    Στον ζυγό ένα όνομα μπορεί να είναι σπασμένο σε δύο γραμμές
+    («\\x0d\\x0dΦΕΤΑ ΔΟΧΕΙΟ ΔΩΔΩΝΗ ΠΟΠ Ε.\\x0d\\x0dΖ»): ενώνουμε τα κομμάτια
+    για να το συγκρίνουμε με το όνομα του ERP.
+    """
+    keimeno = pedio.strip().strip('"')
+    return "".join(re.split(r"\\x[0-9a-fA-F]{2}", keimeno))
+
+
+def _kanoniko(keimeno):
+    """Για σύγκριση: χωρίς κενά και εισαγωγικά, κεφαλαία."""
+    return "".join((keimeno or "").replace('"', "").split()).upper()
+
+
+def ishida_name_changed(pedio, onoma_erp):
+    """Άλλαξε το όνομα στο ERP σε σχέση με αυτό που έχει ο ζυγός;
+
+    «Περιέχεται» και όχι «ίσο»: μερικά προϊόντα έχουν μετά το όνομα κι άλλα
+    μπλοκ (π.χ. συστατικά), που δεν είναι μέρος του ονόματος του ERP.
+    """
+    erp = _kanoniko(onoma_erp)
+    if not erp:
+        return False
+    return erp not in _kanoniko(ishida_name_text(pedio))
+
+
+def ishida_replace_name(pedio, onoma):
+    """Βάζει το νέο όνομα κρατώντας τη μορφοποίηση του ζυγού.
+
+    Κρατάμε το «στυλ» της αρχής (με ή χωρίς εντολή μεγέθους γραμμάτων) και
+    ό,τι επιπλέον μπλοκ υπάρχει μετά το όνομα — π.χ. συστατικά — αυτούσιο.
+    """
+    katharo = (onoma or "").replace('"', "").replace(",", " ").strip()
+    keimeno = pedio.strip().strip('"')
+    oura = ""
+    thesi = keimeno.find("\\x0d\\x03")
+    if thesi >= 0:
+        oura = keimeno[thesi:]
+        keimeno = keimeno[:thesi]
+    if keimeno.startswith("\\x0d\\x08\\x02"):
+        # Το ίδιο στυλ με πριν· αν μετά το όνομα υπήρχε κενή γραμμή του ίδιου
+        # στυλ, τη διατηρούμε — είναι μέρος της διάταξης της ετικέτας.
+        meta = ""
+        kleisimo = keimeno.find("\\x02", len("\\x0d\\x08\\x02"))
+        if kleisimo >= 0:
+            meta = keimeno[kleisimo + len("\\x02"):]
+            if _kanoniko(ishida_name_text(meta)):
+                meta = ""               # η 2η γραμμή είχε κείμενο: ήταν μέρος του ονόματος
+        return '"\\x0d\\x08\\x02%s\\x02%s%s"' % (katharo, meta, oura)
+    return '"\\x0d\\x0d%s%s"' % (katharo, oura)
+
+
 def ishida_new_record(protypo, kodikos, onoma, lepta, fpa, morfi_barcode):
     """Φτιάχνει εγγραφή για προϊόν που δεν υπάρχει ακόμα στον ζυγό."""
     pedia = ishida_split_fields(protypo)
@@ -1925,7 +1979,7 @@ def ishida_new_record(protypo, kodikos, onoma, lepta, fpa, morfi_barcode):
 
 def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
                        morfi_barcode=ISHIDA_BC_KEEP, kodikos_sto_barcode=False,
-                       dimiourgia=False):
+                       dimiourgia=False, onomata=True):
     """Κρατάει τις εγγραφές του ζυγού και αλλάζει ΜΟΝΟ την τιμή.
 
     Ίδιος λόγος με τους T-Scale: τα ονόματα στον ζυγό είναι γραμμένα με τη
@@ -1933,7 +1987,7 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
     μορφοποίηση της ετικέτας. Δεν έχουμε λόγο να τα αγγίξουμε.
     """
     telika, allages, agnosta, akyres = [], 0, [], 0
-    barcode_allages, kaina = 0, 0
+    barcode_allages, kaina, onomata_allages = 0, 0, 0
     # Πρότυπο για τα καινούργια: προτιμάμε ένα υπαρκτό προϊόν του ίδιου του
     # ζυγού — ξέρει καλύτερα από εμάς πώς είναι στημένη η εγκατάσταση. Μόνο σε
     # εντελώς άδειο ζυγό πέφτουμε στο ενσωματωμένο.
@@ -1966,6 +2020,14 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
             continue
         idia_timi = pedia[ISHIDA_PRICE_FIELD] == str(lepta)
 
+        # Το όνομα αλλάζει μόνο αν άλλαξε στο ERP. Τα υπόλοιπα μένουν όπως τα
+        # έγραψε ο ζυγός, με τη μορφοποίησή τους.
+        allaxe_onoma = False
+        onoma_erp = (row.get("product_name") or "").strip()
+        if onomata and onoma_erp and ishida_name_changed(pedia[68], onoma_erp):
+            pedia[68] = ishida_replace_name(pedia[68], onoma_erp)
+            allaxe_onoma = True
+
         # Η μορφή του barcode αλλάζει μόνο αν έχει ζητηθεί ρητά. Δεν είναι τιμή
         # που «διορθώνεται»: καθορίζει τι διαβάζει το ταμείο από την ετικέτα.
         piraxe_barcode = False
@@ -1980,10 +2042,12 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
                     pedia[ISHIDA_BCCODE_FIELD] = gymnos
                     piraxe_barcode = True
 
-        if idia_timi and not piraxe_barcode:
+        if idia_timi and not piraxe_barcode and not allaxe_onoma:
             continue                                # τίποτα δεν άλλαξε: δεν το στέλνουμε
         pedia[ISHIDA_PRICE_FIELD] = str(lepta)
         telika.append(",".join(pedia))
+        if allaxe_onoma:
+            onomata_allages += 1
         if not idia_timi:
             allages += 1
         if piraxe_barcode:
@@ -1991,6 +2055,8 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
 
     log("  άλλαξαν οι τιμές σε %d από τα %d προϊόντα του αρχείου"
         % (allages, len(items)))
+    if onomata:
+        log("  άλλαξαν τα ονόματα σε %d προϊόντα" % onomata_allages)
     if morfi_barcode != ISHIDA_BC_KEEP:
         log("  μορφή barcode -> %s: άλλαξε σε %d προϊόντα"
             % (ishida_barcode_label(morfi_barcode), barcode_allages))
@@ -2095,7 +2161,8 @@ def run_ishida_direct(cfg, log, stop_event=None):
                 yparxonta, items, log, se_lepta,
                 morfi_barcode=int(cfg.get("ishida_barcode", ISHIDA_BC_KEEP)),
                 kodikos_sto_barcode=bool(cfg.get("ishida_barcode_code", False)),
-                dimiourgia=dimiourgia)
+                dimiourgia=dimiourgia,
+                onomata=bool(cfg.get("ishida_update_names", True)))
         except StepError:
             raise
         except Exception as exc:
@@ -3377,6 +3444,19 @@ class App(tk.Tk):
             variable=self.v_ish_bc_code)
         self.chk_ish_bc_code.pack(side="left", padx=10)
 
+        nmf = ttk.Frame(f)
+        nmf.pack(fill="x", pady=(6, 0))
+        self.v_ish_names = tk.BooleanVar(value=True)
+        self.chk_ish_names = ttk.Checkbutton(
+            nmf, text="Ενημέρωσε και τα ονόματα, όταν αλλάξουν στο ERP",
+            variable=self.v_ish_names)
+        self.chk_ish_names.pack(side="left")
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Αλλάζει μόνο το όνομα που είναι όντως διαφορετικό από του ERP· τα "
+                       "υπόλοιπα μένουν όπως τα έχει ο ζυγός. Η μορφοποίηση της ετικέτας "
+                       "(μέγεθος γραμμάτων, συστατικά κάτω από το όνομα) κρατιέται."
+                  ).pack(anchor="w", pady=(2, 4))
+
         crf = ttk.Frame(f)
         crf.pack(fill="x", pady=(6, 0))
         self.v_ish_create = tk.BooleanVar(value=False)
@@ -3768,6 +3848,7 @@ class App(tk.Tk):
         self.v_ish_bc.set(ishida_barcode_label(int(c.get("ishida_barcode", ISHIDA_BC_KEEP))))
         self.v_ish_bc_code.set(bool(c.get("ishida_barcode_code", False)))
         self.v_ish_create.set(bool(c.get("ishida_create", False)))
+        self.v_ish_names.set(bool(c.get("ishida_update_names", True)))
         # Παλιές ρυθμίσεις δεν έχουν τα τικ: τα συμπεραίνουμε από το αν είχαν IP,
         # ώστε να μη «σβήσει» ξαφνικά η αποστολή σε όποιον έχει ήδη στήσει ζυγούς.
         self.v_tscale_on.set(bool(c.get("tscale_on", bool(parse_ips(c.get("scale_ips", ""))))))
@@ -3869,6 +3950,7 @@ class App(tk.Tk):
                                if "·" in keimeno else ISHIDA_BC_KEEP)
         c["ishida_barcode_code"] = self.v_ish_bc_code.get()
         c["ishida_create"] = self.v_ish_create.get()
+        c["ishida_update_names"] = self.v_ish_names.get()
         c["tscale_on"] = self.v_tscale_on.get()
         c["ishida_on"] = self.v_ish_on.get()
         c["ishida_direct"] = c["ishida_on"] and bool(parse_ips(c["ishida_ips"]))
@@ -4236,7 +4318,7 @@ class App(tk.Tk):
             except tk.TclError:
                 pass
         for w in (self.e_ish_ips, self.chk_ish_cents, self.chk_ish_bc_code,
-                  self.chk_ish_create):
+                  self.chk_ish_create, self.chk_ish_names):
             try:
                 w.configure(state="normal" if ishida else "disabled")
             except tk.TclError:

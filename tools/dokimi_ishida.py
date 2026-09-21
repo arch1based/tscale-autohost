@@ -254,6 +254,30 @@ def main():
     except A.StepError as exc:
         print("   ✓ %s" % exc.message)
 
+    print("\n5β) ΑΛΛΑΓΗ ΟΝΟΜΑΤΟΣ — να αλλάξει ΜΟΝΟ το όνομα, όχι τα υπόλοιπα")
+    k = kodikoi[0]
+    palia = A.ishida_split_fields(yparxonta[k])
+    idia_timi = palia[A.ISHIDA_PRICE_FIELD]
+    nea = A.ishida_merge_prices(
+        yparxonta, [{"product_number": k, "original_price": idia_timi,
+                     "product_name": "ΝΕΟ ΟΝΟΜΑ ΔΟΚΙΜΗΣ"}], lambda m: None, True)
+    if len(nea) != 1:
+        lathi.append("η αλλαγή ονόματος δεν έστειλε το προϊόν")
+        print("   ✗ δεν στάλθηκε")
+    else:
+        np_ = A.ishida_split_fields(nea[0])
+        diaf = [i for i in range(len(palia)) if palia[i] != np_[i]]
+        print("   PLU %s: άλλαξαν τα πεδία %s -> %s" % (k, diaf, np_[68]))
+        if diaf != [68]:
+            lathi.append("η αλλαγή ονόματος πείραξε κι άλλα πεδία: %s" % diaf)
+    idio = A.ishida_merge_prices(
+        yparxonta, [{"product_number": k, "original_price": idia_timi,
+                     "product_name": A.ishida_name_text(palia[68])}],
+        lambda m: None, True)
+    print("   με ίδιο όνομα και ίδια τιμή -> %d προς αποστολή (σωστό: 0)" % len(idio))
+    if idio:
+        lathi.append("στάλθηκε προϊόν χωρίς καμία αλλαγή")
+
     print("\n6) ΑΔΕΙΑ ΖΥΓΑΡΙΑ — πρέπει να γεμίσει, όχι να βγάλει σφάλμα")
     kena = A.ishida_merge_prices(
         {}, [{"product_number": "4242", "original_price": "1250",
