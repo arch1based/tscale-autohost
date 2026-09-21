@@ -1593,6 +1593,65 @@ ISHIDA_SALEMODE_FIELD = 50      # 2 = ζυγιζόμενο, 1 = τεμάχιο
 ISHIDA_TAX_FIELD = 88
 
 
+# Πόσους χαρακτήρες χωράει μία γραμμή ονόματος στον ζυγό, ανά μορφή. Μετρήθηκε
+# στα 381 προϊόντα που είχε γράψει το ScaleLink Pro 5 σε αληθινό UNI-3: στην
+# απλή μορφή καμία γραμμή δεν ξεπερνούσε τους 25 χαρακτήρες — τα μεγαλύτερα
+# ονόματα τα έσπαγε σε δύο γραμμές. Γραμμή πάνω από το όριο → ο ζυγός δείχνει
+# «too many characters» στην οθόνη του.
+ISHIDA_LINE_SIMPLE = "\\x0d\\x0d"
+ISHIDA_LINE_BIG = "\\x0d\\x08\\x02"
+ISHIDA_NAME_WIDTH = {ISHIDA_LINE_SIMPLE: 25, ISHIDA_LINE_BIG: 32}
+ISHIDA_NAME_LINES = 2
+
+
+def ishida_wrap_name(keimeno, platos, grammes=ISHIDA_NAME_LINES):
+    """Σπάει το όνομα σε γραμμές, ακριβώς όπως το ScaleLink Pro 5.
+
+    Κόβει μετά από το τελευταίο κενό, τελεία, «/» ή «-» που χωράει στη γραμμή
+    («…ΠΟΠ Ε.» + «Ζ», «…ΚΑΡΑΜΑΝ/» + «ΚΟΣ ΒΟΔ», «SARY ΜΟΡΤΑΔΕΛΑ ΔΡΑΜΑΣ » +
+    «ΖΩΪΚΗ Ε.Ζ»)· αν δεν
+    υπάρχει τέτοιο σημείο, κόβει εκεί που τελειώνει η γραμμή. Το κείμενο δεν
+    αλλάζει σε τίποτα: οι γραμμές ενωμένες ξαναδίνουν το αρχικό, με τα κενά του.
+    Επαληθεύτηκε με τα ονόματα που είχε σπάσει το ίδιο το SLP-5.
+
+    Επιστρέφει (γραμμές, κόπηκε κάτι στο τέλος).
+    """
+    ypoloipo = (keimeno or "").strip()
+    out = []
+    while ypoloipo:
+        if len(ypoloipo) <= platos:
+            out.append(ypoloipo)
+            break
+        thesi = platos
+        for i in range(platos, 0, -1):
+            if ypoloipo[i - 1] in " ./-":
+                thesi = i
+                break
+        out.append(ypoloipo[:thesi])
+        ypoloipo = ypoloipo[thesi:]
+    return out[:grammes], len(out) > grammes
+
+
+def _name_parts(pedio):
+    """Χωρίζει το πεδίο ονόματος σε (όνομα, ό,τι ακολουθεί — π.χ. συστατικά)."""
+    keimeno = pedio.strip().strip('"')
+    thesi = keimeno.find("\\x0d\\x03")
+    if thesi >= 0:
+        return keimeno[:thesi], keimeno[thesi:]
+    return keimeno, ""
+
+
+def ishida_name_too_long(pedio):
+    """Έχει το όνομα γραμμή μεγαλύτερη από όσο χωράει ο ζυγός;"""
+    onoma, _oura = _name_parts(pedio)
+    styl = ISHIDA_LINE_BIG if onoma.startswith(ISHIDA_LINE_BIG) else ISHIDA_LINE_SIMPLE
+    platos = ISHIDA_NAME_WIDTH[styl]
+    for kommati in re.split(r"\\x[0-9a-fA-F]{2}", onoma):
+        if len(kommati) > platos:
+            return True
+    return False
+
+
 def ishida_format_name(onoma):
     """Το όνομα όπως το αποθηκεύει ο ζυγός, με τις εντολές μορφοποίησης.
 
@@ -1604,7 +1663,8 @@ def ishida_format_name(onoma):
     προεπιλεγμένο μέγεθος. Έτσι είναι γραμμένα 81 από τα 381 προϊόντα του.
     """
     katharo = (onoma or "").replace('"', "").replace(",", " ").strip()
-    return '"\\x0d\\x0d%s"' % katharo
+    grammes, _kopike = ishida_wrap_name(katharo, ISHIDA_NAME_WIDTH[ISHIDA_LINE_SIMPLE])
+    return '"%s"' % "".join(ISHIDA_LINE_SIMPLE + g for g in grammes)
 
 
 def ishida_barcode_label(arithmos):
@@ -1939,27 +1999,27 @@ def ishida_name_changed(pedio, onoma_erp):
 def ishida_replace_name(pedio, onoma):
     """Βάζει το νέο όνομα κρατώντας τη μορφοποίηση του ζυγού.
 
-    Κρατάμε το «στυλ» της αρχής (με ή χωρίς εντολή μεγέθους γραμμάτων) και
-    ό,τι επιπλέον μπλοκ υπάρχει μετά το όνομα — π.χ. συστατικά — αυτούσιο.
+    Κρατάμε το «στυλ» της αρχής (με ή χωρίς εντολή μεγέθους γραμμάτων), το
+    σπάμε σε γραμμές που χωράνε στον ζυγό, και ό,τι μπλοκ ακολουθεί το όνομα —
+    π.χ. συστατικά — μένει αυτούσιο.
     """
     katharo = (onoma or "").replace('"', "").replace(",", " ").strip()
-    keimeno = pedio.strip().strip('"')
-    oura = ""
-    thesi = keimeno.find("\\x0d\\x03")
-    if thesi >= 0:
-        oura = keimeno[thesi:]
-        keimeno = keimeno[:thesi]
-    if keimeno.startswith("\\x0d\\x08\\x02"):
-        # Το ίδιο στυλ με πριν· αν μετά το όνομα υπήρχε κενή γραμμή του ίδιου
-        # στυλ, τη διατηρούμε — είναι μέρος της διάταξης της ετικέτας.
+    keimeno, oura = _name_parts(pedio)
+    if keimeno.startswith(ISHIDA_LINE_BIG):
+        grammes, _k = ishida_wrap_name(katharo, ISHIDA_NAME_WIDTH[ISHIDA_LINE_BIG])
+        # Αν μετά το όνομα υπήρχε κενή γραμμή του ίδιου στυλ, τη διατηρούμε —
+        # είναι μέρος της διάταξης της ετικέτας. Αν όμως το νέο όνομα θέλει δύο
+        # γραμμές, η δεύτερη παίρνει τη θέση της.
         meta = ""
-        kleisimo = keimeno.find("\\x02", len("\\x0d\\x08\\x02"))
-        if kleisimo >= 0:
+        kleisimo = keimeno.find("\\x02", len(ISHIDA_LINE_BIG))
+        if kleisimo >= 0 and len(grammes) == 1:
             meta = keimeno[kleisimo + len("\\x02"):]
             if _kanoniko(ishida_name_text(meta)):
                 meta = ""               # η 2η γραμμή είχε κείμενο: ήταν μέρος του ονόματος
-        return '"\\x0d\\x08\\x02%s\\x02%s%s"' % (katharo, meta, oura)
-    return '"\\x0d\\x0d%s%s"' % (katharo, oura)
+        onoma_pedio = "".join(ISHIDA_LINE_BIG + g + "\\x02" for g in grammes)
+        return '"%s%s%s"' % (onoma_pedio, meta, oura)
+    grammes, _k = ishida_wrap_name(katharo, ISHIDA_NAME_WIDTH[ISHIDA_LINE_SIMPLE])
+    return '"%s%s"' % ("".join(ISHIDA_LINE_SIMPLE + g for g in grammes), oura)
 
 
 def ishida_new_record(protypo, kodikos, onoma, lepta, fpa, morfi_barcode):
@@ -1987,7 +2047,7 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
     μορφοποίηση της ετικέτας. Δεν έχουμε λόγο να τα αγγίξουμε.
     """
     telika, allages, agnosta, akyres = [], 0, [], 0
-    barcode_allages, kaina, onomata_allages = 0, 0, 0
+    barcode_allages, kaina, onomata_allages, spasmena = 0, 0, 0, 0
     # Πρότυπο για τα καινούργια: προτιμάμε ένα υπαρκτό προϊόν του ίδιου του
     # ζυγού — ξέρει καλύτερα από εμάς πώς είναι στημένη η εγκατάσταση. Μόνο σε
     # εντελώς άδειο ζυγό πέφτουμε στο ενσωματωμένο.
@@ -2027,6 +2087,14 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
         if onomata and onoma_erp and ishida_name_changed(pedia[68], onoma_erp):
             pedia[68] = ishida_replace_name(pedia[68], onoma_erp)
             allaxe_onoma = True
+        elif ishida_name_too_long(pedia[68]):
+            # Ίδιο όνομα, αλλά σε γραμμή που δεν χωράει — π.χ. γραμμένο από
+            # παλιότερη έκδοση μας σε μία γραμμή. Ο ζυγός δείχνει «too many
+            # characters»: το ξανασπάμε σε γραμμές, χωρίς να αλλάξει το κείμενο.
+            idio = ishida_name_text(_name_parts(pedia[68])[0])
+            pedia[68] = ishida_replace_name(pedia[68], idio)
+            allaxe_onoma = True
+            spasmena += 1
 
         # Η μορφή του barcode αλλάζει μόνο αν έχει ζητηθεί ρητά. Δεν είναι τιμή
         # που «διορθώνεται»: καθορίζει τι διαβάζει το ταμείο από την ετικέτα.
@@ -2056,7 +2124,9 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
     log("  άλλαξαν οι τιμές σε %d από τα %d προϊόντα του αρχείου"
         % (allages, len(items)))
     if onomata:
-        log("  άλλαξαν τα ονόματα σε %d προϊόντα" % onomata_allages)
+        log("  άλλαξαν τα ονόματα σε %d προϊόντα" % (onomata_allages - spasmena))
+    if spasmena:
+        log("  %d ονόματα ξαναχωρίστηκαν σε γραμμές που χωράνε στον ζυγό" % spasmena)
     if morfi_barcode != ISHIDA_BC_KEEP:
         log("  μορφή barcode -> %s: άλλαξε σε %d προϊόντα"
             % (ishida_barcode_label(morfi_barcode), barcode_allages))
