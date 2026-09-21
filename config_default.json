@@ -487,5 +487,6 @@
   "step2c_enabled": false,
   "step2c_profile": "",
   "step2c_output": "",
-  "ishida_update_names": true
+  "ishida_update_names": true,
+  "ishida_name_width": 25
 }

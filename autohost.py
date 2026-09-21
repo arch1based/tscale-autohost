@@ -1600,7 +1600,27 @@ ISHIDA_TAX_FIELD = 88
 # «too many characters» στην οθόνη του.
 ISHIDA_LINE_SIMPLE = "\\x0d\\x0d"
 ISHIDA_LINE_BIG = "\\x0d\\x08\\x02"
+# Η γραμματοσειρά 13 του ζυγού λέγεται «C25 (30x15)»: 25 χαρακτήρες ανά γραμμή,
+# 15 κουκκίδες ο καθένας + 2 κενό, για το τυπικό πλάτος περιγραφής. Αν η μορφή
+# ετικέτας έχει στενότερο χώρο, χωράνε λιγότεροι — ο ζυγός τότε δείχνει «too
+# many char for print». Γι' αυτό το όριο ρυθμίζεται (ishida_name_width).
+# Η γραμματοσειρά 8 είναι «C36 (20x10)», έντονη: 11+2 κουκκίδες.
 ISHIDA_NAME_WIDTH = {ISHIDA_LINE_SIMPLE: 25, ISHIDA_LINE_BIG: 32}
+
+
+def ishida_set_name_width(xaraktires):
+    """Ορίζει πόσους χαρακτήρες χωράει η γραμμή ονόματος (γραμματοσειρά C25).
+
+    Η γραμμή με την έντονη γραμματοσειρά κρατά την ίδια αναλογία πλάτους:
+    ό,τι χωράει σε 25 χαρακτήρες των 17 κουκκίδων, χωράει σε 32 των 13.
+    """
+    try:
+        n = int(xaraktires)
+    except (TypeError, ValueError):
+        return
+    n = max(10, min(40, n))
+    ISHIDA_NAME_WIDTH[ISHIDA_LINE_SIMPLE] = n
+    ISHIDA_NAME_WIDTH[ISHIDA_LINE_BIG] = (n * 17) // 13
 ISHIDA_NAME_LINES = 2
 
 
@@ -2197,6 +2217,7 @@ def ishida_reachable(ip, timeout=5):
 
 def run_ishida_direct(cfg, log, stop_event=None):
     """Βήμα 4 για τους Ishida, χωρίς το ScaleLink Pro 5."""
+    ishida_set_name_width(cfg.get("ishida_name_width", 25))
     ips = parse_ips(cfg.get("ishida_ips", ""))
     if not ips:
         raise StepError("Βήμα 4", "Δεν έχει γραφτεί IP ζυγού Ishida.",
@@ -3521,10 +3542,19 @@ class App(tk.Tk):
             nmf, text="Ενημέρωσε και τα ονόματα, όταν αλλάξουν στο ERP",
             variable=self.v_ish_names)
         self.chk_ish_names.pack(side="left")
+        ttk.Label(nmf, text="χαρακτήρες ανά γραμμή:").pack(side="left", padx=(18, 4))
+        self.v_ish_width = tk.StringVar(value="25")
+        self.e_ish_width = ttk.Spinbox(nmf, from_=10, to=40, width=4,
+                                       textvariable=self.v_ish_width)
+        self.e_ish_width.pack(side="left")
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Αλλάζει μόνο το όνομα που είναι όντως διαφορετικό από του ERP· τα "
                        "υπόλοιπα μένουν όπως τα έχει ο ζυγός. Η μορφοποίηση της ετικέτας "
-                       "(μέγεθος γραμμάτων, συστατικά κάτω από το όνομα) κρατιέται."
+                       "(μέγεθος γραμμάτων, συστατικά κάτω από το όνομα) κρατιέται.\n"
+                       "Τα ονόματα σπάνε σε δύο γραμμές. Αν ο ζυγός γράφει «too many char "
+                       "for print», χαμήλωσε τους χαρακτήρες ανά γραμμή (π.χ. 23) — "
+                       "εξαρτάται από το πλάτος της ετικέτας. Όσα δεν χωράνε ξαναχωρίζονται "
+                       "μόνα τους στην επόμενη αποστολή."
                   ).pack(anchor="w", pady=(2, 4))
 
         crf = ttk.Frame(f)
@@ -3919,6 +3949,7 @@ class App(tk.Tk):
         self.v_ish_bc_code.set(bool(c.get("ishida_barcode_code", False)))
         self.v_ish_create.set(bool(c.get("ishida_create", False)))
         self.v_ish_names.set(bool(c.get("ishida_update_names", True)))
+        self.v_ish_width.set(str(c.get("ishida_name_width", 25)))
         # Παλιές ρυθμίσεις δεν έχουν τα τικ: τα συμπεραίνουμε από το αν είχαν IP,
         # ώστε να μη «σβήσει» ξαφνικά η αποστολή σε όποιον έχει ήδη στήσει ζυγούς.
         self.v_tscale_on.set(bool(c.get("tscale_on", bool(parse_ips(c.get("scale_ips", ""))))))
@@ -4021,6 +4052,10 @@ class App(tk.Tk):
         c["ishida_barcode_code"] = self.v_ish_bc_code.get()
         c["ishida_create"] = self.v_ish_create.get()
         c["ishida_update_names"] = self.v_ish_names.get()
+        try:
+            c["ishida_name_width"] = max(10, min(40, int(self.v_ish_width.get() or 25)))
+        except ValueError:
+            c["ishida_name_width"] = 25
         c["tscale_on"] = self.v_tscale_on.get()
         c["ishida_on"] = self.v_ish_on.get()
         c["ishida_direct"] = c["ishida_on"] and bool(parse_ips(c["ishida_ips"]))
@@ -4388,7 +4423,7 @@ class App(tk.Tk):
             except tk.TclError:
                 pass
         for w in (self.e_ish_ips, self.chk_ish_cents, self.chk_ish_bc_code,
-                  self.chk_ish_create, self.chk_ish_names):
+                  self.chk_ish_create, self.chk_ish_names, self.e_ish_width):
             try:
                 w.configure(state="normal" if ishida else "disabled")
             except tk.TclError:
