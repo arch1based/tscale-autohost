@@ -2,6 +2,10 @@ name: Build & Release
 
 # Τρέχει όταν ανεβαίνει tag τύπου v1.2.3 — χτίζει το exe σε Windows runner
 # και το ανεβάζει ως asset του Release. Δεν χρειάζεται μηχάνημα Windows.
+#
+# Tag με «-beta.» (π.χ. v2.20.0-beta.1): χτίζει ICSautoScaleUpdater-beta.exe και
+# το Release βγαίνει pre-release — αόρατο στο /releases/latest που ρωτούν τα
+# καταστήματα. Το όνομα του exe πρέπει να συμφωνεί με το APP_ID στο autohost.py.
 on:
   push:
     tags: ["v*"]
@@ -30,12 +34,27 @@ jobs:
       - name: Έκδοση PyInstaller
         run: pyinstaller --version
 
+      - name: Όνομα εφαρμογής (live ή beta) από το tag
+        id: app
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $beta = $tag -match "-beta\."
+          $name = if ($beta) { "ICSautoScaleUpdater-beta" } else { "ICSautoScaleUpdater" }
+          # Ο κώδικας αποφασίζει beta από το APP_BUILD — πρέπει να συμφωνεί με το tag.
+          $build = (Select-String -Path autohost.py -Pattern '^APP_BUILD = "([^"]*)"').Matches[0].Groups[1].Value
+          if ($beta -and ($build -notmatch "beta")) { throw "Tag beta ($tag) αλλά APP_BUILD=$build" }
+          if (-not $beta -and ($build -match "beta")) { throw "Tag τελικό ($tag) αλλά APP_BUILD=$build" }
+          "name=$name" >> $env:GITHUB_OUTPUT
+          "beta=$($beta.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          Write-Host "Εφαρμογή: $name  (beta: $beta, APP_BUILD: $build)"
+
       # onedir και όχι onefile: το onefile ξεπακετάρει σε %TEMP% και ξαναξεκινά
       # τον εαυτό του, που τα antivirus μπλοκάρουν («Failed to load Python DLL»,
       # «Security validation failure»). Το onedir τρέχει κατευθείαν από τον φάκελο.
       - name: Build
         run: >
-          pyinstaller --noconfirm --onedir --windowed --name ICSautoScaleUpdater
+          pyinstaller --noconfirm --onedir --windowed --name ${{ steps.app.outputs.name }}
           --icon logo.ico
           --add-data "config_default.json;."
           --add-data "logo.png;."
@@ -45,11 +64,12 @@ jobs:
       - name: Έλεγχος και συμπίεση
         shell: pwsh
         run: |
-          $exe = "dist\ICSautoScaleUpdater\ICSautoScaleUpdater.exe"
+          $name = "${{ steps.app.outputs.name }}"
+          $exe = "dist\$name\$name.exe"
           if (-not (Test-Path $exe)) { throw "Δεν βρέθηκε το $exe" }
-          Compress-Archive -Path "dist\ICSautoScaleUpdater\*" -DestinationPath "ICSautoScaleUpdater.zip" -Force
-          $mb = [math]::Round((Get-Item "ICSautoScaleUpdater.zip").Length / 1MB, 1)
-          Write-Host "OK: ICSautoScaleUpdater.zip ($mb MB)"
+          Compress-Archive -Path "dist\$name\*" -DestinationPath "$name.zip" -Force
+          $mb = [math]::Round((Get-Item "$name.zip").Length / 1MB, 1)
+          Write-Host "OK: $name.zip ($mb MB)"
           if ($mb -lt 5) { throw "Το zip είναι ύποπτα μικρό ($mb MB)" }
 
       - name: Σημειώσεις έκδοσης από το VERSION
@@ -61,6 +81,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: ICSautoScaleUpdater.zip
+          files: ${{ steps.app.outputs.name }}.zip
           body_path: notes.txt
-          name: Έκδοση ${{ github.ref_name }}
+          name: ${{ steps.app.outputs.beta == 'true' && 'ΔΟΚΙΜΑΣΤΙΚΗ' || 'Έκδοση' }} ${{ github.ref_name }}
+          prerelease: ${{ steps.app.outputs.beta == 'true' }}

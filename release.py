@@ -4,6 +4,11 @@
 Από οποιοδήποτε σύστημα (Linux/Mac/Windows) — το exe το χτίζει το GitHub Actions:
     python3 release.py 1.1.0 "Τι άλλαξε"
 
+Δοκιμαστική έκδοση (beta) — ΜΟΝΟ από το branch «beta», ποτέ από το main:
+    python3 release.py 2.20.0-beta.1 "Τι δοκιμάζουμε"
+Βγαίνει ως pre-release με δικό της exe (ICSautoScaleUpdater-beta). Οι κανονικές
+εγκαταστάσεις δεν τη βλέπουν· τη βλέπουν μόνο όσες τρέχουν ήδη beta.
+
 Από Windows, με τοπικό build και gh:
     python release.py 1.1.0 "Τι άλλαξε" --local
 
@@ -43,6 +48,11 @@ def run(cmd, **kw):
         raise SystemExit("Απέτυχε: %s" % " ".join(cmd))
 
 
+def current_branch():
+    out = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=HERE)
+    return out.decode("utf-8", "replace").strip()
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     dry = "--dry-run" in sys.argv
@@ -51,35 +61,48 @@ def main():
     version = args[0].lstrip("vV")
     notes = args[1] if len(args) > 1 else ""
 
-    if not re.match(r"^\d+\.\d+(\.\d+)?$", version):
-        raise SystemExit("Ο αριθμός έκδοσης θέλει μορφή 1.1.0")
+    if not re.match(r"^\d+\.\d+(\.\d+)?(-beta\.\d+)?$", version):
+        raise SystemExit("Ο αριθμός έκδοσης θέλει μορφή 1.1.0 (ή 1.1.0-beta.1 για δοκιμαστική)")
+
+    beta = "-beta." in version
+    branch = current_branch()
+    # Δικλείδα: μια beta δεν ανεβαίνει ποτέ στο main (θα την έβλεπαν όλα τα
+    # καταστήματα μέσω του VERSION), και μια τελική δεν βγαίνει από άλλο branch.
+    if beta and branch == "main":
+        raise SystemExit("Beta έκδοση από το main; Όχι. Πήγαινε στο branch beta: git checkout beta")
+    if not beta and branch != "main":
+        raise SystemExit("Τελική έκδοση από το branch «%s»; Οι τελικές βγαίνουν μόνο από το main."
+                         % branch)
 
     bump(version, notes)
     if dry:
-        print("--dry-run: σταματάω πριν από commit/push.")
+        print("--dry-run: σταματάω πριν από commit/push. (branch: %s, %s)"
+              % (branch, "BETA" if beta else "τελική"))
         return
 
     run(["git", "add", "-A"])
     run(["git", "commit", "-m", "Έκδοση %s" % version])
-    run(["git", "push", "origin", "main"])
+    run(["git", "push", "origin", branch])
 
     if "--local" not in sys.argv:
         # Το exe το χτίζει το GitHub Actions με το που ανέβει το tag.
         run(["git", "tag", "-a", "v" + version, "-m", "Έκδοση %s" % version])
         run(["git", "push", "origin", "v" + version])
         print("\nΤο tag v%s ανέβηκε. Το GitHub χτίζει το exe (~3 λεπτά) και το ανεβάζει "
-              "στο Release." % version)
+              "στο Release%s." % (version, " ως pre-release (beta)" if beta else ""))
         print("Παρακολούθηση:  gh run watch")
         print("Έλεγχος:        gh release view v%s" % version)
         return
 
+    app_id = APP_ID + ("-beta" if beta else "")
     run([os.path.join(HERE, "build.bat")], shell=True)
-    exe = os.path.join(HERE, "dist", APP_ID + ".exe")
+    exe = os.path.join(HERE, "dist", app_id, app_id + ".exe")
     if not os.path.isfile(exe):
         raise SystemExit("Δεν βρέθηκε το %s — απέτυχε το build;" % exe)
 
     run(["gh", "release", "create", "v" + version, exe,
-         "--title", "Έκδοση %s" % version, "--notes", notes or "Νέα έκδοση"])
+         "--title", "Έκδοση %s" % version, "--notes", notes or "Νέα έκδοση"]
+        + (["--prerelease"] if beta else []))
     print("\nΈτοιμο. Οι εγκαταστάσεις θα δουν την %s με το «Έλεγχος ενημέρωσης»." % version)
 
 

@@ -27,14 +27,23 @@ import datetime
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
-APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
-APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
 APP_BUILD = "2.19.0"                        # σύγκριση για ενημερώσεις
-APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
-UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
+# Δοκιμαστική έκδοση (beta): «2.20.0-beta.1». Ζει ΔΙΠΛΑ στην κανονική εγκατάσταση
+# χωρίς να την αγγίζει — άλλο όνομα exe, άλλος φάκελος ρυθμίσεων, άλλη θύρα,
+# άλλο κανάλι ενημερώσεων (branch «beta», pre-releases). Οι κανονικές εγκαταστάσεις
+# δεν βλέπουν ποτέ beta: το GitHub δεν τις δίνει στο /releases/latest.
+IS_BETA = "beta" in APP_BUILD.lower()
+APP_NAME = "Αυτόματη ενημέρωση ζυγών" + (" — ΔΟΚΙΜΑΣΤΙΚΗ (beta)" if IS_BETA else "")
+APP_ID = "ICSautoScaleUpdater" + ("-beta" if IS_BETA else "")   # όνομα exe / registry / φακέλων
+APP_VERSION = "%s · έκδοση %s — Θεσσαλονίκη, Οκτώβριος 2026" % (APP_ID, APP_BUILD)
+UPDATE_BRANCH = "beta" if IS_BETA else "main"
+UPDATE_VERSION_URL = ("https://raw.githubusercontent.com/arch1based/tscale-autohost/%s/VERSION"
+                      % UPDATE_BRANCH)
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
-UPDATE_API_URL = "https://api.github.com/repos/arch1based/tscale-autohost/releases/latest"
-UPDATE_ASSET = "ICSautoScaleUpdater.zip"
+UPDATE_API_URL = ("https://api.github.com/repos/arch1based/tscale-autohost/releases?per_page=30"
+                  if IS_BETA else
+                  "https://api.github.com/repos/arch1based/tscale-autohost/releases/latest")
+UPDATE_ASSET = APP_ID + ".zip"
 # Κωδικός τεχνικού για ενημέρωση (αποτρέπει να την τρέξει προσωπικό του καταστήματος).
 # Είναι φραγμός κατά λάθους χειρισμού, όχι κρυπτογραφική ασφάλεια.
 UPDATE_PASSWORD_SHA256 = "e78f27ab3ef177a9926e6b90e572b9853ce6cf4d87512836e9ae85807ec9d7fe"
@@ -55,7 +64,7 @@ COLORS = {
 
 APP_VENDOR = "ICS — ΚΑΡΑΦΥΛΛΗΣ ΣΥΣΤΗΜΑΤΑ ΠΛΗΡΟΦΟΡΙΚΗΣ"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-SINGLETON_PORT = 49731
+SINGLETON_PORT = 49732 if IS_BETA else 49731   # η beta δεν «ξυπνάει» τη live
 _singleton_sock = None
 
 
@@ -100,11 +109,15 @@ def _config_dir():
 CONFIG_DIR = _config_dir()
 CONFIG_PATH = os.path.join(CONFIG_DIR, "autohost_config.json")
 LEGACY_CONFIG = os.path.join(APP_DIR, "autohost_config.json")
-LEGACY_CONFIGS = (
+LEGACY_CONFIGS = () if IS_BETA else (
     LEGACY_CONFIG,
     os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~/.config"),
                  "ICS", "TScaleAutoHost", "autohost_config.json"),
 )
+# Η κανονική (live) εγκατάσταση στο ίδιο μηχάνημα — η beta τη διαβάζει ΜΟΝΟ μία
+# φορά, στην πρώτη της εκκίνηση, για να ξεκινήσει με τις ίδιες ρυθμίσεις.
+LIVE_CONFIG_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~/.config"),
+                               "ICS", "ICSautoScaleUpdater")
 USER_PROFILES_PATH = os.path.join(CONFIG_DIR, "profiles.json")
 # Ζυγοί που δεν πρόλαβαν την τελευταία ενημέρωση (κλειστοί, εκτός δικτύου).
 # Σε αρχείο ώστε να μη χαθούν αν κλείσει το πρόγραμμα ή πέσει το ρεύμα.
@@ -307,14 +320,21 @@ def purge_old_logs():
 
 
 def parse_version(text):
-    """«1.2.3» -> (1, 2, 3). Ό,τι δεν είναι αριθμός γίνεται 0."""
+    """«1.2.3» -> (1, 2, 3, 1, 0)· «1.2.3-beta.4» -> (1, 2, 3, 0, 4).
+
+    Το 4ο μέλος λέει «τελική» (1) ή «δοκιμαστική» (0), ώστε η 2.20.0 να μετράει
+    νεότερη από κάθε 2.20.0-beta.N. Ό,τι δεν είναι αριθμός γίνεται 0.
+    """
+    text = str(text).strip().lstrip("vV")
+    base, _, pre = text.partition("-")
     parts = []
-    for chunk in str(text).strip().split(".")[:4]:
+    for chunk in base.split(".")[:3]:
         digits = "".join(ch for ch in chunk if ch.isdigit())
         parts.append(int(digits) if digits else 0)
     while len(parts) < 3:
         parts.append(0)
-    return tuple(parts)
+    pre_digits = "".join(ch for ch in pre if ch.isdigit())
+    return tuple(parts) + ((1, 0) if not pre else (0, int(pre_digits or 0)))
 
 
 def _get(url, timeout, binary=False):
@@ -326,10 +346,25 @@ def _get(url, timeout, binary=False):
     return data if binary else data.decode("utf-8", "replace")
 
 
+def _pick_release(data):
+    """Το Release που μας αφορά. Live: το /releases/latest (ένα αντικείμενο).
+    Beta: λίστα με όλα — κρατάμε το νεότερο, beta ή τελικό, ώστε μια beta
+    εγκατάσταση να περάσει και στην τελική όταν βγει."""
+    if isinstance(data, dict):
+        return data
+    best = None
+    for rel in data or []:
+        if rel.get("draft") or not rel.get("tag_name"):
+            continue
+        if best is None or parse_version(rel["tag_name"]) > parse_version(best["tag_name"]):
+            best = rel
+    return best or {}
+
+
 def fetch_latest_version(timeout=8):
     """(έκδοση, σημειώσεις, url_του_exe). Προτιμά το τελευταίο GitHub Release."""
     try:
-        rel = json.loads(_get(UPDATE_API_URL, timeout))
+        rel = _pick_release(json.loads(_get(UPDATE_API_URL, timeout)))
         version = (rel.get("tag_name") or "").lstrip("vV")
         notes = (rel.get("body") or "").strip()
         exe_url = ""
@@ -427,6 +462,8 @@ def load_config():
             if os.path.exists(legacy):
                 path = legacy
                 break
+    if IS_BETA and not os.path.exists(path):
+        path = copy_live_config_for_beta()
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as fh:
@@ -443,6 +480,31 @@ def load_config():
     for name, entry in load_user_profiles().items():
         cfg["profiles"]["★ " + name] = entry          # τα δικά μας πρώτα-πρώτα ξεχωριστά
     return cfg
+
+
+def copy_live_config_for_beta():
+    """Πρώτη εκκίνηση της beta: ξεκινά με τις ρυθμίσεις της live εγκατάστασης.
+
+    Αντιγράφει ρυθμίσεις και προφίλ τεχνικού — ΟΧΙ τους εκκρεμείς ζυγούς, ώστε η
+    beta να μη στείλει τίποτα μόνη της. Σβήνει το auto_run: η παρακολούθηση
+    ξεκινά μόνο με το χέρι. Επιστρέφει τη διαδρομή που πρέπει να διαβαστεί.
+    """
+    live_cfg = os.path.join(LIVE_CONFIG_DIR, "autohost_config.json")
+    if not os.path.isfile(live_cfg):
+        return CONFIG_PATH
+    try:
+        with open(live_cfg, "r", encoding="utf-8") as fh:
+            saved = json.load(fh)
+        saved["auto_run"] = False
+        saved["_copied_from_live"] = datetime.datetime.now().isoformat(timespec="seconds")
+        with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
+            json.dump(saved, fh, indent=2, ensure_ascii=False)
+        live_prof = os.path.join(LIVE_CONFIG_DIR, "profiles.json")
+        if os.path.isfile(live_prof) and not os.path.exists(USER_PROFILES_PATH):
+            shutil.copyfile(live_prof, USER_PROFILES_PATH)
+    except Exception:
+        return CONFIG_PATH
+    return CONFIG_PATH
 
 
 def resolve_profile(profiles, name):
@@ -785,6 +847,20 @@ def extract_delimited_field(cols, f, off, delim):
     return val[:cap] if cap > 0 else val
 
 
+def apply_skip(value, f):
+    """Παραλείπει τους πρώτους Ν χαρακτήρες της τιμής (κλειδί «skip» του πεδίου).
+
+    Για ζυγούς που διαβάζουν το όνομα σε δύο κομμάτια σε ΜΗ συνεχόμενες θέσεις
+    (ILS: Plu Name + Plu name extens): το δεύτερο πεδίο παίρνει την ίδια στήλη
+    του ERP με skip = μήκος του πρώτου, ώστε να συνεχίζει από εκεί που κόπηκε.
+    """
+    try:
+        n = int(f.get("skip") or 0)
+    except (TypeError, ValueError):
+        n = 0
+    return value[n:] if n > 0 else value
+
+
 def apply_xform(value, kind):
     """Μετατροπή τιμής πεδίου πριν γραφτεί στο αρχείο."""
     if not kind:
@@ -908,7 +984,7 @@ def run_step2(cfg, fallback_input, log):
             row = []
             for f in fields:
                 val = extract_delimited_field(cols, f, off, in_delim)
-                val = apply_xform(val, f.get("xform", ""))
+                val = apply_xform(apply_skip(val, f), f.get("xform", ""))
                 if not val and str(f.get("extra", "")).strip():
                     val = str(f["extra"]).strip()
                 row.append(val)
@@ -923,7 +999,7 @@ def run_step2(cfg, fallback_input, log):
             if by_bytes:
                 val = val.decode(in_enc if in_enc != "utf-8-sig" else "utf-8", "replace")
             val = val.strip()
-            val = apply_xform(val, f.get("xform", ""))
+            val = apply_xform(apply_skip(val, f), f.get("xform", ""))
             if not val and str(f.get("extra", "")).strip():
                 val = str(f["extra"]).strip()
             row.append(val)
@@ -2531,6 +2607,205 @@ def _run_extra_senders(cfg, log, stop_event=None):
                    cfg.get("%s_kill" % key, True), log, stop_event, label)
 
 
+# --------------------------------------------------------------------------
+# ILS: profil apo to AutoTrans.CFG tou pelati
+#
+# Το ILS διαβάζει αρχείο σταθερού πλάτους και τις θέσεις τις ξέρει από το
+# «Field settings» του, που σώζονται στο AutoTrans.CFG (Chk<Πεδίο>=1 ενεργό,
+# Cbox<Πεδίο>=θέση 1-based, <Πεδίο>_Len=μήκος). Κάθε εγκατάσταση έχει τη δική
+# της — οπότε αντί να γράφει ο τεχνικός θέσεις με το χέρι, διαβάζουμε το CFG
+# και φτιάχνουμε το προφίλ. Ονόματα κλειδιών: όπως στο tools/dokimi_ils.py,
+# επαληθευμένα με το CFG του πρώτου πελάτη (ERGON).
+# --------------------------------------------------------------------------
+ILS_CFG_FIELDS = (
+    # (όνομα ILS, ενεργό, θέση, μήκος, ετικέτα για τον πίνακα)
+    ("Code", "ChkCode", "CboxCode", "Code_Len", "Κωδικός"),
+    ("LfCode", "ChkLfCode", "CboxLfcode", "lfCode_Len", "LF κωδικός"),
+    ("PluName", "ChkPluName", "CboxPluName", "PluName_Len", "Όνομα"),
+    ("PluNameExtent", "ChkPluNameExtent", "PluNameExtent", "PluNameExtent_Len",
+     "Όνομα (συνέχεια)"),
+    ("UnitPrice", "ChkUnitPrice", "CboxUnitPrice", "UnitPrice_Len", "Τιμή"),
+    ("Department", "ChkDeptMent", "CboxDeptMent", "Department_Len", "Τμήμα"),
+    ("Tare", "ChkTare", "CboxTare", "Tare_Len", "Απόβαρο"),
+    ("WeightUnit", "ChkWeightUnit", "CboxWeightPos", "WeightUnit_Len", "Τύπος πώλησης"),
+)
+
+
+def parse_autotrans_cfg(path):
+    """Τα ενεργά πεδία του ILS από το AutoTrans.CFG: [(όνομα, θέση, μήκος, ετικέτα)].
+
+    Ταξινομημένα κατά θέση. Πεδία που δεν ξέρουμε (άλλο Chk…=1 με θέση και
+    μήκος) μπαίνουν κι αυτά, με το όνομα του CFG, ώστε να μη χαθεί τίποτα.
+    """
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    text = raw.decode("cp1253", "replace")
+    val = {}
+    for key, v in re.findall(r"^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$", text, re.M):
+        val[key.lower()] = v
+    if not val:
+        raise ValueError("Το αρχείο δεν έχει γραμμές τύπου ΚΛΕΙΔΙ=ΤΙΜΗ — είναι όντως το AutoTrans.CFG;")
+
+    def num(key):
+        try:
+            return int(str(val.get(key.lower(), "")).strip())
+        except ValueError:
+            return None
+
+    out, seen = [], set()
+    for name, chk, cbox, ln, label in ILS_CFG_FIELDS:
+        seen.update((chk.lower(), cbox.lower(), ln.lower()))
+        if str(val.get(chk.lower(), "0")).strip() != "1":
+            continue
+        pos, length = num(cbox), num(ln)
+        if pos is None or length is None or pos < 1 or length < 1:
+            continue
+        out.append((name, pos, length, label))
+
+    # Άγνωστα ενεργά πεδία: Chk<X>=1 και υπάρχει θέση (Cbox<X> ή <X>) και μήκος (<X>_Len).
+    for key in list(val):
+        if not key.startswith("chk") or key in seen or str(val[key]).strip() != "1":
+            continue
+        x = key[3:]
+        pos = num("cbox" + x) if ("cbox" + x) in val else num(x)
+        length = num(x + "_len")
+        if pos is None or length is None or pos < 1 or length < 1:
+            continue
+        out.append((x, pos, length, x))
+
+    if not out:
+        raise ValueError("Δεν βρέθηκε κανένα ενεργό πεδίο (π.χ. ChkCode=1, CboxCode=…, Code_Len=…).")
+    out.sort(key=lambda t: t[1])
+    return out
+
+
+def _guess_erp_column(erp_fields, keywords):
+    """Η στήλη του ERP για ένα νόημα (κωδικός, όνομα, τιμή…), από τον κύριο πίνακα.
+
+    Ψάχνει τα ονόματα των πεδίων του τρέχοντος προφίλ με τη σειρά των λέξεων-
+    κλειδιών, ώστε «ProductNumber» να προηγείται του «BarCode» στον κωδικό.
+    """
+    for kw in keywords:
+        for f in erp_fields or []:
+            name = str(f.get("name", "")).lower()
+            try:
+                pos = int(f.get("pos") or 0)
+            except (TypeError, ValueError):
+                pos = 0
+            if kw in name and pos != 0:
+                return pos
+    return 0
+
+
+def ils_profile_from_cfg(ils_fields, erp_fields, cfg):
+    """Φτιάχνει προφίλ (fields, settings, προειδοποιήσεις) για αρχείο ILS.
+
+    Οι θέσεις/μήκη έρχονται από το CFG· το ΑΠΟ ΠΟΥ (στήλη του ERP) μαντεύεται από
+    τον κύριο πίνακα, και ο τεχνικός το διορθώνει στον πίνακα αν χρειαστεί.
+    Κενά ανάμεσα στα πεδία γίνονται κενές στήλες, ώστε κάθε πεδίο να κάτσει
+    ακριβώς στη θέση που περιμένει ο ζυγός.
+    """
+    src = {
+        "code": _guess_erp_column(erp_fields, ("productnumber", "κωδ", "code", "plu")),
+        "name": _guess_erp_column(erp_fields, ("productname", "όνομα", "περιγρ", "name", "desc")),
+        "price": _guess_erp_column(erp_fields, ("τιμ", "price")),
+    }
+    warnings = []
+    fields = []
+    cursor = 1
+    name_len_so_far = 0
+    items = list(ils_fields)
+    i = 0
+    while i < len(items):
+        name, pos, ln, label = items[i]
+        if pos > cursor:
+            fields.append({"name": "(κενό)", "enabled": True, "pos": 0, "len": pos - cursor,
+                           "extra": "", "xform": "", "align": ""})
+        elif pos < cursor:
+            warnings.append("ΠΡΟΣΟΧΗ: το «%s» (θέση %d) πέφτει πάνω στο προηγούμενο πεδίο — "
+                            "έλεγξε το CFG." % (label, pos))
+        f = {"name": label, "enabled": True, "pos": 0, "len": ln, "extra": "", "xform": "",
+             "align": ""}
+        if name in ("Code", "LfCode"):
+            f.update(pos=src["code"], xform="digits", align="zero")
+        elif name == "PluName":
+            f.update(pos=src["name"], xform="nocomma")
+            # Αν η συνέχεια του ονόματος ακολουθεί αμέσως, γίνονται ένα πεδίο — όπως
+            # στο επαληθευμένο αρχείο του ERGON (7-46 = 30 + 10).
+            if i + 1 < len(items) and items[i + 1][0] == "PluNameExtent" \
+                    and items[i + 1][1] == pos + ln:
+                f["len"] = ln + items[i + 1][2]
+                f["name"] = "Όνομα (%d+%d)" % (ln, items[i + 1][2])
+                i += 1
+            name_len_so_far = ln
+        elif name == "PluNameExtent":
+            f.update(pos=src["name"], xform="nocomma", skip=name_len_so_far)
+        elif name == "UnitPrice":
+            f.update(pos=src["price"], xform="tocents", align="zero")
+        elif name == "Department":
+            f.update(extra="01", align="zero")
+        elif name == "Tare":
+            f.update(extra="0", align="zero")
+        elif name == "WeightUnit":
+            f.update(extra="0")                   # 0 = ζυγιζόμενο
+        else:
+            warnings.append("Το πεδίο «%s» δεν το ξέρω — βγαίνει κενό· όρισέ του στήλη ή "
+                            "σταθερή τιμή στον πίνακα." % label)
+        if name in ("Code", "LfCode", "PluName", "PluNameExtent", "UnitPrice") and not f["pos"]:
+            warnings.append("Δεν βρήκα από ποια στήλη του ERP να πάρω το «%s» — όρισέ τη "
+                            "στον πίνακα." % label)
+        fields.append(f)
+        cursor = pos + int(f["len"])          # μετά από συγχώνευση το μήκος μεγάλωσε
+        i += 1
+
+    settings = {
+        # πώς ΔΙΑΒΑΖΕΤΑΙ το ERP: ίδια με τον κύριο πίνακα
+        "step2_input_type": cfg.get("step2_input_type", "fixed"),
+        "step2_input_delimiter": cfg.get("step2_input_delimiter", ","),
+        "step2_in_encoding": cfg.get("step2_in_encoding", "auto"),
+        "step2_startline": cfg.get("step2_startline", 1),
+        "step2_onebased": cfg.get("step2_onebased", True),
+        "step2_positions_bytes": cfg.get("step2_positions_bytes", False),
+        # πώς ΓΡΑΦΕΤΑΙ το αρχείο του ILS: σταθερό πλάτος, χωρίς επικεφαλίδα
+        "step2_format": "fixed",
+        "step2_delimiter": ",",
+        "step2_trailing_delim": False,
+        "step2_quotes": False,
+        "step2_out_encoding": "cp1253",
+        "step2_final_newline": True,
+        "step2_write_header": False,
+        "step2_sanitize": True,
+        "step2_dedupe": False,
+    }
+    return fields, settings, warnings
+
+
+def describe_ils_profile(fields):
+    """Πίνακας για τον τεχνικό: θέση, μήκος, πεδίο, από πού γεμίζει."""
+    lines = ["%-9s %-5s %-20s %s" % ("ΘΕΣΕΙΣ", "ΜΗΚΟΣ", "ΠΕΔΙΟ", "ΓΕΜΙΖΕΙ ΑΠΟ")]
+    cursor = 1
+    for f in fields:
+        ln = int(f.get("len") or 0)
+        pos = int(f.get("pos") or 0)
+        if pos:
+            how = "στήλη %d του ERP" % pos
+            if f.get("skip"):
+                how += " (από τον %dο χαρακτήρα)" % (int(f["skip"]) + 1)
+            if f.get("xform"):
+                how += " · " + XFORMS.get(f["xform"], f["xform"])
+        elif str(f.get("extra", "")).strip():
+            how = "σταθερό «%s»" % f["extra"]
+        else:
+            how = "κενά"
+        if f.get("align") == "zero":
+            how += " · μηδενικά μπροστά"
+        lines.append("%3d-%-5d %-5d %-20s %s" % (cursor, cursor + ln - 1, ln, f["name"], how))
+        cursor += ln
+    lines.append("")
+    lines.append("Μήκος γραμμής: %d χαρακτήρες" % (cursor - 1))
+    return lines
+
+
 def build_extra_output(cfg, fallback_input, log, key="step2b",
                        default_name="host2", label="δεύτερο αρχείο"):
     """Φτιάχνει ακόμα ένα αρχείο με άλλο προφίλ, από τα ίδια δεδομένα.
@@ -2700,7 +2975,7 @@ def build_preview(cfg):
             if not f.get("enabled"):
                 continue
             rawv = extract_delimited_field(cols_sample, f, off, in_delim)
-            val = apply_xform(rawv, f.get("xform", ""))
+            val = apply_xform(apply_skip(rawv, f), f.get("xform", ""))
             if not val and str(f.get("extra", "")).strip():
                 val = str(f["extra"]).strip()
             note = "(σταθερή στήλη)" if not f.get("pos") else \
@@ -2715,7 +2990,7 @@ def build_preview(cfg):
                 continue
             pos, ln = int(f.get("pos") or 0) - off, int(f.get("len") or 0)
             rawv = sample[pos:pos + ln] if ln > 0 and pos >= 0 else ""
-            val = apply_xform(rawv.strip(), f.get("xform", ""))
+            val = apply_xform(apply_skip(rawv.strip(), f), f.get("xform", ""))
             if not val and str(f.get("extra", "")).strip():
                 val = str(f["extra"]).strip()
             note = "" if ln > 0 else "(σταθερή στήλη)"
@@ -3338,6 +3613,8 @@ class App(tk.Tk):
         self.cmb_s2c = ttk.Combobox(trow, textvariable=self.v_s2c_profile, state="readonly",
                                     width=34, values=list(self.cfg.get("profiles", {})))
         self.cmb_s2c.pack(side="left")
+        ttk.Button(trow, text="Από το AutoTrans.CFG του ILS…", style="Pick.TButton",
+                   command=self.ils_profile_from_cfg_dialog).pack(side="left", padx=(8, 0))
         g3 = ttk.Frame(third)
         g3.pack(fill="x")
         self.v_s2c_out = tk.StringVar()
@@ -3345,7 +3622,9 @@ class App(tk.Tk):
         ttk.Label(third, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Για ζυγούς ILS1100. Κενή διαδρομή = hostILS.csv στον φάκελο "
                        "εξόδου. Στο ILS, οι θέσεις των στηλών ορίζονται στο «Field "
-                       "settings» — δες τον πίνακα στο README."
+                       "settings» και σώζονται στο AutoTrans.CFG του — διάλεξέ το με το "
+                       "κουμπί και το προφίλ φτιάχνεται μόνο του για τη συγκεκριμένη "
+                       "εγκατάσταση."
                   ).pack(anchor="w", pady=(2, 0))
 
         advbar = ttk.Frame(f)
@@ -4204,8 +4483,79 @@ class App(tk.Tk):
     def refresh_profiles(self, select=None):
         names = list(self.cfg.get("profiles", {}))
         self.cmb_profile.configure(values=names)
+        self.cmb_s2b.configure(values=names)
+        self.cmb_s2c.configure(values=names)
         if select and select in names:
             self.v_profile.set(select)
+
+    def _confirm_text(self, title, lines, yes="Αποθήκευση", no="Άκυρο"):
+        """Ερώτηση ναι/όχι με μονοδιάστατο κείμενο (για πίνακες που θέλουν στοίχιση)."""
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.transient(self)
+        win.grab_set()
+        txt = tk.Text(win, width=max(60, min(110, max(len(l) for l in lines) + 2)),
+                      height=min(32, len(lines) + 1), font=("Consolas", 10), wrap="none",
+                      bg=COLORS["card"], fg=COLORS["ink"], relief="flat", padx=10, pady=8)
+        txt.insert("1.0", "\n".join(lines))
+        txt.configure(state="disabled")
+        txt.pack(fill="both", expand=True, padx=10, pady=(10, 4))
+        answer = {"ok": False}
+        bar = ttk.Frame(win)
+        bar.pack(fill="x", padx=10, pady=(0, 10))
+
+        def ok():
+            answer["ok"] = True
+            win.destroy()
+        ttk.Button(bar, text=yes, command=ok).pack(side="right")
+        ttk.Button(bar, text=no, style="Ghost.TButton", command=win.destroy).pack(side="right", padx=8)
+        win.wait_window()
+        return answer["ok"]
+
+    def ils_profile_from_cfg_dialog(self):
+        """Διάλεξε AutoTrans.CFG → προφίλ ILS για τη συγκεκριμένη εγκατάσταση."""
+        path = filedialog.askopenfilename(
+            title="Διάλεξε το AutoTrans.CFG του ILS (φάκελος του ScaleAutoTrans)",
+            filetypes=[("AutoTrans.CFG", "*.CFG *.cfg"), ("Όλα", "*.*")])
+        if not path:
+            return
+        self.collect()
+        try:
+            ils_fields = parse_autotrans_cfg(path)
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, "Δεν διαβάστηκε το AutoTrans.CFG.\n\n%s\n%s" % (path, exc))
+            return
+        fields, settings, warnings = ils_profile_from_cfg(
+            ils_fields, self.cfg.get("step2_fields", []), self.cfg)
+        store = os.path.basename(os.path.dirname(os.path.normpath(path))) or "ILS"
+        name = "ILS · %s" % store
+        lines = ["Από το %s" % path, "",
+                 "Ενεργά πεδία στο ILS: %s" % ", ".join("%s(%d,%d)" % (n, p, l)
+                                                        for n, p, l, _lbl in ils_fields), ""]
+        lines += describe_ils_profile(fields)
+        if warnings:
+            lines += [""] + warnings
+        lines += ["", "Πώς διαβάζεται το ERP: %s%s" % (
+            "στήλες με «%s»" % settings["step2_input_delimiter"]
+            if settings["step2_input_type"] == "delimited" else "σταθερές θέσεις",
+            " — όπως ο κύριος πίνακας"), "",
+                  "Να αποθηκευτεί ως προφίλ «%s» και να επιλεγεί για το αρχείο ILS;" % name,
+                  "Μετά: Δοκιμή τώρα → σύγκρινε το hostILS με αρχείο που ήδη δέχεται ο ζυγός "
+                  "(tools/dokimi_ils.py)."]
+        if not self._confirm_text("Προφίλ ILS από AutoTrans.CFG", lines):
+            return
+        profiles = load_user_profiles()
+        profiles[name] = {"settings": settings, "fields": fields}
+        save_user_profiles(profiles)
+        self.cfg["profiles"]["★ " + name] = profiles[name]
+        self.refresh_profiles()
+        self.v_s2c_profile.set("★ " + name)
+        self.v_s2c.set(True)
+        self.log("Προφίλ ILS «%s» από %s: %d πεδία, γραμμή %d χαρακτήρων%s"
+                 % (name, path, len(fields), sum(int(f.get("len") or 0) for f in fields),
+                    " — %d προειδοποιήσεις" % len(warnings) if warnings else ""))
+        for w in warnings:
+            self.log("  " + w)
 
     def save_profile(self):
         """Αποθηκεύει τις τρέχουσες ρυθμίσεις ως προφίλ πελάτη."""

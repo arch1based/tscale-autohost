@@ -8,6 +8,12 @@
 `python3 release.py 2.x.y "τι άλλαξε"` — VERSION + `APP_BUILD`, commit, push, tag. Το GitHub Actions χτίζει το
 exe (PyInstaller 6.21, **onedir** — το onefile σκάει με antivirus) και το βάζει στο Release.
 
+**Beta (δοκιμαστική):** νέες δυνατότητες μπαίνουν πρώτα στο branch `beta` και βγαίνουν ως
+`python3 release.py 2.x.y-beta.N "…"` **μόνο από το branch beta** (το release.py το επιβάλλει). Ο κώδικας
+καταλαβαίνει beta από το `APP_BUILD` (`IS_BETA`): άλλο exe (`ICSautoScaleUpdater-beta`), άλλος φάκελος
+ρυθμίσεων, άλλη θύρα, pre-release στο GitHub. Τα καταστήματα ρωτούν `/releases/latest` και δεν βλέπουν
+pre-releases. **Ποτέ beta commit/VERSION στο main** — το main είναι ό,τι τρέχει στα καταστήματα.
+
 **Το repo μένει δημόσιο** (απόφαση ιδιοκτήτη): οι εγκαταστάσεις σε καταστήματα (μεγάλο έργο σε παραγωγή)
 ελέγχουν για ενημερώσεις στο GitHub (`UPDATE_*_URL` στο `autohost.py`). Μην αλλάξεις την ορατότητα ούτε την
 πηγή ενημερώσεων. Γι' αυτό: **ποτέ κωδικοί, στοιχεία πελατών ή κώδικας τρίτων σε αυτό το repo.**
@@ -28,6 +34,8 @@ exe (PyInstaller 6.21, **onedir** — το onefile σκάει με antivirus) κ
 - **Ishida UNI-3:** θύρα 8071, τιμή σε **ακέραια λεπτά** (5,40 € → 540), χειραψία 3013 πριν την ανάγνωση.
   Δικλείδα: τιμές με υποδιαστολή ενώ δηλώθηκαν λεπτά → σταματάμε.
 - **ILS:** αρχείο σταθερού πλάτους, ανά εγκατάσταση διαφορετικό — σύγκρινε πάντα με το `.plu` και το
-  `AutoTrans.CFG` του πελάτη (`tools/dokimi_ils.py`).
+  `AutoTrans.CFG` του πελάτη (`tools/dokimi_ils.py`). Το προφίλ φτιάχνεται αυτόματα από το CFG
+  (`parse_autotrans_cfg` / `ils_profile_from_cfg`, κουμπί στο Βήμα 3). Πεδίο με κλειδί `skip` = παράλειψη
+  των πρώτων Ν χαρακτήρων (όνομα σε δύο μη συνεχόμενα κομμάτια).
 - Δοκιμή χωρίς ζυγό: `tools/fake_scale.py` στη 1235, `tools/dokimi_ishida.py`.
 - Ο αποσυναρμολογημένος κώδικας της Ishida είναι στο ιδιωτικό repo `ishida-analysi`, ποτέ εδώ.
