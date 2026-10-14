@@ -31,8 +31,11 @@ APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπ
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
 APP_BUILD = "2.19.0"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
+# Οι ενημερώσεις έρχονται από το itnow.gr (publish_site.py). Το GitHub μένει ως εφεδρεία
+# μόνο όσο το repo είναι δημόσιο — όταν γίνει ιδιωτικό, απλώς αποτυγχάνει σιωπηλά.
+UPDATE_MANIFEST_URL = "https://itnow.gr/keys/downloads/tscale.json"
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
-UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
+UPDATE_PAGE_URL = "https://itnow.gr/keys/downloads/ICSautoScaleUpdater.zip"
 UPDATE_API_URL = "https://api.github.com/repos/arch1based/tscale-autohost/releases/latest"
 UPDATE_ASSET = "ICSautoScaleUpdater.zip"
 # Κωδικός τεχνικού για ενημέρωση (αποτρέπει να την τρέξει προσωπικό του καταστήματος).
@@ -327,7 +330,14 @@ def _get(url, timeout, binary=False):
 
 
 def fetch_latest_version(timeout=8):
-    """(έκδοση, σημειώσεις, url_του_exe). Προτιμά το τελευταίο GitHub Release."""
+    """(έκδοση, σημειώσεις, url_του_exe). Πρώτα το itnow.gr, μετά το GitHub Release."""
+    try:
+        man = json.loads(_get(UPDATE_MANIFEST_URL, timeout))
+        version = (man.get("version") or "").lstrip("vV")
+        if version:
+            return version, (man.get("notes") or "").strip(), man.get("url") or ""
+    except Exception:
+        pass                                  # itnow.gr εκτός — δοκιμάζουμε το GitHub
     try:
         rel = json.loads(_get(UPDATE_API_URL, timeout))
         version = (rel.get("tag_name") or "").lstrip("vV")
@@ -4681,7 +4691,7 @@ class App(tk.Tk):
             % (APP_NAME, APP_VERSION, APP_VENDOR, CONFIG_PATH, LOG_DIR))
 
     def check_update(self):
-        """Ρωτάει το GitHub αν υπάρχει νεότερη έκδοση.
+        """Ρωτάει το itnow.gr αν υπάρχει νεότερη έκδοση.
 
         Τρέχει σε ξεχωριστό νήμα με timeout: αν δεν υπάρχει internet ή αργεί ο
         server, η εφαρμογή συνεχίζει κανονικά — δεν κολλάει ποτέ.
@@ -4729,7 +4739,7 @@ class App(tk.Tk):
                 APP_NAME,
                 "Υπάρχει νεότερη έκδοση: %s (έχεις %s)\n\n%s\n\n"
                 "Η αυτόματη εγκατάσταση δεν είναι διαθέσιμη εδώ — κάνε ενημέρωση "
-                "χειροκίνητα από το GitHub." % (latest, APP_BUILD, notes or ""))
+                "χειροκίνητα (ανοίγει η λήψη)." % (latest, APP_BUILD, notes or ""))
             import webbrowser
             webbrowser.open(UPDATE_PAGE_URL)
             return
