@@ -2679,6 +2679,170 @@ def parse_autotrans_cfg(path):
     return out
 
 
+# Ρόλοι πεδίων του ILS — κλειδί «ils» σε κάθε πεδίο προφίλ. Από αυτούς βγαίνει το
+# Field settings (AutoTrans.CFG) ώστε ο ζυγός να διαβάσει το αρχείο που φτιάχνουμε.
+ILS_ROLES = (
+    ("", "— (το ILS δεν το διαβάζει)"),
+    ("Code", "Κωδικός (Code)"),
+    ("LfCode", "LF κωδικός / barcode (LfCode)"),
+    ("PluName", "Όνομα (Plu Name)"),
+    ("PluNameExtent", "Όνομα, συνέχεια (Plu name extens)"),
+    ("UnitPrice", "Τιμή (Unit price)"),
+    ("Department", "Τμήμα (Department)"),
+    ("Tare", "Απόβαρο (Tare)"),
+    ("WeightUnit", "Τύπος πώλησης (Weight unit)"),
+)
+ILS_ROLE_LABEL = dict(ILS_ROLES)
+# Το Plu Name του ILS χωράει 30 χαρακτήρες· ό,τι περισσεύει πάει στο Plu name extens
+# (ERGON: 7-36 + 37-46). Επαληθευμένο με το αρχείο που δέχεται ο ζυγός του πελάτη.
+ILS_PLUNAME_MAX = 30
+
+
+def guess_ils_role(name, taken):
+    """Μαντεύει τον ρόλο ILS ενός πεδίου από το όνομά του (για παλιά προφίλ χωρίς «ils»)."""
+    n = str(name or "").lower()
+    rules = (
+        (("τιμ", "price", "unitprice"), "UnitPrice"),
+        (("όνομα", "περιγρ", "name", "desc", "plu"), "PluName"),
+        (("τμήμα", "dept", "depart", "σταθερό 01"), "Department"),
+        (("απόβαρο", "tare"), "Tare"),
+        (("τύπος", "weight", "ζυγιζ"), "WeightUnit"),
+        (("lf", "barcode"), "LfCode"),
+        (("κωδ", "code", "productnumber"), "Code"),
+    )
+    for keys, role in rules:
+        if any(k in n for k in keys):
+            if role == "Code" and "Code" in taken:
+                return "" if "LfCode" in taken else "LfCode"   # «κωδικός ξανά»
+            if role == "PluName" and "PluName" in taken:
+                return "" if "PluNameExtent" in taken else "PluNameExtent"
+            return "" if role in taken else role
+    return ""
+
+
+def ils_field_settings(fields):
+    """Από το προφίλ (σταθερό πλάτος) → τι πρέπει να λέει το Field settings του ILS.
+
+    Επιστρέφει ([(ρόλος, ενεργό, θέση 1-based, μήκος)] για ΟΛΟΥΣ τους ρόλους,
+    προειδοποιήσεις). Οι θέσεις βγαίνουν από τη σειρά και τα μήκη των ενεργών
+    πεδίων — ακριβώς όπως θα γραφτεί το αρχείο. Όνομα μεγαλύτερο από
+    ILS_PLUNAME_MAX μοιράζεται μόνο του σε Plu Name + Plu name extens.
+    """
+    active = [f for f in fields if f.get("enabled")]
+    taken = {f.get("ils") for f in active if f.get("ils")}
+    found = {}
+    warnings = []
+    cursor = 1
+    for f in active:
+        ln = int(f.get("len") or 0)
+        role = f.get("ils")
+        if role is None:                            # παλιό προφίλ: μάντεψε
+            role = guess_ils_role(f.get("name"), taken)
+            if role:
+                taken.add(role)
+        if role in found:
+            warnings.append("Δύο πεδία με ρόλο «%s» — το ILS διαβάζει ένα· κρατώ το πρώτο (%s)."
+                            % (ILS_ROLE_LABEL.get(role, role), found[role][2]))
+            role = ""
+        if role == "PluName" and ln > ILS_PLUNAME_MAX and "PluNameExtent" not in taken:
+            found["PluName"] = (cursor, ILS_PLUNAME_MAX, f["name"])
+            found["PluNameExtent"] = (cursor + ILS_PLUNAME_MAX, ln - ILS_PLUNAME_MAX, f["name"])
+        elif role:
+            found[role] = (cursor, ln, f["name"])
+        elif ln and (int(f.get("pos") or 0) or str(f.get("extra", "")).strip()):
+            warnings.append("Το πεδίο «%s» (θέσεις %d-%d) δεν έχει ρόλο ILS — ο ζυγός θα το "
+                            "αγνοήσει. Αν πρέπει να το διαβάζει, όρισε «Πεδίο ILS» στον πίνακα."
+                            % (f["name"], cursor, cursor + ln - 1))
+        cursor += ln
+    for must in ("Code", "PluName", "UnitPrice"):
+        if must not in found:
+            warnings.append("Λείπει πεδίο με ρόλο «%s» — χωρίς αυτό το ILS δεν ενημερώνεται σωστά."
+                            % ILS_ROLE_LABEL[must])
+    out = []
+    for role, _label in ILS_ROLES[1:]:
+        if role in found:
+            pos, ln, _src = found[role]
+            out.append((role, True, pos, ln))
+        else:
+            out.append((role, False, 0, 0))
+    return out, warnings
+
+
+def ils_cfg_values(settings):
+    """Τα κλειδιά του AutoTrans.CFG (Chk…, Cbox…, …_Len) με τις τιμές τους, με τη σειρά."""
+    keys = {name: (chk, cbox, ln) for name, chk, cbox, ln, _lbl in ILS_CFG_FIELDS}
+    out = []
+    for role, on, pos, ln in settings:
+        chk, cbox, lenkey = keys[role]
+        out.append((chk, "1" if on else "0"))
+        if on:
+            out.append((cbox, str(pos)))
+            out.append((lenkey, str(ln)))
+    return out
+
+
+def write_autotrans_cfg(settings, out_path, existing=None):
+    """Γράφει τα Field settings στο AutoTrans.CFG.
+
+    Με «existing»: ΕΝΗΜΕΡΩΝΕΙ το αρχείο του πελάτη — αλλάζει μόνο τα κλειδιά των
+    πεδίων, αφήνει όλα τα άλλα (IP, φάκελοι, ό,τι έχει) όπως είναι, κρατά γραμμή
+    προς γραμμή τη μορφή, και πρώτα κρατά αντίγραφο .bak με ημερομηνία.
+    Χωρίς existing: νέο αρχείο μόνο με τα κλειδιά των πεδίων.
+    Επιστρέφει (αντίγραφο ή "", [αλλαγές], [προστέθηκαν]).
+    """
+    values = ils_cfg_values(settings)
+    wanted = {k.lower(): (k, v) for k, v in values}
+    changed, added = [], []
+    if existing:
+        with open(existing, "rb") as fh:
+            raw = fh.read()
+        nl = b"\r\n" if b"\r\n" in raw else b"\n"
+        text = raw.decode("cp1253", "replace")
+        lines = text.split(nl.decode())
+        seen = set()
+        for i, line in enumerate(lines):
+            m = re.match(r"^(\s*)([A-Za-z0-9_]+)(\s*=\s*)(.*?)(\s*)$", line)
+            if not m:
+                continue
+            key = m.group(2).lower()
+            if key not in wanted:
+                continue
+            seen.add(key)
+            real_key, new_val = wanted[key]
+            if m.group(4) != new_val:
+                changed.append("%s: %s → %s" % (m.group(2), m.group(4) or "(κενό)", new_val))
+                lines[i] = "%s%s%s%s%s" % (m.group(1), m.group(2), m.group(3), new_val, m.group(5))
+        missing = [(k, v) for k, v in values if k.lower() not in seen]
+        if missing:
+            # Μετά την τελευταία γραμμή πεδίων που βρέθηκε, ώστε να μείνουν μαζί.
+            idx = max((i for i, l in enumerate(lines)
+                       if re.match(r"^\s*([A-Za-z0-9_]+)\s*=", l)
+                       and re.match(r"^\s*([A-Za-z0-9_]+)\s*=", l).group(1).lower() in wanted),
+                      default=len(lines) - 1)
+            for k, v in reversed(missing):
+                lines.insert(idx + 1, "%s=%s" % (k, v))
+            added = ["%s=%s" % (k, v) for k, v in missing]
+        backup = "%s.bak-%s" % (existing, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+        shutil.copyfile(existing, backup)
+        data = nl.decode().join(lines).encode("cp1253", "replace")
+    else:
+        backup = ""
+        added = ["%s=%s" % (k, v) for k, v in values]
+        data = ("\r\n".join("%s=%s" % (k, v) for k, v in values) + "\r\n").encode("cp1253")
+    with open(out_path, "wb") as fh:
+        fh.write(data)
+    return backup, changed, added
+
+
+def describe_ils_settings(settings):
+    """Ο πίνακας όπως τον βλέπει ο τεχνικός στο «Field settings» του ILS."""
+    lines = ["%-34s %-7s %-6s %s" % ("ΠΕΔΙΟ ILS", "ΕΝΕΡΓΟ", "ΘΕΣΗ", "ΜΗΚΟΣ")]
+    for role, on, pos, ln in settings:
+        lines.append("%-34s %-7s %-6s %s" % (ILS_ROLE_LABEL[role], "✓" if on else "—",
+                                             pos if on else "", ln if on else ""))
+    return lines
+
+
 def _guess_erp_column(erp_fields, keywords):
     """Η στήλη του ERP για ένα νόημα (κωδικός, όνομα, τιμή…), από τον κύριο πίνακα.
 
@@ -2720,12 +2884,12 @@ def ils_profile_from_cfg(ils_fields, erp_fields, cfg):
         name, pos, ln, label = items[i]
         if pos > cursor:
             fields.append({"name": "(κενό)", "enabled": True, "pos": 0, "len": pos - cursor,
-                           "extra": "", "xform": "", "align": ""})
+                           "extra": "", "xform": "", "align": "", "ils": ""})
         elif pos < cursor:
             warnings.append("ΠΡΟΣΟΧΗ: το «%s» (θέση %d) πέφτει πάνω στο προηγούμενο πεδίο — "
                             "έλεγξε το CFG." % (label, pos))
         f = {"name": label, "enabled": True, "pos": 0, "len": ln, "extra": "", "xform": "",
-             "align": ""}
+             "align": "", "ils": name if name in ILS_ROLE_LABEL else ""}
         if name in ("Code", "LfCode"):
             f.update(pos=src["code"], xform="digits", align="zero")
         elif name == "PluName":
@@ -3613,18 +3777,21 @@ class App(tk.Tk):
         self.cmb_s2c = ttk.Combobox(trow, textvariable=self.v_s2c_profile, state="readonly",
                                     width=34, values=list(self.cfg.get("profiles", {})))
         self.cmb_s2c.pack(side="left")
-        ttk.Button(trow, text="Από το AutoTrans.CFG του ILS…", style="Pick.TButton",
-                   command=self.ils_profile_from_cfg_dialog).pack(side="left", padx=(8, 0))
+        ttk.Button(trow, text="Field settings του ILS (AutoTrans.CFG)…", style="Pick.TButton",
+                   command=self.ils_field_settings_dialog).pack(side="left", padx=(8, 0))
+        ttk.Button(trow, text="Διάβασε υπάρχον CFG…", style="Ghost.TButton",
+                   command=self.ils_profile_from_cfg_dialog).pack(side="left", padx=(4, 0))
         g3 = ttk.Frame(third)
         g3.pack(fill="x")
         self.v_s2c_out = tk.StringVar()
         self._pick_row(g3, "Να δημιουργείται εδώ:", self.v_s2c_out, "save", 0)
         ttk.Label(third, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Για ζυγούς ILS1100. Κενή διαδρομή = hostILS.csv στον φάκελο "
-                       "εξόδου. Στο ILS, οι θέσεις των στηλών ορίζονται στο «Field "
-                       "settings» και σώζονται στο AutoTrans.CFG του — διάλεξέ το με το "
-                       "κουμπί και το προφίλ φτιάχνεται μόνο του για τη συγκεκριμένη "
-                       "εγκατάσταση."
+                       "εξόδου. Το ILS διαβάζει το αρχείο με τις θέσεις του «Field settings» "
+                       "(AutoTrans.CFG). Με το κουμπί βλέπεις τι πρέπει να λέει για το προφίλ "
+                       "που διάλεξες και το γράφεις στο CFG του πελάτη (με αντίγραφο). "
+                       "Αν η εγκατάσταση έχει ήδη ρυθμισμένο CFG, διάβασέ το για να βγει το "
+                       "προφίλ από αυτό."
                   ).pack(anchor="w", pady=(2, 0))
 
         advbar = ttk.Frame(f)
@@ -4444,7 +4611,17 @@ class App(tk.Tk):
         ttk.Label(win, text="Στοίχιση (σταθερό πλάτος):").grid(row=5, column=0, sticky="e", padx=8)
         ttk.Combobox(win, textvariable=al, values=al_labels, state="readonly",
                      width=32).grid(row=5, column=1, sticky="w", padx=8)
-        ttk.Checkbutton(win, text="Για έξοδο σε αρχείο", variable=en).grid(row=6, column=1, sticky="w", padx=8)
+        role_labels = [lbl for _k, lbl in ILS_ROLES]
+        role_keys = [k for k, _l in ILS_ROLES]
+        cur_role = f.get("ils")
+        if cur_role is None:
+            cur_role = guess_ils_role(f.get("name"), {x.get("ils") for x in self.cfg["step2_fields"]
+                                                       if x is not f and x.get("ils")})
+        rl = tk.StringVar(value=ILS_ROLE_LABEL.get(cur_role, role_labels[0]))
+        ttk.Label(win, text="Πεδίο ILS (Field settings):").grid(row=6, column=0, sticky="e", padx=8)
+        ttk.Combobox(win, textvariable=rl, values=role_labels, state="readonly",
+                     width=32).grid(row=6, column=1, sticky="w", padx=8)
+        ttk.Checkbutton(win, text="Για έξοδο σε αρχείο", variable=en).grid(row=7, column=1, sticky="w", padx=8)
 
         def ok():
             try:
@@ -4458,10 +4635,11 @@ class App(tk.Tk):
             f["enabled"] = en.get()
             f["xform"] = keys[labels.index(xf.get())] if xf.get() in labels else ""
             f["align"] = al_keys[al_labels.index(al.get())] if al.get() in al_labels else ""
+            f["ils"] = role_keys[role_labels.index(rl.get())] if rl.get() in role_labels else ""
             win.destroy()
             self.refresh_tree()
             self.tree.selection_set(str(i))
-        ttk.Button(win, text="Καταχώρηση", command=ok).grid(row=7, column=1, sticky="e", padx=8, pady=10)
+        ttk.Button(win, text="Καταχώρηση", command=ok).grid(row=8, column=1, sticky="e", padx=8, pady=10)
 
     def load_profile(self, name):
         """Έτοιμο σετ θέσεων/μηκών για γνωστό τύπο αρχείου."""
@@ -4511,6 +4689,95 @@ class App(tk.Tk):
         ttk.Button(bar, text=no, style="Ghost.TButton", command=win.destroy).pack(side="right", padx=8)
         win.wait_window()
         return answer["ok"]
+
+    def _ils_fields_for_settings(self):
+        """Τα πεδία του προφίλ ILS που είναι επιλεγμένο — ή του κύριου πίνακα."""
+        name = self.v_s2c_profile.get().strip()
+        if name:
+            _n, entry = resolve_profile(self.cfg.get("profiles") or {}, name)
+            if entry:
+                fields = entry.get("fields", entry) if isinstance(entry, dict) else entry
+                settings = entry.get("settings", {}) if isinstance(entry, dict) else {}
+                return name, fields, settings.get("step2_format")
+        return "κύριος πίνακας", self.cfg.get("step2_fields", []), self.cfg.get("step2_format")
+
+    def ils_field_settings_dialog(self):
+        """Τι πρέπει να λέει το Field settings του ILS για το αρχείο που φτιάχνουμε."""
+        self.collect()
+        name, fields, fmt = self._ils_fields_for_settings()
+        if fmt != "fixed":
+            messagebox.showwarning(
+                APP_NAME, "Το προφίλ «%s» δεν βγάζει αρχείο σταθερού πλάτους (μορφή: %s).\n\n"
+                "Το ILS διαβάζει μόνο σταθερό πλάτος — διάλεξε προφίλ ILS στη γραμμή "
+                "«Φτιάξε και αρχείο για ILS»." % (name, fmt or "—"))
+            return
+        settings, warnings = ils_field_settings(fields)
+        total = sum(int(f.get("len") or 0) for f in fields if f.get("enabled"))
+        lines = ["Προφίλ: %s   (γραμμή %d χαρακτήρων)" % (name, total), ""]
+        lines += describe_ils_settings(settings)
+        if warnings:
+            lines += [""] + warnings
+        lines += ["", "Γραμμές για το AutoTrans.CFG:"]
+        lines += ["  %s=%s" % kv for kv in ils_cfg_values(settings)]
+
+        win = tk.Toplevel(self)
+        win.title("Field settings του ILS")
+        win.transient(self)
+        win.grab_set()
+        txt = tk.Text(win, width=max(70, min(110, max(len(l) for l in lines) + 2)),
+                      height=min(34, len(lines) + 1), font=("Consolas", 10), wrap="none",
+                      bg=COLORS["card"], fg=COLORS["ink"], relief="flat", padx=10, pady=8)
+        txt.insert("1.0", "\n".join(lines))
+        txt.configure(state="disabled")
+        txt.pack(fill="both", expand=True, padx=10, pady=(10, 4))
+        ttk.Label(win, style="Hint.TLabel", wraplength=760, justify="left",
+                  text="«Ενημέρωση» αλλάζει ΜΟΝΟ τα πεδία στο AutoTrans.CFG του πελάτη και "
+                       "κρατά πρώτα αντίγραφο (.bak). Κλείσε το ScaleAutoTrans πριν. "
+                       "Αλλιώς γράψε τις τιμές με το χέρι στο Field settings του.").pack(
+            anchor="w", padx=10)
+        bar = ttk.Frame(win)
+        bar.pack(fill="x", padx=10, pady=(6, 10))
+
+        def enimerosi():
+            path = filedialog.askopenfilename(
+                parent=win, title="Το AutoTrans.CFG του πελάτη (φάκελος του ScaleAutoTrans)",
+                filetypes=[("AutoTrans.CFG", "*.CFG *.cfg"), ("Όλα", "*.*")])
+            if not path:
+                return
+            try:
+                backup, changed, added = write_autotrans_cfg(settings, path, existing=path)
+            except Exception as exc:
+                messagebox.showerror(APP_NAME, "Δεν γράφτηκε το CFG.\n\n%s\n%s" % (path, exc),
+                                     parent=win)
+                return
+            self.log("AutoTrans.CFG ενημερώθηκε: %s (αντίγραφο: %s) — %d αλλαγές, %d νέα κλειδιά"
+                     % (path, backup, len(changed), len(added)))
+            for c in changed + added:
+                self.log("  " + c)
+            messagebox.showinfo(
+                APP_NAME, "Έγινε.\n\nΑρχείο: %s\nΑντίγραφο: %s\n\nΑλλαγές: %d\n%s%s"
+                % (path, backup, len(changed), "\n".join(changed[:12]) or "(ήταν ήδη σωστό)",
+                   "\n\nΠροστέθηκαν: %d" % len(added) if added else ""), parent=win)
+            win.destroy()
+
+        def neo():
+            path = filedialog.asksaveasfilename(
+                parent=win, title="Νέο αρχείο με τα Field settings", initialfile="AutoTrans.CFG",
+                defaultextension=".CFG", filetypes=[("CFG", "*.CFG *.cfg"), ("Όλα", "*.*")])
+            if not path:
+                return
+            try:
+                write_autotrans_cfg(settings, path)
+            except Exception as exc:
+                messagebox.showerror(APP_NAME, "Δεν γράφτηκε το αρχείο.\n\n%s" % exc, parent=win)
+                return
+            self.log("Field settings ILS γράφτηκαν σε νέο αρχείο: %s" % path)
+            win.destroy()
+
+        ttk.Button(bar, text="Κλείσιμο", style="Ghost.TButton", command=win.destroy).pack(side="right")
+        ttk.Button(bar, text="Νέο αρχείο…", style="Ghost.TButton", command=neo).pack(side="right", padx=8)
+        ttk.Button(bar, text="Ενημέρωση AutoTrans.CFG του πελάτη…", command=enimerosi).pack(side="right")
+        win.wait_window()
 
     def ils_profile_from_cfg_dialog(self):
         """Διάλεξε AutoTrans.CFG → προφίλ ILS για τη συγκεκριμένη εγκατάσταση."""
