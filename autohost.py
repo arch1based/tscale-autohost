@@ -3331,6 +3331,7 @@ class App(tk.Tk):
         self.watch_thread = None
         self.watching = False
         self.last_stamp = None
+        self.last_run = None          # (πότε, πέτυχε;, μήνυμα) — για τη Σύνοψη
 
         self.tray = None
         self.pending_error = None
@@ -3533,13 +3534,17 @@ class App(tk.Tk):
 
         nb = self.nb = ttk.Notebook(self)
         pages = []
-        for title in ("  Βήμα 1 · Αρχείο ERP  ", "  Βήμα 2 · Μετατροπή  ",
+        # Πρώτη η «Σύνοψη»: ο άνθρωπος του καταστήματος βλέπει με απλά λόγια αν
+        # δουλεύει, πότε έτρεξε τελευταία και ποιους ζυγούς ενημερώνει — και έχει
+        # δύο μεγάλα κουμπιά. Οι «Βήμα 1-4» είναι ρυθμίσεις για τον τεχνικό.
+        for title in ("  Σύνοψη  ", "  Βήμα 1 · Αρχείο ERP  ", "  Βήμα 2 · Μετατροπή  ",
                       "  Βήμα 3 · Αρχείο προϊόντων  ", "  Βήμα 4 · Αποστολή στους ζυγούς  "):
             page = ttk.Frame(nb, style="Card.TFrame")
             nb.add(page, text=title)
             pages.append(self._scrollable(page))
-        self.tab0, self.tab1, self.tab2, self.tab3 = pages
+        self.tab_home, self.tab0, self.tab1, self.tab2, self.tab3 = pages
 
+        self._build_tab_home()
         self._build_tab0()
         self._build_tab1()
         self._build_tab2()
@@ -3625,6 +3630,150 @@ class App(tk.Tk):
                 var.set(os.path.normpath(p))
         ttk.Button(parent, text="Αναζήτηση…", style="Pick.TButton", command=pick).grid(row=r, column=2)
         parent.columnconfigure(1, weight=1)
+
+    def _build_tab_home(self):
+        """Η «Σύνοψη»: κατάσταση με απλά λόγια και τα δύο κουμπιά που χρειάζεται ο χρήστης."""
+        f = self.tab_home
+        self.home_big = tk.Label(f, text="", bg=COLORS["card"], fg=COLORS["muted"],
+                                 font=("Segoe UI", 15, "bold"), anchor="w", justify="left",
+                                 wraplength=900)
+        self.home_big.pack(anchor="w", pady=(8, 2))
+        self.home_sub = tk.Label(f, text="", bg=COLORS["card"], fg=COLORS["muted"],
+                                 font=("Segoe UI", 10), anchor="w", justify="left", wraplength=900)
+        self.home_sub.pack(anchor="w", pady=(0, 10))
+
+        grid = ttk.Frame(f)
+        grid.pack(fill="x", pady=(0, 12))
+        self.home_vals = {}
+        for r, (key, label) in enumerate((("erp", "Αρχείο του ERP:"),
+                                          ("watch", "Παρακολούθηση:"),
+                                          ("scales", "Ζυγοί που ενημερώνονται:"),
+                                          ("last", "Τελευταία ενημέρωση:"),
+                                          ("pending", "Ζυγοί που δεν πρόλαβαν:"))):
+            ttk.Label(grid, text=label, style="Hint.TLabel").grid(row=r, column=0, sticky="nw",
+                                                                 padx=(0, 14), pady=4)
+            v = tk.Label(grid, text="—", bg=COLORS["card"], fg=COLORS["ink"],
+                         font=("Segoe UI", 11), anchor="w", justify="left", wraplength=760)
+            v.grid(row=r, column=1, sticky="w", pady=4)
+            self.home_vals[key] = v
+
+        btns = ttk.Frame(f)
+        btns.pack(fill="x", pady=(4, 10))
+        ttk.Button(btns, text="▶  Ενημέρωση ζυγών τώρα", style="Accent.TButton",
+                   command=self.run_once).pack(side="left", ipadx=10, ipady=6)
+        self.btn_watch_home = ttk.Button(btns, text="●  Έναρξη παρακολούθησης",
+                                         command=self.toggle_watch)
+        self.btn_watch_home.pack(side="left", padx=10, ipadx=10, ipady=6)
+        ttk.Button(btns, text="Τι πήγε στραβά;", style="Ghost.TButton",
+                   command=self.show_last_errors).pack(side="left", ipadx=6, ipady=6)
+
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=900,
+                  text="«Ενημέρωση ζυγών τώρα» στέλνει αμέσως τις τιμές του ERP στους ζυγούς. "
+                       "Με την παρακολούθηση ενεργή, γίνεται μόνο του κάθε φορά που το ERP "
+                       "βγάζει νέο αρχείο — δεν χρειάζεται να κάνεις τίποτα.\n"
+                       "Οι καρτέλες «Βήμα 1-4» είναι ρυθμίσεις για τον τεχνικό."
+                  ).pack(anchor="w")
+        self.after(800, self._refresh_home)
+
+    def _refresh_home(self):
+        """Ανανεώνει τη Σύνοψη κάθε 2 δευτερόλεπτα από τις τρέχουσες ρυθμίσεις."""
+        try:
+            self._fill_home()
+        except Exception:
+            pass
+        self.after(2000, self._refresh_home)
+
+    def _fill_home(self):
+        cfg = self.cfg
+        C = COLORS
+        path = (self.v_watch.get() or cfg.get("watch_file") or "").strip()
+        busy = bool(self.worker and self.worker.is_alive())
+
+        # αρχείο ERP
+        if not path:
+            self.home_vals["erp"].configure(text="δεν έχει οριστεί (Βήμα 1)", fg=C["warn"])
+        elif not os.path.isfile(path):
+            self.home_vals["erp"].configure(text="%s\nΔΕΝ ΒΡΕΘΗΚΕ το αρχείο" % path, fg=C["err"])
+        else:
+            try:
+                mt = datetime.datetime.fromtimestamp(os.path.getmtime(path))
+                self.home_vals["erp"].configure(
+                    text="%s\nτελευταία αλλαγή από το ERP: %s" % (path, mt.strftime("%d/%m/%Y %H:%M")),
+                    fg=C["ink"])
+            except OSError:
+                self.home_vals["erp"].configure(text=path, fg=C["ink"])
+
+        # παρακολούθηση
+        if self.watching:
+            n, unit = seconds_to_unit(cfg.get("poll_seconds", 300))
+            self.home_vals["watch"].configure(
+                text="ενεργή — ελέγχει για νέο αρχείο κάθε %d %s" % (n, unit), fg=C["ok"])
+        else:
+            self.home_vals["watch"].configure(text="σταματημένη — δεν ενημερώνει μόνο του",
+                                              fg=C["warn"])
+
+        # ζυγοί
+        meri = []
+        if cfg.get("step3_enabled", True) and cfg.get("tscale_on", True):
+            ips = parse_ips(self.v_ips.get() if hasattr(self, "v_ips") else cfg.get("scale_ips", ""))
+            meri.append("T-Scale: %d ζυγ%s (%s)" % (len(ips), "ός" if len(ips) == 1 else "οί",
+                                                    ", ".join(ips)) if ips else "T-Scale: χωρίς IP!")
+        if cfg.get("step3_enabled", True) and cfg.get("ishida_on"):
+            ips = parse_ips(cfg.get("ishida_ips", ""))
+            meri.append("Ishida: %d ζυγ%s (%s)" % (len(ips), "ός" if len(ips) == 1 else "οί",
+                                                   ", ".join(ips)) if ips else "Ishida: χωρίς IP!")
+        if cfg.get("step2c_enabled") or cfg.get("ils_enabled"):
+            meri.append("ILS: μέσω αρχείου hostILS")
+        self.home_vals["scales"].configure(text="\n".join(meri) if meri else "κανένας (Βήμα 4)",
+                                           fg=C["ink"] if meri else C["warn"])
+
+        # τελευταία εκτέλεση
+        if busy:
+            self.home_vals["last"].configure(text="γίνεται τώρα…", fg=C["brand"])
+        elif self.last_run:
+            pote, ok, msg = self.last_run
+            self.home_vals["last"].configure(
+                text="%s — %s" % (pote.strftime("%d/%m/%Y %H:%M"),
+                                  "ΕΠΙΤΥΧΙΑ" if ok else "ΣΦΑΛΜΑ: " + msg),
+                fg=C["ok"] if ok else C["err"])
+        else:
+            self.home_vals["last"].configure(text="καμία από τότε που άνοιξε το πρόγραμμα",
+                                             fg=C["muted"])
+
+        # εκκρεμείς
+        try:
+            pend = load_pending()
+        except Exception:
+            pend = {}
+        if pend:
+            self.home_vals["pending"].configure(
+                text="%d — θα ξαναδοκιμάσει μόνο του: %s" % (len(pend), ", ".join(sorted(pend))),
+                fg=C["warn"])
+        else:
+            self.home_vals["pending"].configure(text="κανένας", fg=C["ink"])
+
+        # η μεγάλη γραμμή
+        if busy:
+            big, sub, col = "Γίνεται ενημέρωση των ζυγών…", "Περίμενε λίγο.", C["brand"]
+        elif self.last_run and not self.last_run[1]:
+            big, sub, col = ("Η τελευταία ενημέρωση ΑΠΕΤΥΧΕ",
+                             "Δες «Τι πήγε στραβά;» ή κάλεσε τον τεχνικό.", C["err"])
+        elif not path or not os.path.isfile(path):
+            big, sub, col = ("Δεν βρίσκω το αρχείο του ERP",
+                             "Ο τεχνικός πρέπει να το ορίσει στο «Βήμα 1».", C["warn"])
+        elif not meri:
+            big, sub, col = ("Δεν έχει δηλωθεί κανένας ζυγός",
+                             "Ο τεχνικός πρέπει να τους ορίσει στο «Βήμα 4».", C["warn"])
+        elif self.watching:
+            big, sub, col = ("Όλα καλά — παρακολουθεί το ERP",
+                             "Μόλις βγει νέο αρχείο, οι ζυγοί ενημερώνονται μόνοι τους.", C["ok"])
+        else:
+            big, sub, col = ("Σε αναμονή — η παρακολούθηση είναι σταματημένη",
+                             "Πάτα «Έναρξη παρακολούθησης» για να ενημερώνει μόνο του.", C["warn"])
+        self.home_big.configure(text=big, fg=col)
+        self.home_sub.configure(text=sub)
+        self.btn_watch_home.configure(
+            text="■  Διακοπή παρακολούθησης" if self.watching else "●  Έναρξη παρακολούθησης")
 
     def _build_tab0(self):
         f = self.tab0
@@ -3755,6 +3904,8 @@ class App(tk.Tk):
         self.cmb_s2b = ttk.Combobox(srow, textvariable=self.v_s2b_profile, state="readonly",
                                     width=34, values=list(self.cfg.get("profiles", {})))
         self.cmb_s2b.pack(side="left")
+        ttk.Button(srow, text="Τι να ρυθμίσεις στο ScaleLink…", style="Pick.TButton",
+                   command=self.ishida_import_settings_dialog).pack(side="left", padx=(8, 0))
         g2 = ttk.Frame(second)
         g2.pack(fill="x")
         self.v_s2b_out = tk.StringVar()
@@ -4418,7 +4569,7 @@ class App(tk.Tk):
         self.refresh_tree()
         self.refresh_bundled_hint()
         if self.v_auto.get():
-            self.after(600, self.toggle_watch)
+            self.after(600, lambda: self.toggle_watch(quiet=True))
 
     def refresh_tree(self):
         self.tree.tag_configure("odd", background="#f7fafd")
@@ -4686,9 +4837,73 @@ class App(tk.Tk):
             answer["ok"] = True
             win.destroy()
         ttk.Button(bar, text=yes, command=ok).pack(side="right")
-        ttk.Button(bar, text=no, style="Ghost.TButton", command=win.destroy).pack(side="right", padx=8)
+        if no:
+            ttk.Button(bar, text=no, style="Ghost.TButton", command=win.destroy).pack(side="right", padx=8)
         win.wait_window()
         return answer["ok"]
+
+    def ishida_import_settings_dialog(self):
+        """Οδηγίες για το «Setup Text Import» του ScaleLink Pro: πώς είναι το αρχείο μας.
+
+        Το SLP κρατά τις ρυθμίσεις εισαγωγής σε δικό του δυαδικό αρχείο — δεν το
+        γράφουμε εμείς. Του λέμε όμως ακριβώς τι να δηλώσει ο τεχνικός, από το
+        προφίλ που βγάζει το δεύτερο αρχείο. (Με απευθείας αποστολή στο Βήμα 4
+        δεν χρειάζεται τίποτα από αυτά.)
+        """
+        self.collect()
+        name = self.v_s2b_profile.get().strip()
+        _n, entry = resolve_profile(self.cfg.get("profiles") or {}, name) if name else ("", None)
+        if not entry:
+            messagebox.showinfo(APP_NAME, "Διάλεξε πρώτα προφίλ στο «Φτιάξε και δεύτερο αρχείο».")
+            return
+        fields = entry.get("fields", entry) if isinstance(entry, dict) else entry
+        settings = dict(entry.get("settings", {})) if isinstance(entry, dict) else {}
+        fmt = settings.get("step2_format", self.cfg.get("step2_format", "csv"))
+        delim = {"csv": "κόμμα  ,", "tab": "TAB", "semicolon": "ερωτηματικό  ;",
+                 "fixed": "ΣΤΑΘΕΡΟ ΠΛΑΤΟΣ (όχι διαχωριστικό)"}.get(
+            fmt, "«%s»" % settings.get("step2_delimiter", self.cfg.get("step2_delimiter", ",")))
+        out = (self.v_s2b_out.get() or "").strip()
+        if not out:
+            ext = ".csv" if fmt in ("csv", "semicolon") else ".txt"
+            folder = self.cfg.get("output_dir") or os.path.dirname(self.cfg.get("watch_file", "") or "")
+            out = os.path.join(folder, "host2" + ext)
+        header = settings.get("step2_write_header", self.cfg.get("step2_write_header", True))
+        enc = settings.get("step2_out_encoding", self.cfg.get("step2_out_encoding", "cp1253"))
+        active = [f for f in fields if f.get("enabled")]
+
+        lines = ["ScaleLink Pro 5  →  Setup → Text Import (ή Import From Text File)", "",
+                 "%-26s %s" % ("Αρχείο (File):", out),
+                 "%-26s %s" % ("Μορφή (Format):", delim),
+                 "%-26s %s" % ("Επικεφαλίδες (Column titles):", "ΝΑΙ — η 1η γραμμή έχει ονόματα"
+                                                                 if header else "ΟΧΙ — από την 1η γραμμή δεδομένα"),
+                 "%-26s %s" % ("Κωδικοσελίδα:", enc),
+                 "", "Σειρά πεδίων στο αρχείο (έτσι να τα βάλεις στη λίστα του SLP):", ""]
+        if fmt == "fixed":
+            lines.append("%-5s %-9s %-24s %s" % ("A/A", "ΘΕΣΕΙΣ", "ΠΕΔΙΟ", "ΤΙ ΠΕΡΙΕΧΕΙ"))
+        else:
+            lines.append("%-5s %-24s %s" % ("ΣΤΗΛΗ", "ΠΕΔΙΟ", "ΤΙ ΠΕΡΙΕΧΕΙ"))
+        cursor = 1
+        for i, f in enumerate(active, 1):
+            pos = int(f.get("pos") or 0)
+            ln = int(f.get("len") or 0)
+            if pos:
+                what = "από το ERP"
+                if f.get("xform"):
+                    what += " · " + XFORMS.get(f["xform"], f["xform"])
+            elif str(f.get("extra", "")).strip():
+                what = "σταθερό «%s»" % f["extra"]
+            else:
+                what = "κενό"
+            if fmt == "fixed":
+                lines.append("%-5d %3d-%-5d %-24s %s" % (i, cursor, cursor + ln - 1, f["name"], what))
+                cursor += ln
+            else:
+                lines.append("%-5d %-24s %s" % (i, f["name"], what))
+        lines += ["", "Η τιμή: %s" % ("σε ΛΕΠΤΑ (540 = 5,40 €)" if any(
+            f.get("xform") == "tocents" for f in active) else "όπως στο ERP (με υποδιαστολή)"),
+                  "", "Σημείωση: με «Απευθείας αποστολή» στο Βήμα 4 (θύρα 8071) το SLP δεν "
+                      "χρειάζεται καθόλου — αυτά ισχύουν μόνο αν ο ζυγός ενημερώνεται μέσω SLP."]
+        self._confirm_text("Τι να ρυθμίσεις στο ScaleLink (Ishida)", lines, yes="Κλείσιμο", no=None)
 
     def _ils_fields_for_settings(self):
         """Τα πεδία του προφίλ ILS που είναι επιλεγμένο — ή του κύριου πίνακα."""
@@ -5522,6 +5737,7 @@ class App(tk.Tk):
 
     def _done_ok(self, silent):
         self.pending_error = None
+        self.last_run = (datetime.datetime.now(), True, "")
         self.set_status("Επιτυχία", COLORS["ok"])
         # Ξέρουμε ότι ολοκληρώθηκε η δική μας ροή· αν ο ζυγός δέχτηκε τα δεδομένα
         # το λέει το log της εφαρμογής του ζυγού, όχι εμείς.
@@ -5531,6 +5747,7 @@ class App(tk.Tk):
                                           "log της εφαρμογής του ζυγού.")
 
     def _done_err(self, text, silent):
+        self.last_run = (datetime.datetime.now(), False, text.strip().split("\n")[0][:120])
         self.set_status("Σφάλμα", COLORS["err"])
         self.log("ΣΦΑΛΜΑ -> " + text.replace("\n", "\n         "))
         self.notify_error(text)
@@ -5625,7 +5842,8 @@ class App(tk.Tk):
         ttk.Button(bar, text="Κλείσιμο", command=win.destroy).pack(side="right")
 
     # ---------------- daemon ----------------
-    def toggle_watch(self):
+    def toggle_watch(self, quiet=False):
+        """quiet=True από αυτόματη εκκίνηση: κανένα modal, μόνο λωρίδα και log."""
         if self.watching:
             self.watching = False
             self.stop_event.set()
@@ -5636,7 +5854,12 @@ class App(tk.Tk):
         self.collect()
         path = self.cfg.get("watch_file")
         if not path or not os.path.isfile(path):
-            messagebox.showerror(APP_NAME, "Διάλεξε πρώτα το αρχείο που βγάζει το ERP.")
+            msg = "Διάλεξε πρώτα το αρχείο που βγάζει το ERP (Βήμα 1)."
+            if quiet:
+                self.log("Η παρακολούθηση δεν ξεκίνησε: " + msg)
+                self.show_error_bar("Η παρακολούθηση δεν ξεκίνησε — " + msg)
+            else:
+                messagebox.showerror(APP_NAME, msg)
             return
         self.stop_event.clear()
         self.watching = True
@@ -5763,5 +5986,5 @@ if __name__ == "__main__":
     if "--tray" in sys.argv or "-t" in sys.argv:
         app.after(300, app.hide_to_tray)
         # με το boot ξεκινάει και η παρακολούθηση, ακόμη κι αν δεν είναι τσεκαρισμένο
-        app.after(900, lambda: None if app.watching else app.toggle_watch())
+        app.after(900, lambda: None if app.watching else app.toggle_watch(quiet=True))
     app.mainloop()
