@@ -2608,6 +2608,239 @@ def _run_extra_senders(cfg, log, stop_event=None):
 
 
 # --------------------------------------------------------------------------
+# Odigos antistoixisis stilon: arxeio ERP -> ti einai kathe stili -> profil
+#
+# Ο τεχνικός δεν γράφει θέσεις και μετατροπές: ανοίγει το αρχείο του ERP, βλέπει
+# τις στήλες με πραγματικά δείγματα, λέει «αυτή είναι ο κωδικός, αυτή η τιμή»,
+# και ο οδηγός φτιάχνει τα προφίλ για T-Scale, Ishida και ILS με τους κανόνες
+# που δουλεύουν ήδη στον ERGON (ίδιες στήλες εξόδου, ίδια διάταξη ILS).
+# --------------------------------------------------------------------------
+WIZ_MEANINGS = (
+    ("", "—  (δεν χρησιμοποιείται)"),
+    ("code", "Κωδικός είδους"),
+    ("name", "Όνομα / περιγραφή"),
+    ("price", "Τιμή"),
+    ("barcode", "Barcode"),
+    ("vat", "ΦΠΑ"),
+    ("category", "Κατηγορία"),
+    ("dept", "Τμήμα"),
+)
+WIZ_MEANING_LABEL = dict(WIZ_MEANINGS)
+_WIZ_VAT_VALUES = {"0", "4", "6", "9", "13", "17", "23", "24"}
+
+
+def wizard_analyze_file(path, enc="auto", max_lines=40):
+    """Τι είναι αυτό το αρχείο: κωδικοσελίδα, διαχωριστικό, στήλες, επικεφαλίδα.
+
+    Επιστρέφει dict: enc, delimiter ("" = δεν βρέθηκε → σταθερό πλάτος), lines
+    (οι πρώτες γραμμές), ncols (οι συνηθέστερες στήλες), varies (αν αλλάζει ο
+    αριθμός στηλών ανά γραμμή — δηλ. το διαχωριστικό εμφανίζεται μέσα σε
+    περιγραφές), header (μαντεψιά: η 1η γραμμή είναι ονόματα στηλών).
+    """
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    if enc == "auto":
+        enc = detect_codepage(raw)
+    text = raw.decode(enc, "replace")
+    lines = [l for l in text.splitlines() if l.strip()][:max_lines]
+    if not lines:
+        raise ValueError("Το αρχείο είναι κενό.")
+
+    best, best_score = "", 0
+    for d in (",", ";", "\t", "|"):
+        counts = [l.count(d) for l in lines]
+        if min(counts) == 0:
+            continue
+        # Προτιμάμε τον διαχωριστή που δίνει τις περισσότερες και σταθερότερες στήλες.
+        from collections import Counter
+        mode, freq = Counter(counts).most_common(1)[0]
+        score = mode * 10 + freq
+        if score > best_score:
+            best, best_score = d, score
+    out = {"enc": enc, "delimiter": best, "lines": lines, "ncols": 0, "varies": False,
+           "header": False}
+    if not best:
+        return out
+    from collections import Counter
+    counts = [l.count(best) + 1 for l in lines]
+    out["ncols"] = Counter(counts).most_common(1)[0][0]
+    out["varies"] = len(set(counts)) > 1
+
+    def numeric_cells(line):
+        return sum(1 for c in next(csv.reader([line], delimiter=best))
+                   if re.match(r"^\s*-?\d+([.,]\d+)?\s*$", c))
+    if len(lines) > 1:
+        out["header"] = numeric_cells(lines[0]) * 2 < numeric_cells(lines[1])
+    return out
+
+
+def wizard_columns(analysis, start_line=1):
+    """[(στήλη 1-based, όνομα επικεφαλίδας ή "", [δείγματα])] για κάθε στήλη."""
+    d = analysis["delimiter"]
+    lines = analysis["lines"]
+    header = next(csv.reader([lines[0]], delimiter=d)) if analysis.get("header") and lines else []
+    body = lines[(1 if analysis.get("header") else 0) + (start_line - 1):]
+    if analysis.get("varies"):
+        # Δείγματα μόνο από «κανονικές» γραμμές: όπου το διαχωριστικό μπήκε μέσα
+        # σε περιγραφή οι στήλες είναι μετατοπισμένες και θα μπέρδευαν τη μαντεψιά.
+        kanonikes = [l for l in body
+                     if len(next(csv.reader([l], delimiter=d))) == analysis["ncols"]]
+        body = kanonikes or body
+    cols = []
+    for i in range(analysis["ncols"]):
+        samples = []
+        for l in body[:8]:
+            cells = next(csv.reader([l], delimiter=d))
+            if i < len(cells):
+                samples.append(cells[i].strip())
+        name = header[i].strip() if i < len(header) else ""
+        cols.append((i + 1, name, samples))
+    return cols
+
+
+def wizard_guess_meanings(cols):
+    """Μαντεύει τι είναι κάθε στήλη από επικεφαλίδα και δείγματα. {στήλη: νόημα}."""
+    out = {}
+    taken = set()
+
+    def take(i, m):
+        if m and m not in taken:
+            out[i] = m
+            taken.add(m)
+            return True
+        return False
+
+    # 1. από τα ονόματα της επικεφαλίδας
+    rules = (("barcode", ("barcode", "ean")), ("code", ("κωδ", "code", "productnumber", "plu")),
+             ("name", ("όνομα", "περιγρ", "name", "desc")), ("price", ("τιμ", "price")),
+             ("vat", ("φπα", "vat", "tax")), ("category", ("κατηγ", "categ")),
+             ("dept", ("τμήμα", "dept", "depart")))
+    for i, name, _s in cols:
+        n = name.lower()
+        for m, keys in rules:
+            if n and any(k in n for k in keys) and take(i, m):
+                break
+    # 2. από τα δείγματα
+    for i, _name, samples in cols:
+        if i in out or not samples:
+            continue
+        vals = [v for v in samples if v]
+        if not vals:
+            continue
+        if all(re.match(r"^\d{8}$|^\d{12,14}$", v) for v in vals):
+            take(i, "barcode")
+        elif all(re.match(r"^\d+([.,]\d{1,3})?$", v) for v in vals) \
+                and any("." in v or "," in v for v in vals):
+            take(i, "price")
+        elif all(v in _WIZ_VAT_VALUES for v in vals) and len(set(vals)) <= 4 \
+                and set(vals) != {"0"} and "code" in taken:
+            take(i, "vat")
+        elif all(re.match(r"^\d{1,7}$", v) for v in vals) and "code" not in taken:
+            take(i, "code")
+        elif any(re.search(r"[A-Za-zΑ-Ωα-ωΆ-Ώά-ώ]{3,}", v) for v in vals) and "name" not in taken:
+            take(i, "name")
+    return out
+
+
+def wizard_price_mode_guess(samples):
+    """'decimal' αν οι τιμές έχουν υποδιαστολή, 'cents' αν είναι ακέραιοι."""
+    vals = [v for v in samples if v]
+    if vals and all(re.match(r"^\d+$", v) for v in vals):
+        return "cents"
+    return "decimal"
+
+
+def wizard_build_profiles(meanings, analysis, price_mode, name_cap=40):
+    """Από «στήλη → νόημα» φτιάχνει τα προφίλ (T-Scale, Ishida, ILS).
+
+    Αν ο αριθμός στηλών αλλάζει ανά γραμμή (κόμμα μέσα σε περιγραφές), οι
+    στήλες ΜΕΤΑ το όνομα μετρώνται από το τέλος (αρνητικές) — το κόλπο που
+    κρατάει σωστή την τιμή στον ERGON.
+    """
+    by = {m: i for i, m in meanings.items() if m}
+    if "code" not in by or "price" not in by:
+        raise ValueError("Χρειάζονται τουλάχιστον Κωδικός και Τιμή.")
+    ncols = analysis["ncols"]
+    name_col = by.get("name", 0)
+
+    def col(m):
+        i = by.get(m, 0)
+        if not i:
+            return 0
+        if analysis.get("varies") and name_col and i > name_col:
+            return i - (ncols + 1)
+        return i
+
+    inp = {
+        "step2_input_type": "delimited",
+        "step2_input_delimiter": analysis["delimiter"],
+        "step2_in_encoding": analysis["enc"],
+        "step2_startline": 2 if analysis.get("header") else 1,
+        "step2_onebased": True,
+        "step2_positions_bytes": False,
+    }
+    price_tscale = "cents2dot" if price_mode == "cents" else "comma2dot"
+    price_cents = "digits" if price_mode == "cents" else "tocents"
+
+    def F(name, pos=0, ln=0, extra="", xform="", align="", ils=None, **kw):
+        f = {"name": name, "enabled": True, "pos": pos, "len": ln, "extra": extra,
+             "xform": xform, "align": align}
+        if ils is not None:
+            f["ils"] = ils
+        f.update(kw)
+        return f
+
+    tscale = {"settings": dict(inp, step2_format="semicolon", step2_delimiter=";",
+                               step2_trailing_delim=True, step2_quotes=False,
+                               step2_out_encoding="cp1253", step2_final_newline=True,
+                               step2_write_header=True, step2_sanitize=True, step2_dedupe=True),
+              "fields": [F("ProductNumber", col("code")),
+                         F("ProductName", col("name"), name_cap, xform="nospace"),
+                         F("NameSpell", col("name"), name_cap, xform="nospace"),
+                         F("Price", col("price"), xform=price_tscale),
+                         F("BarCode", col("barcode") or col("code")),
+                         F("Price Unit", extra="0"),
+                         F("Abbr", col("name"), name_cap, xform="nospace"),
+                         F("AbbrSpell", col("name"), name_cap, xform="nospace")]}
+    if by.get("category"):
+        tscale["fields"].append(F("Category", col("category")))
+    if by.get("dept"):
+        tscale["fields"].append(F("Department", col("dept")))
+    if by.get("vat"):
+        tscale["fields"].append(F("Tax", col("vat")))
+
+    # Ishida (host2): κωδ, όνομα, κατηγορία, τιμή σε λεπτά, 0, ΦΠΑ — ίδια σειρά
+    # με τον ERGON, ώστε η απευθείας αποστολή (κωδ 1, όνομα 2, τιμή -3) να ισχύει.
+    ishida = {"settings": dict(inp, step2_format="csv", step2_delimiter=",",
+                               step2_trailing_delim=False, step2_quotes=False,
+                               step2_out_encoding="cp1253", step2_final_newline=True,
+                               step2_write_header=False, step2_sanitize=True, step2_dedupe=False),
+              "fields": [F("Κωδικός", col("code"), xform="digits"),
+                         F("Περιγραφή", col("name"), xform="nocomma"),
+                         F("Κατηγορία", col("category"), extra="" if by.get("category") else "0"),
+                         F("Τιμή", col("price"), xform=price_cents),
+                         F("Πεδίο 5", extra="0"),
+                         F("ΦΠΑ", col("vat"), xform="digits", extra="" if by.get("vat") else "0")]}
+
+    # ILS: η επαληθευμένη διάταξη του ERGON (116 χαρακτήρες), με ρόλους για το CFG.
+    ils = {"settings": dict(inp, step2_format="fixed", step2_delimiter=",",
+                            step2_trailing_delim=False, step2_quotes=False,
+                            step2_out_encoding="cp1253", step2_final_newline=True,
+                            step2_write_header=False, step2_sanitize=True, step2_dedupe=False),
+           "fields": [F("Κωδικός", col("code"), 6, xform="digits", align="zero", ils="Code"),
+                      F("Όνομα", col("name"), 40, xform="nocomma", ils="PluName"),
+                      F("(κενό)", 0, 15, ils=""),
+                      F("Σταθερό 01", 0, 2, extra="01", ils="Department"),
+                      F("Τιμή", col("price"), 5, xform=price_cents, align="zero", ils="UnitPrice"),
+                      F("Τύπος", 0, 1, extra="0", ils="WeightUnit"),
+                      F("ΦΠΑ", col("vat"), 2, xform="digits", align="zero", ils="",
+                        extra="" if by.get("vat") else "00"),
+                      F("Κωδικός ξανά", col("code"), 5, xform="digits", align="zero", ils=""),
+                      F("(κενό τέλος)", 0, 40, ils="")]}
+    return {"tscale": tscale, "ishida": ishida, "ils": ils}
+
+
+# --------------------------------------------------------------------------
 # ILS: profil apo to AutoTrans.CFG tou pelati
 #
 # Το ILS διαβάζει αρχείο σταθερού πλάτους και τις θέσεις τις ξέρει από το
@@ -3666,6 +3899,8 @@ class App(tk.Tk):
         self.btn_watch_home.pack(side="left", padx=10, ipadx=10, ipady=6)
         ttk.Button(btns, text="Τι πήγε στραβά;", style="Ghost.TButton",
                    command=self.show_last_errors).pack(side="left", ipadx=6, ipady=6)
+        ttk.Button(btns, text="🧭  Νέα εγκατάσταση — οδηγός", style="Ghost.TButton",
+                   command=self.column_wizard).pack(side="right", ipadx=6, ipady=6)
 
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=900,
                   text="«Ενημέρωση ζυγών τώρα» στέλνει αμέσως τις τιμές του ERP στους ζυγούς. "
@@ -3877,6 +4112,8 @@ class App(tk.Tk):
         self.cmb_profile.pack(side="left", padx=6)
         ttk.Button(prof, text="Φόρτωση", style="Accent.TButton",
                    command=lambda: self.load_profile(self.v_profile.get())).pack(side="left")
+        ttk.Button(prof, text="🧭  Οδηγός από το αρχείο του ERP…",
+                   command=self.column_wizard).pack(side="left", padx=(12, 0))
         ttk.Button(prof, text="Αποθήκευση ως…", command=self.save_profile).pack(side="left", padx=6)
         ttk.Button(prof, text="Διαγραφή", style="Ghost.TButton",
                    command=self.delete_profile).pack(side="left")
@@ -4904,6 +5141,254 @@ class App(tk.Tk):
                   "", "Σημείωση: με «Απευθείας αποστολή» στο Βήμα 4 (θύρα 8071) το SLP δεν "
                       "χρειάζεται καθόλου — αυτά ισχύουν μόνο αν ο ζυγός ενημερώνεται μέσω SLP."]
         self._confirm_text("Τι να ρυθμίσεις στο ScaleLink (Ishida)", lines, yes="Κλείσιμο", no=None)
+
+    def column_wizard(self):
+        """Οδηγός: αρχείο ERP → στήλες με δείγματα → «τι είναι η καθεμιά» → προφίλ."""
+        self.collect()
+        win = tk.Toplevel(self)
+        win.title("Οδηγός αντιστοίχισης στηλών — από το αρχείο του ERP")
+        win.transient(self)
+        win.grab_set()
+        win.geometry("980x760")
+        outer = ttk.Frame(win, style="Card.TFrame")
+        outer.pack(fill="both", expand=True)
+        body = self._scrollable(outer)
+        state = {"analysis": None, "cols": [], "vars": {}, "profiles": None}
+
+        # ---- 1. το αρχείο
+        ttk.Label(body, text="1.  Το αρχείο που βγάζει το ERP", style="Title.TLabel").pack(anchor="w", pady=(10, 2))
+        v_path = tk.StringVar(value=(self.v_watch.get() or self.cfg.get("watch_file") or "").strip())
+        row = ttk.Frame(body)
+        row.pack(fill="x")
+        self._pick_row(row, "Αρχείο:", v_path, "file", 0)
+        v_header = tk.BooleanVar(value=False)
+        v_info = tk.StringVar(value="Πάτα «Ανάλυση» για να διαβαστεί το αρχείο.")
+        row2 = ttk.Frame(body)
+        row2.pack(fill="x", pady=(4, 0))
+        ttk.Button(row2, text="Ανάλυση αρχείου", style="Accent.TButton",
+                   command=lambda: analyze()).pack(side="left")
+        ttk.Checkbutton(row2, text="Η 1η γραμμή είναι επικεφαλίδες (ονόματα στηλών)",
+                        variable=v_header, command=lambda: rebuild()).pack(side="left", padx=12)
+        ttk.Label(body, textvariable=v_info, style="Hint.TLabel", wraplength=900,
+                  justify="left").pack(anchor="w", pady=(4, 8))
+
+        # ---- 2. οι στήλες
+        ttk.Label(body, text="2.  Τι είναι κάθε στήλη", style="Title.TLabel").pack(anchor="w", pady=(6, 2))
+        ttk.Label(body, style="Hint.TLabel", wraplength=900, justify="left",
+                  text="Δίπλα σε κάθε στήλη βλέπεις πραγματικά δείγματα από το αρχείο. Διάλεξε "
+                       "τι είναι — χρειάζονται τουλάχιστον Κωδικός και Τιμή· το Όνομα για να "
+                       "ενημερώνονται και οι ετικέτες."
+                  ).pack(anchor="w")
+        cols_box = ttk.Frame(body)
+        cols_box.pack(fill="x", pady=(4, 8))
+
+        # ---- 3. τιμή, όνομα, ζυγοί
+        ttk.Label(body, text="3.  Τιμή και ζυγοί", style="Title.TLabel").pack(anchor="w", pady=(6, 2))
+        v_price = tk.StringVar(value="decimal")
+        prow = ttk.Frame(body)
+        prow.pack(fill="x")
+        ttk.Label(prow, text="Η τιμή στο αρχείο είναι:").pack(side="left")
+        ttk.Radiobutton(prow, text="με υποδιαστολή (5.40 ή 5,40)", value="decimal",
+                        variable=v_price).pack(side="left", padx=10)
+        ttk.Radiobutton(prow, text="σε λεπτά (540)", value="cents", variable=v_price).pack(side="left")
+        nrow = ttk.Frame(body)
+        nrow.pack(fill="x", pady=(6, 0))
+        ttk.Label(nrow, text="Όνομα πελάτη / προφίλ:").pack(side="left")
+        v_name = tk.StringVar(value="")
+        ttk.Entry(nrow, textvariable=v_name, width=32).pack(side="left", padx=8)
+        srow = ttk.Frame(body)
+        srow.pack(fill="x", pady=(6, 0))
+        ttk.Label(srow, text="Ζυγοί του καταστήματος:").pack(side="left")
+        v_ts = tk.BooleanVar(value=bool(self.cfg.get("tscale_on", True)))
+        v_ish = tk.BooleanVar(value=bool(self.cfg.get("ishida_on", False)))
+        v_ils = tk.BooleanVar(value=bool(self.cfg.get("step2c_enabled", False)))
+        for txt, var in (("T-Scale", v_ts), ("Ishida UNI-3", v_ish), ("ILS1100", v_ils)):
+            ttk.Checkbutton(srow, text=txt, variable=var).pack(side="left", padx=8)
+        ttk.Label(body, style="Hint.TLabel", wraplength=900, justify="left",
+                  text="Οι IP των ζυγών μπαίνουν στο «Βήμα 4». Για ILS, μετά πάτα στο Βήμα 3 "
+                       "«Field settings του ILS» για να γραφτεί το AutoTrans.CFG."
+                  ).pack(anchor="w")
+
+        # ---- 4. προεπισκόπηση
+        ttk.Label(body, text="4.  Πώς θα βγουν τα αρχεία", style="Title.TLabel").pack(anchor="w", pady=(10, 2))
+        prev = tk.Text(body, height=14, font=("Consolas", 9), wrap="none", bg=COLORS["console"],
+                       fg=COLORS["console_fg"], relief="flat", padx=8, pady=6)
+        prev.pack(fill="x")
+        bar = ttk.Frame(body)
+        bar.pack(fill="x", pady=10)
+        ttk.Button(bar, text="Προεπισκόπηση", command=lambda: preview()).pack(side="left")
+        ttk.Button(bar, text="Αποθήκευση και εφαρμογή", style="Accent.TButton",
+                   command=lambda: apply()).pack(side="left", padx=8)
+        ttk.Button(bar, text="Άκυρο", style="Ghost.TButton", command=win.destroy).pack(side="right")
+
+        def set_preview(text):
+            prev.configure(state="normal")
+            prev.delete("1.0", "end")
+            prev.insert("1.0", text)
+            prev.configure(state="disabled")
+
+        def analyze():
+            path = v_path.get().strip()
+            if not path or not os.path.isfile(path):
+                messagebox.showerror(APP_NAME, "Διάλεξε πρώτα το αρχείο του ERP.", parent=win)
+                return
+            try:
+                an = wizard_analyze_file(path)
+            except Exception as exc:
+                messagebox.showerror(APP_NAME, "Δεν διαβάστηκε το αρχείο.\n\n%s" % exc, parent=win)
+                return
+            state["analysis"] = an
+            if not an["delimiter"]:
+                v_info.set("Το αρχείο δεν έχει διαχωριστικό (κόμμα, ερωτηματικό, TAB) — μοιάζει "
+                           "σταθερού πλάτους. Ο οδηγός δουλεύει με στήλες· για σταθερό πλάτος "
+                           "ρύθμισε τον πίνακα του Βήματος 3 με Θέση/Μήκος.")
+                for w in cols_box.winfo_children():
+                    w.destroy()
+                return
+            v_header.set(bool(an["header"]))
+            v_info.set("Κωδικοσελίδα %s · διαχωριστικό %s · %d στήλες%s · %d γραμμές δείγμα" % (
+                an["enc"], {",": "κόμμα", ";": "ερωτηματικό", "\t": "TAB", "|": "κάθετος"}.get(
+                    an["delimiter"], an["delimiter"]), an["ncols"],
+                " (ο αριθμός αλλάζει ανά γραμμή: το διαχωριστικό υπάρχει και μέσα σε "
+                "περιγραφές — οι στήλες μετά το όνομα θα μετρηθούν από το τέλος)"
+                if an["varies"] else "", len(an["lines"])))
+            if not v_name.get().strip():
+                v_name.set(os.path.splitext(os.path.basename(path))[0].upper())
+            rebuild(guess=True)
+
+        def rebuild(guess=False):
+            an = state["analysis"]
+            if not an or not an["delimiter"]:
+                return
+            an["header"] = v_header.get()
+            cols = wizard_columns(an)
+            state["cols"] = cols
+            old = {i: v.get() for i, v in state["vars"].items()}
+            guessed = wizard_guess_meanings(cols) if guess or not old else {}
+            for w in cols_box.winfo_children():
+                w.destroy()
+            labels = [lbl for _k, lbl in WIZ_MEANINGS]
+            keys = [k for k, _l in WIZ_MEANINGS]
+            hdr = ttk.Frame(cols_box)
+            hdr.pack(fill="x")
+            for txt, w in (("ΣΤΗΛΗ", 8), ("ΕΠΙΚΕΦΑΛΙΔΑ", 16), ("ΔΕΙΓΜΑΤΑ ΑΠΟ ΤΟ ΑΡΧΕΙΟ", 52), ("ΤΙ ΕΙΝΑΙ", 26)):
+                ttk.Label(hdr, text=txt, style="Hint.TLabel", width=w).pack(side="left")
+            state["vars"] = {}
+            for i, name, samples in cols:
+                r = ttk.Frame(cols_box)
+                r.pack(fill="x", pady=1)
+                ttk.Label(r, text="%d" % i, width=8).pack(side="left")
+                ttk.Label(r, text=name[:15], width=16).pack(side="left")
+                deig = " | ".join(x[:22] for x in samples[:3])
+                ttk.Label(r, text=deig[:70], width=52, font=("Consolas", 9)).pack(side="left")
+                key = old.get(i) if i in old else WIZ_MEANING_LABEL.get(guessed.get(i, ""), labels[0])
+                v = tk.StringVar(value=key if key in labels else labels[0])
+                cb = ttk.Combobox(r, textvariable=v, values=labels, state="readonly", width=24)
+                cb.pack(side="left")
+                state["vars"][i] = v
+            # τιμή: με υποδιαστολή ή σε λεπτά;
+            for i, _n, samples in cols:
+                if WIZ_MEANING_LABEL.get("price") == state["vars"][i].get():
+                    v_price.set(wizard_price_mode_guess(samples))
+            state["_keys"] = (labels, keys)
+
+        def meanings():
+            labels, keys = state.get("_keys", ([], []))
+            out = {}
+            for i, v in state["vars"].items():
+                k = keys[labels.index(v.get())] if v.get() in labels else ""
+                if k:
+                    if k in out.values():
+                        raise ValueError("Το «%s» δόθηκε σε δύο στήλες." % WIZ_MEANING_LABEL[k])
+                    out[i] = k
+            return out
+
+        def build():
+            an = state["analysis"]
+            if not an or not an["delimiter"]:
+                raise ValueError("Κάνε πρώτα «Ανάλυση αρχείου».")
+            an["header"] = v_header.get()
+            return wizard_build_profiles(meanings(), an, v_price.get())
+
+        def preview():
+            try:
+                profs = build()
+            except ValueError as exc:
+                messagebox.showerror(APP_NAME, str(exc), parent=win)
+                return
+            state["profiles"] = profs
+            tmp = os.path.join(CONFIG_DIR, "preview_wizard")
+            shutil.rmtree(tmp, ignore_errors=True)
+            os.makedirs(tmp, exist_ok=True)
+            out = []
+            for key, var, title in (("tscale", v_ts, "T-Scale (product.csv)"),
+                                    ("ishida", v_ish, "Ishida (host2.csv)"),
+                                    ("ils", v_ils, "ILS (hostILS.txt)")):
+                if not var.get():
+                    continue
+                sub = dict(self.cfg)
+                sub.update(profs[key]["settings"])
+                sub["step2_fields"] = profs[key]["fields"]
+                sub["step2_input"] = v_path.get().strip()
+                sub["step2_output"] = os.path.join(tmp, key + ".txt")
+                logs = []
+                try:
+                    run_step2(sub, sub["step2_input"], logs.append)
+                    with open(sub["step2_output"], "rb") as fh:
+                        txt = fh.read().decode("cp1253", "replace")
+                    lines = [l for l in txt.split("\r\n") if l][:3]
+                    out.append("── %s" % title)
+                    out += ["   " + _show(l, 110) for l in lines]
+                    for l in logs:
+                        if "ΠΡΟΣΟΧΗ" in l or "κόπηκαν" in l:
+                            out.append("   " + l.strip())
+                except StepError as exc:
+                    out.append("── %s: ΣΦΑΛΜΑ %s" % (title, exc.message))
+                out.append("")
+            set_preview("\n".join(out) or "Δεν επιλέχθηκε κανένας ζυγός.")
+
+        def apply():
+            try:
+                profs = build()
+            except ValueError as exc:
+                messagebox.showerror(APP_NAME, str(exc), parent=win)
+                return
+            name = v_name.get().strip().replace("★", "").strip() or "ΠΕΛΑΤΗΣ"
+            if not messagebox.askyesno(
+                    APP_NAME, "Να αποθηκευτούν τα προφίλ «%s · T-Scale», «%s · Ishida», «%s · ILS» "
+                    "και να εφαρμοστούν στο Βήμα 3;\n\nΟ πίνακας του Βήματος 3 θα αντικατασταθεί."
+                    % (name, name, name), parent=win):
+                return
+            user = load_user_profiles()
+            full = {}
+            for key, label in (("tscale", "T-Scale"), ("ishida", "Ishida"), ("ils", "ILS")):
+                pname = "%s · %s" % (name, label)
+                user[pname] = profs[key]
+                full[key] = "★ " + pname
+                self.cfg["profiles"]["★ " + pname] = profs[key]
+            save_user_profiles(user)
+            # Βήμα 3: κύριος πίνακας = T-Scale (από αυτό βγαίνει το product.csv)
+            self.cfg["step2_fields"] = [dict(f) for f in profs["tscale"]["fields"]]
+            self.cfg.update(profs["tscale"]["settings"])
+            self.cfg["step2b_enabled"] = bool(v_ish.get())
+            self.cfg["step2b_profile"] = full["ishida"]
+            self.cfg["step2c_enabled"] = bool(v_ils.get())
+            self.cfg["step2c_profile"] = full["ils"]
+            self.cfg["tscale_on"] = bool(v_ts.get())
+            self.cfg["ishida_on"] = bool(v_ish.get())
+            self.cfg["ishida_price_cents"] = True
+            if not (self.cfg.get("watch_file") or "").strip():
+                self.cfg["watch_file"] = v_path.get().strip()
+            self._load_into_widgets()
+            self.refresh_profiles(full["tscale"])
+            self.log("Οδηγός: αποθηκεύτηκαν τα προφίλ «%s» (T-Scale/Ishida/ILS) και εφαρμόστηκαν "
+                     "στο Βήμα 3. Έλεγξε τις IP στο Βήμα 4 και πάτα «Αποθήκευση ρυθμίσεων»." % name)
+            win.destroy()
+            self.nb.select(3)
+
+        if v_path.get() and os.path.isfile(v_path.get()):
+            win.after(200, analyze)
+        win.wait_window()
 
     def _ils_fields_for_settings(self):
         """Τα πεδία του προφίλ ILS που είναι επιλεγμένο — ή του κύριου πίνακα."""
