@@ -1705,9 +1705,150 @@ ISHIDA_SUBHEADER = 10           # 10 bytes στα UNI-7/UNI-3 (αλλού 8)
 ISHIDA_BLOCK = 50               # εγγραφές ανά σύνδεση, όπως το SLP-5
 ISHIDA_FIELDS = 118             # πεδία ανά εγγραφή PLU
 ISHIDA_CODE_FIELD = 0
-ISHIDA_PRICE_FIELD = 70         # τιμή σε ΑΚΕΡΑΙΑ ΛΕΠΤΑ: 790 = 7,90 €
+ISHIDA_PRICE_FIELD = 70         # τιμή σε ΑΚΕΡΑΙΑ ΛΕΠΤΑ: 790 = 7,90 € (ζυγιζόμενο· τεμάχιο → 71)
+ISHIDA_PRICE_PIECE_FIELD = 71   # η τιμή όταν ο τρόπος πώλησης (69) είναι τεμάχιο (1/2)
 ISHIDA_BCFORMAT_FIELD = 86      # ποια μορφή barcode τυπώνει το προϊόν
 ISHIDA_BCCODE_FIELD = 89        # ο κωδικός που μπαίνει ΜΕΣΑ στο barcode (τα CCCCC)
+ISHIDA_NAME_FIELD = 68
+ISHIDA_SALESMODE_FIELD = 69     # 0 ζυγιζόμενο, 1/2 τεμάχιο, 4 ανά 100g
+ISHIDA_POSFLAG_FIELD = 88       # ΔΕΝ είναι ΦΠΑ: 29 με barcode βάρους, 21 αλλιώς (ERGON)
+ISHIDA_TAXNO_FIELD = 39         # η φορολογική κατηγορία του ζυγού (0 στον ERGON)
+ISHIDA_GROUP_FIELD = 54         # ομάδα/κατηγορία (0, 2-6 στον ERGON)
+
+# Και τα 118 πεδία της εγγραφής PLU του UNI-7 (θέση, όνομα στη βάση του SLP-5,
+# περιγραφή). Βγήκαν από τη σειρά με την οποία το ScaleLink γράφει την εγγραφή
+# και επαληθεύτηκαν πάνω στις 381 εγγραφές του ERGON: τα κενά πεδία συμπίπτουν
+# ένα προς ένα. Κενό όνομα = πεδίο που το SLP αφήνει πάντα κενό.
+ISHIDA_PLU_FIELDS = (
+    (0, "Plu_No", "Κωδικός PLU"),
+    (1, "ItemCode", "Κωδικός είδους (item code)"),
+    (2, "PackDateFlag", "Σημαία ημ/νίας συσκευασίας"),
+    (3, "PackTimeFlag", "Σημαία ώρας συσκευασίας"),
+    (4, "PackTime", "Ώρα συσκευασίας"),
+    (5, "ShelfLifeFlag", "Σημαία διάρκειας ζωής"),
+    (6, "ExpiryTimeFlag", "Σημαία ώρας λήξης"),
+    (7, "ShelfLife", "Διάρκεια ζωής (ημέρες)"),
+    (8, "ExpTime", "Ώρα λήξης"),
+    (9, "BestBeforeFlag", "Σημαία «ανάλωση κατά προτίμηση»"),
+    (10, "BestBefore", "Ανάλωση κατά προτίμηση (ημέρες)"),
+    (11, "PrintFlag", "Σημαία εκτύπωσης"),
+    (12, "", ""),
+    (13, "", ""),
+    (14, "", ""),
+    (15, "LabelFormatNo1", "Μορφή ετικέτας 1"),
+    (16, "LabelFormatNo2", "Μορφή ετικέτας 2"),
+    (17, "LabelFormatNoPrep", "Μορφή ετικέτας προετοιμασίας"),
+    (18, "LinkPluNo", "Συνδεδεμένο PLU"),
+    (19, "DepositFlag", "Σημαία εγγύησης"),
+    (20, "", ""),
+    (21, "FreeMsg1", "Ελεύθερο μήνυμα 1"),
+    (22, "FreeMsg2", "Ελεύθερο μήνυμα 2"),
+    (23, "FreeMsg3", "Ελεύθερο μήνυμα 3"),
+    (24, "FreeMsg4", "Ελεύθερο μήνυμα 4"),
+    (25, "FreeMsg5", "Ελεύθερο μήνυμα 5"),
+    (26, "FreeMsg6", "Ελεύθερο μήνυμα 6"),
+    (27, "FreeMsg7", "Ελεύθερο μήνυμα 7"),
+    (28, "FreeMsg8", "Ελεύθερο μήνυμα 8"),
+    (29, "FreeMsg9", "Ελεύθερο μήνυμα 9"),
+    (30, "FreeMsg10", "Ελεύθερο μήνυμα 10"),
+    (31, "FreeMsg11", "Ελεύθερο μήνυμα 11"),
+    (32, "FreeMsg12", "Ελεύθερο μήνυμα 12"),
+    (33, "FreeMsg13", "Ελεύθερο μήνυμα 13"),
+    (34, "FreeMsg14", "Ελεύθερο μήνυμα 14"),
+    (35, "FreeMsg15", "Ελεύθερο μήνυμα 15"),
+    (36, "", ""),
+    (37, "", ""),
+    (38, "CostPrice", "Τιμή κόστους"),
+    (39, "TaxNo", "Φορολογική κατηγορία (TaxNo) — 0 στον ERGON"),
+    (40, "", ""),
+    (41, "NutrText", "Κείμενο διατροφικών"),
+    (42, "", ""),
+    (43, "", ""),
+    (44, "", ""),
+    (45, "2ndLabelFlag", "Σημαία 2ης ετικέτας (2 = όχι)"),
+    (46, "", ""),
+    (47, "", ""),
+    (48, "OpenPriceFlag", "Ανοιχτή τιμή"),
+    (49, "Nutrition", "Διατροφικά (αριθμός)"),
+    (50, "ForcedTraceFlag", "Σημαία ιχνηλασιμότητας"),
+    (51, "SafeHandlingFlag", "Σημαία ασφαλούς χειρισμού"),
+    (52, "SafeHandlingNo", "Ασφαλής χειρισμός (αριθμός)"),
+    (53, "DeptCode", "Τμήμα"),
+    (54, "GroupCode", "Ομάδα / κατηγορία"),
+    (55, "PointFlag", "Σημαία πόντων"),
+    (56, "PointType", "Τύπος πόντων"),
+    (57, "Points", "Πόντοι"),
+    (58, "TargetFlag", "Σημαία στόχου"),
+    (59, "TargetLimit", "Όριο στόχου"),
+    (60, "FeeFlag", "Σημαία τέλους"),
+    (61, "Fee", "Τέλος"),
+    (62, "CookingNo", "Οδηγίες μαγειρέματος (αριθμός)"),
+    (63, "TraceFlag", "Σημαία ιχνηλασιμότητας 2"),
+    (64, "SchemeNo", "Σχήμα (αριθμός)"),
+    (65, "", ""),
+    (66, "DateCalculation", "Υπολογισμός ημερομηνίας"),
+    (67, "ImageNo", "Εικόνα (αριθμός)"),
+    (68, "DescText", "ΟΝΟΜΑ — σε «…», με χαρακτήρες ελέγχου γραμμής"),
+    (69, "SalesMode", "ΤΡΟΠΟΣ ΠΩΛΗΣΗΣ: 0 ζυγιζόμενο, 1/2 τεμάχιο, 4 ανά 100g"),
+    (70, "UnitPrice", "ΤΙΜΗ σε λεπτά (ζυγιζόμενο, 70 / τεμάχιο, 71)"),
+    (71, "UnitPrice", "ΤΙΜΗ σε λεπτά όταν ο τρόπος πώλησης είναι τεμάχιο (1/2)"),
+    (72, "MarkFlag", "Σημαία σήμανσης"),
+    (73, "MarkPrice", "Τιμή σήμανσης"),
+    (74, "", ""),
+    (75, "PackQuant", "Ποσότητα συσκευασίας"),
+    (76, "Unit", "Μονάδα"),
+    (77, "Weight", "Σταθερό βάρος"),
+    (78, "UpperLimit", "Άνω όριο βάρους"),
+    (79, "LowerLimit", "Κάτω όριο βάρους"),
+    (80, "Tare", "Απόβαρο"),
+    (81, "", ""),
+    (82, "", ""),
+    (83, "", ""),
+    (84, "", ""),
+    (85, "PosSelect", "Επιλογή POS"),
+    (86, "BarCodeNum", "ΜΟΡΦΗ BARCODE (16 βάρος, 4 τιμή, 0 χωρίς)"),
+    (87, "PosFlagSelect", "Επιλογή σημαίας POS"),
+    (88, "Posflag", "Σημαία POS — στον ERGON 29 (barcode βάρους) / 21 (άλλα)· ΔΕΝ είναι ΦΠΑ"),
+    (89, "PosCode", "ΚΩΔΙΚΟΣ ΜΕΣΑ ΣΤΟ BARCODE (τα CCCCC)"),
+    (90, "RegCode", "Κωδικός ταμείου"),
+    (91, "", ""),
+    (92, "PopMsg", "Μήνυμα POP"),
+    (93, "Coupon", "Κουπόνι"),
+    (94, "ExMessage1", "Έξτρα μήνυμα 1"),
+    (95, "ExMessage2", "Έξτρα μήνυμα 2"),
+    (96, "ExMessage3", "Έξτρα μήνυμα 3"),
+    (97, "Logo1", "Λογότυπο 1"),
+    (98, "Logo2", "Λογότυπο 2"),
+    (99, "Logo3", "Λογότυπο 3"),
+    (100, "TrayNo", "Δίσκος"),
+    (101, "WrappingMode", "Τρόπος περιτύλιξης"),
+    (102, "", ""),
+    (103, "ServeHeight", "Ύψος σερβιρίσματος"),
+    (104, "", ""),
+    (105, "", ""),
+    (106, "", ""),
+    (107, "PropTare", "Αναλογικό απόβαρο"),
+    (108, "No2Tare", "Δεύτερο απόβαρο"),
+    (109, "Ean128CodeType", "Τύπος EAN-128"),
+    (110, "ItfCodeType", "Τύπος ITF"),
+    (111, "", ""),
+    (112, "PriceGroup1", "Ομάδα τιμής 1"),
+    (113, "PriceGroup2", "Ομάδα τιμής 2"),
+    (114, "PriceGroup3", "Ομάδα τιμής 3"),
+    (115, "PriceGroup4", "Ομάδα τιμής 4"),
+    (116, "PriceGroup5", "Ομάδα τιμής 5"),
+    (117, "", ""),
+)
+ISHIDA_PLU_BY_POS = {p: (n, d) for p, n, d in ISHIDA_PLU_FIELDS}
+
+
+def ishida_price_index(pedia):
+    """Πού είναι η τιμή: 70 για ζυγιζόμενο (τρόπος 0/3), 71 για τεμάχιο."""
+    try:
+        tropos = (pedia[ISHIDA_SALESMODE_FIELD] or "0").strip()
+    except IndexError:
+        tropos = "0"
+    return ISHIDA_PRICE_FIELD if tropos in ("0", "3", "") else ISHIDA_PRICE_PIECE_FIELD
 ISHIDA_ENCODING = "cp1253"
 
 # Οι μορφές barcode του ζυγού. Η λίστα είναι δική του — βρέθηκε ατόφια μέσα στο
@@ -1762,8 +1903,7 @@ ISHIDA_BC_KEEP = -1             # «μην την αλλάζεις» — η πρ
 # στημένη η συγκεκριμένη εγκατάσταση.
 ISHIDA_TEMPLATE = ',0,1,0,0,1,0,1000,0,2,0,1,,,,0,0,0,0,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,,,,0,,,,,,2,,,0,0,2,1,0,0,0,0,0,0,1,0,3,0,0,0,0,,,0,,0,,0,0,0,,0,0,0,0,0,0,,,,,0,0,1,0,,0,,0,0,0,0,0,0,0,0,,,,,,,,0,0,,,,0,0,0,0,0,'
 
-ISHIDA_SALEMODE_FIELD = 50      # 2 = ζυγιζόμενο, 1 = τεμάχιο
-ISHIDA_TAX_FIELD = 88
+ISHIDA_TAX_FIELD = ISHIDA_POSFLAG_FIELD   # παλιό όνομα — ΔΕΝ είναι ΦΠΑ, δεν το γράφουμε πια
 
 
 # Πόσους χαρακτήρες χωράει μία γραμμή ονόματος στον ζυγό, ανά μορφή. Μετρήθηκε
@@ -2220,11 +2360,11 @@ def ishida_new_record(protypo, kodikos, onoma, lepta, fpa, morfi_barcode):
     pedia = ishida_split_fields(protypo)
     gymnos = kodikos.lstrip("0") or "0"
     pedia[ISHIDA_CODE_FIELD] = gymnos
-    pedia[ISHIDA_PRICE_FIELD] = str(lepta)
-    pedia[68] = ishida_format_name(onoma)
+    pedia[ishida_price_index(pedia)] = str(lepta)
+    pedia[ISHIDA_NAME_FIELD] = ishida_format_name(onoma)
     pedia[ISHIDA_BCCODE_FIELD] = gymnos
-    if fpa:
-        pedia[ISHIDA_TAX_FIELD] = fpa
+    # Το πεδίο 88 (Posflag) ΔΕΝ είναι ΦΠΑ — κληρονομείται από το πρότυπο, που
+    # διαλέγεται με την ίδια μορφή barcode. Το «fpa» του ERP δεν γράφεται πουθενά.
     if morfi_barcode != ISHIDA_BC_KEEP:
         pedia[ISHIDA_BCFORMAT_FIELD] = str(morfi_barcode)
     return ",".join(pedia)
@@ -2247,6 +2387,14 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
     protypo = ISHIDA_TEMPLATE
     if dimiourgia and yparxonta:
         protypo = next(iter(yparxonta.values()))
+        if morfi_barcode != ISHIDA_BC_KEEP:
+            # Ίδια μορφή barcode → ίδιες και οι «σημαίες» που τη συνοδεύουν (π.χ. το
+            # πεδίο 88: 29 για barcode βάρους, 21 για τα άλλα στον ERGON).
+            for eggrafi in yparxonta.values():
+                p = ishida_split_fields(eggrafi)
+                if len(p) > ISHIDA_BCFORMAT_FIELD and p[ISHIDA_BCFORMAT_FIELD] == str(morfi_barcode):
+                    protypo = eggrafi
+                    break
     for row in items:
         kodikos = str(row.get("product_number", "")).strip()
         kleidi = kodikos.lstrip("0") or "0"
@@ -2271,7 +2419,8 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
         pedia = ishida_split_fields(palia)
         if len(pedia) < ISHIDA_FIELDS:
             continue
-        idia_timi = pedia[ISHIDA_PRICE_FIELD] == str(lepta)
+        thesi_timis = ishida_price_index(pedia)
+        idia_timi = pedia[thesi_timis] == str(lepta)
 
         # Το όνομα αλλάζει μόνο αν άλλαξε στο ERP. Τα υπόλοιπα μένουν όπως τα
         # έγραψε ο ζυγός, με τη μορφοποίησή τους.
@@ -2305,7 +2454,7 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
 
         if idia_timi and not piraxe_barcode and not allaxe_onoma:
             continue                                # τίποτα δεν άλλαξε: δεν το στέλνουμε
-        pedia[ISHIDA_PRICE_FIELD] = str(lepta)
+        pedia[thesi_timis] = str(lepta)
         telika.append(",".join(pedia))
         if allaxe_onoma:
             onomata_allages += 1
@@ -4562,6 +4711,8 @@ class App(tk.Tk):
                    command=lambda: self.profile_fields_dialog("ishida")).pack(side="left", padx=(8, 0))
         ttk.Button(srow, text="Τι να ρυθμίσεις στο ScaleLink…", style="Pick.TButton",
                    command=self.ishida_import_settings_dialog).pack(side="left", padx=(6, 0))
+        ttk.Button(srow, text="Τα 118 πεδία του ζυγού…", style="Ghost.TButton",
+                   command=self.ishida_scale_fields_dialog).pack(side="left", padx=(6, 0))
         g2 = ttk.Frame(self.blk_ishida)
         g2.pack(fill="x")
         self.v_s2b_out = tk.StringVar()
@@ -5752,6 +5903,25 @@ class App(tk.Tk):
         ttk.Button(bar, text="Αποθήκευση", style="Accent.TButton", command=save).pack(side="right", padx=8)
         fill(0)
         win.wait_window()
+
+    def ishida_scale_fields_dialog(self):
+        """Αναφορά: η εγγραφή PLU του ζυγού Ishida, πεδίο προς πεδίο, και τι γράφουμε εμείς."""
+        grafoume = {ISHIDA_CODE_FIELD: "γράφουμε: κωδικός", ISHIDA_NAME_FIELD: "γράφουμε: όνομα (αν άλλαξε)",
+                    ISHIDA_PRICE_FIELD: "γράφουμε: ΤΙΜΗ (ζυγιζόμενα)", ISHIDA_PRICE_PIECE_FIELD: "γράφουμε: ΤΙΜΗ (τεμάχια)",
+                    ISHIDA_BCFORMAT_FIELD: "γράφουμε: μορφή barcode (αν ζητηθεί)",
+                    ISHIDA_BCCODE_FIELD: "γράφουμε: κωδικός στο barcode"}
+        lines = ["Η εγγραφή PLU του Ishida UNI-3/UNI-7: 118 πεδία CSV. Διαβάζουμε όλη την εγγραφή από τον",
+                 "ζυγό, αλλάζουμε μόνο τα παρακάτω «γράφουμε» και τη στέλνουμε πίσω — τα υπόλοιπα μένουν",
+                 "όπως τα έχει ο ζυγός. Νέο είδος = αντίγραφο υπάρχοντος με την ίδια μορφή barcode.", "",
+                 "%-5s %-18s %s" % ("ΘΕΣΗ", "ΠΕΔΙΟ", "ΤΙ ΕΙΝΑΙ")]
+        for pos, name, desc in ISHIDA_PLU_FIELDS:
+            if not name:
+                continue
+            extra = grafoume.get(pos, "")
+            lines.append("%-5d %-18s %s%s" % (pos, name, desc, ("   ← " + extra) if extra else ""))
+        lines += ["", "Κενές θέσεις (το SLP τις αφήνει πάντα κενές): %s" % ", ".join(
+            str(p) for p, n, _d in ISHIDA_PLU_FIELDS if not n)]
+        self._confirm_text("Τα 118 πεδία του ζυγού Ishida", lines, yes="Κλείσιμο", no=None)
 
     def ishida_import_settings_dialog(self):
         """Οδηγίες για το «Setup Text Import» του ScaleLink Pro: πώς είναι το αρχείο μας.
