@@ -27,7 +27,7 @@ import datetime
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
-APP_BUILD = "2.20.0-beta.7"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "2.20.0-beta.8"                        # σύγκριση για ενημερώσεις
 # Δοκιμαστική έκδοση (beta): «2.20.0-beta.1». Ζει ΔΙΠΛΑ στην κανονική εγκατάσταση
 # χωρίς να την αγγίζει — άλλο όνομα exe, άλλος φάκελος ρυθμίσεων, άλλη θύρα,
 # άλλο κανάλι ενημερώσεων (branch «beta», pre-releases). Οι κανονικές εγκαταστάσεις
