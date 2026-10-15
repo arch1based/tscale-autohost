@@ -3827,6 +3827,10 @@ class App(tk.Tk):
         self._build_tab1()
         self._build_tab2()
         self._build_tab3()
+        # Τα μπλοκ του Βήματος 3 ακολουθούν τα τσεκ «έχει ζυγούς …» του Βήματος 4.
+        self.v_tscale_on.trace_add("write", lambda *_a: self._refresh_tab2_blocks())
+        self.v_ish_on.trace_add("write", lambda *_a: self._refresh_tab2_blocks())
+        self._refresh_tab2_blocks()
 
         bar = ttk.Frame(self, style="Bar.TFrame", padding=(12, 10))
         bar.pack(side="bottom", fill="x")
@@ -4142,105 +4146,43 @@ class App(tk.Tk):
         self.v_s1exe = tk.StringVar()
         self._pick_row(g, "Προαιρετικό εξωτερικό .exe μετατροπής:", self.v_s1exe, "exe", 0)
 
+    def _block(self, parent, title, hint=None):
+        """Ένα πλαίσιο ανά ζυγό στο Βήμα 3: τίτλος με χρώμα, προαιρετική υπόδειξη."""
+        blk = ttk.Frame(parent)
+        ttk.Separator(blk, orient="horizontal").pack(fill="x", pady=(8, 4))
+        tk.Label(blk, text=title, bg=COLORS["card"], fg=COLORS["brand"],
+                 font=("Segoe UI", 11, "bold"), anchor="w").pack(anchor="w")
+        if hint:
+            ttk.Label(blk, style="Hint.TLabel", justify="left", wraplength=920, text=hint
+                      ).pack(anchor="w", pady=(0, 4))
+        return blk
+
     def _build_tab2(self):
+        """Βήμα 3: πώς διαβάζεται το ERP (κοινό) και ένα μπλοκ ανά ζυγό.
+
+        Τα μπλοκ T-Scale και Ishida φαίνονται μόνο όταν το κατάστημα έχει τον
+        ζυγό (τσεκ στο Βήμα 4) — ο τεχνικός βλέπει μόνο ό,τι τον αφορά.
+        """
         f = self.tab2
         self.v_s2 = tk.BooleanVar()
-        ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 3 — Αρχείο προϊόντων", variable=self.v_s2).pack(anchor="w")
+        ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 3 — Αρχεία προϊόντων",
+                        variable=self.v_s2).pack(anchor="w")
 
-        prof = ttk.Frame(f)
-        prof.pack(fill="x", pady=(2, 6))
-        ttk.Label(prof, text="Προφίλ ζυγού:").pack(side="left")
-        names = list(self.cfg.get("profiles", {}))
-        self.v_profile = tk.StringVar(value=names[0] if names else "")
-        self.cmb_profile = ttk.Combobox(prof, textvariable=self.v_profile, values=names,
-                                        state="readonly", width=36)
-        self.cmb_profile.pack(side="left", padx=6)
-        ttk.Button(prof, text="Φόρτωση", style="Accent.TButton",
-                   command=lambda: self.load_profile(self.v_profile.get())).pack(side="left")
-        ttk.Button(prof, text="🧭  Οδηγός από το αρχείο του ERP…",
-                   command=self.column_wizard).pack(side="left", padx=(12, 0))
-        ttk.Button(prof, text="Αποθήκευση ως…", command=self.save_profile).pack(side="left", padx=6)
-        ttk.Button(prof, text="Διαγραφή", style="Ghost.TButton",
-                   command=self.delete_profile).pack(side="left")
-
-        g = ttk.Frame(f)
-        g.pack(fill="x", pady=6)
-        self.v_s2in = tk.StringVar()
-        self.v_s2out = tk.StringVar()
-        self._pick_row(g, "Αρχείο εισόδου — άφησέ το κενό:", self.v_s2in, "file", 0)
-        self._pick_row(g, "Να δημιουργείται εδώ:", self.v_s2out, "save", 1)
-        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Κενή είσοδος = παίρνει ό,τι έβγαλε το προηγούμενο βήμα (έξοδος Βήματος 2, "
-                       "αλλιώς host1). Το αρχείο εξόδου φτιάχνεται μόνο του — δεν χρειάζεται να υπάρχει."
-                  ).pack(anchor="w", pady=(0, 4))
-        second = ttk.Frame(f)
-        second.pack(fill="x", pady=(6, 4))
-        ttk.Separator(second, orient="horizontal").pack(fill="x", pady=(0, 6))
-        srow = ttk.Frame(second)
-        srow.pack(fill="x")
-        self.v_s2b = tk.BooleanVar(value=False)
-        ttk.Checkbutton(srow, text="Φτιάξε και δεύτερο αρχείο (π.χ. για Ishida)",
-                        variable=self.v_s2b).pack(side="left")
-        ttk.Label(srow, text="μορφή:").pack(side="left", padx=(14, 3))
-        self.v_s2b_profile = tk.StringVar()
-        self.cmb_s2b = ttk.Combobox(srow, textvariable=self.v_s2b_profile, state="readonly",
-                                    width=34, values=list(self.cfg.get("profiles", {})))
-        self.cmb_s2b.pack(side="left")
-        ttk.Button(srow, text="Τι να ρυθμίσεις στο ScaleLink…", style="Pick.TButton",
-                   command=self.ishida_import_settings_dialog).pack(side="left", padx=(8, 0))
-        g2 = ttk.Frame(second)
-        g2.pack(fill="x")
-        self.v_s2b_out = tk.StringVar()
-        self._pick_row(g2, "Να δημιουργείται εδώ:", self.v_s2b_out, "save", 0)
-        ttk.Label(second, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Ίδια δεδομένα, άλλη γραφή — φτιάχνεται στην ίδια εκτέλεση με το "
-                       "product.csv. Κενή διαδρομή = host2.csv στον φάκελο εξόδου."
-                  ).pack(anchor="w", pady=(2, 0))
-
-        third = ttk.Frame(f)
-        third.pack(fill="x", pady=(6, 4))
-        ttk.Separator(third, orient="horizontal").pack(fill="x", pady=(0, 6))
-        trow = ttk.Frame(third)
-        trow.pack(fill="x")
-        self.v_s2c = tk.BooleanVar(value=False)
-        ttk.Checkbutton(trow, text="Φτιάξε και αρχείο για ILS (hostILS)",
-                        variable=self.v_s2c).pack(side="left")
-        ttk.Label(trow, text="μορφή:").pack(side="left", padx=(14, 3))
-        self.v_s2c_profile = tk.StringVar()
-        self.cmb_s2c = ttk.Combobox(trow, textvariable=self.v_s2c_profile, state="readonly",
-                                    width=34, values=list(self.cfg.get("profiles", {})))
-        self.cmb_s2c.pack(side="left")
-        ttk.Button(trow, text="Field settings του ILS (AutoTrans.CFG)…", style="Pick.TButton",
-                   command=self.ils_field_settings_dialog).pack(side="left", padx=(8, 0))
-        ttk.Button(trow, text="Διάβασε υπάρχον CFG…", style="Ghost.TButton",
-                   command=self.ils_profile_from_cfg_dialog).pack(side="left", padx=(4, 0))
-        g3 = ttk.Frame(third)
-        g3.pack(fill="x")
-        self.v_s2c_out = tk.StringVar()
-        self._pick_row(g3, "Να δημιουργείται εδώ:", self.v_s2c_out, "save", 0)
-        ttk.Label(third, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="Για ζυγούς ILS1100. Κενή διαδρομή = hostILS.csv στον φάκελο "
-                       "εξόδου. Το ILS διαβάζει το αρχείο με τις θέσεις του «Field settings» "
-                       "(AutoTrans.CFG). Με το κουμπί βλέπεις τι πρέπει να λέει για το προφίλ "
-                       "που διάλεξες και το γράφεις στο CFG του πελάτη (με αντίγραφο). "
-                       "Αν η εγκατάσταση έχει ήδη ρυθμισμένο CFG, διάβασέ το για να βγει το "
-                       "προφίλ από αυτό."
-                  ).pack(anchor="w", pady=(2, 0))
-
-        advbar = ttk.Frame(f)
-        advbar.pack(fill="x", pady=(8, 0))
-        self.btn_adv2 = ttk.Button(advbar, text="⚙  Αναλυτικές ρυθμίσεις  ▾",
+        # ---- κοινά: οδηγός + πώς διαβάζεται το ERP
+        topbar = ttk.Frame(f)
+        topbar.pack(fill="x", pady=(2, 2))
+        ttk.Button(topbar, text="🧭  Οδηγός από το αρχείο του ERP…", style="Accent.TButton",
+                   command=self.column_wizard).pack(side="left")
+        self.btn_adv2 = ttk.Button(topbar, text="⚙  Πώς διαβάζεται το ERP / μορφή αρχείων  ▾",
                                    style="Ghost.TButton", command=self.toggle_adv2)
-        self.btn_adv2.pack(side="left")
-        ttk.Label(advbar, style="Hint.TLabel",
-                  text="μορφή αρχείου, κωδικοσελίδες, διαχωριστικά — τα ρυθμίζει το προφίλ"
+        self.btn_adv2.pack(side="left", padx=(12, 0))
+        ttk.Label(topbar, style="Hint.TLabel", text="τα ρυθμίζει το προφίλ — σπάνια με το χέρι"
                   ).pack(side="left", padx=8)
-
         self.adv2 = ttk.Frame(f)          # κρυφό: ό,τι ορίζει ήδη το προφίλ
 
         intype = ttk.Frame(self.adv2)
         intype.pack(fill="x", pady=(2, 4))
-        ttk.Label(intype, text="Αρχείο εισόδου:").pack(side="left")
+        ttk.Label(intype, text="Αρχείο ERP:").pack(side="left")
         self.v_input_type = tk.StringVar(value="fixed")
         ttk.Radiobutton(intype, text="Σταθερού πλάτους (θέσεις/μήκη)", value="fixed",
                         variable=self.v_input_type,
@@ -4261,63 +4203,10 @@ class App(tk.Tk):
         self.v_delim = tk.StringVar(value=",")
         ttk.Label(o, text="Γραμμή έναρξης:").pack(side="left")
         ttk.Entry(o, textvariable=self.v_start, width=5).pack(side="left", padx=4)
-        ttk.Checkbutton(o, text="Γράψε γραμμή επικεφαλίδων", variable=self.v_header).pack(side="left", padx=(12, 0))
-
-        fmt = ttk.Frame(self.adv2)
-        fmt.pack(fill="x", pady=(6, 2))
-        ttk.Label(fmt, text="Μορφή αρχείου:").pack(side="left")
-        self.v_format = tk.StringVar(value="csv")
-        for val, txt in (("csv", "CSV για T-Scale (κόμμα)"),
-                         ("semicolon", "CSV με ερωτηματικό (;)"),
-                         ("tab", "TXT με Tab"),
-                         ("fixed", "TXT σταθερού πλάτους")):
-            ttk.Radiobutton(fmt, text=txt, value=val, variable=self.v_format,
-                            command=self.on_format_change).pack(side="left", padx=(10, 0))
-
-        extra = ttk.Frame(self.adv2)
-        extra.pack(fill="x", pady=(2, 2))
-        self.v_tail = tk.BooleanVar(value=False)
-        self.v_quotes = tk.BooleanVar(value=False)
-        ttk.Checkbutton(extra, text="Διαχωριστικό και στο τέλος κάθε γραμμής (π.χ. ;…;)",
-                        variable=self.v_tail).pack(side="left")
-        ttk.Checkbutton(extra, text="Εισαγωγικά όπου χρειάζεται (πρότυπο CSV)",
-                        variable=self.v_quotes).pack(side="left", padx=14)
-
-        extra2 = ttk.Frame(self.adv2)
-        extra2.pack(fill="x", pady=(0, 2))
-        self.v_sanitize = tk.BooleanVar(value=True)
-        self.v_dedupe = tk.BooleanVar(value=False)
-        ttk.Checkbutton(extra2, text="Καθάρισε το διαχωριστικό μέσα στις περιγραφές",
-                        variable=self.v_sanitize).pack(side="left")
-        ttk.Checkbutton(extra2, text="Μία εγγραφή ανά κωδικό (κρατά την τελευταία)",
-                        variable=self.v_dedupe).pack(side="left", padx=14)
-        self.v_finalnl = tk.BooleanVar(value=True)
-        ttk.Checkbutton(extra2, text="Αλλαγή γραμμής στο τέλος του αρχείου",
-                        variable=self.v_finalnl).pack(side="left")
         ttk.Checkbutton(o, text="Θέση 1 = πρώτος χαρακτήρας", variable=self.v_onebased).pack(side="left", padx=12)
 
-        self.lbl_intype_hint = ttk.Label(self.adv2, style="Hint.TLabel", justify="left", wraplength=920)
-        self.lbl_intype_hint.pack(anchor="w", pady=(0, 4))
-
-        b = ttk.Frame(f)
-        b.pack(side="bottom", fill="x", pady=(6, 0))
-        ttk.Button(b, text="⚖  Πεδία T-Scale…", style="Accent.TButton",
-                   command=self.tscale_fields_dialog).pack(side="left")
-        ttk.Button(b, text="Εναλλαγή ✓ (ή Space)", command=self.toggle_field).pack(side="left", padx=(10, 0))
-        ttk.Button(b, text="Επεξεργασία γραμμής", command=self.on_edit_cell).pack(side="left", padx=6)
-        ttk.Button(b, text="+ Νέα γραμμή", command=self.add_field_row).pack(side="left")
-        ttk.Button(b, text="− Αφαίρεση", command=self.remove_field_row).pack(side="left", padx=6)
-        ttk.Button(b, text="▲", width=3, command=lambda: self.move_field_row(-1)).pack(side="left")
-        ttk.Button(b, text="▼", width=3, command=lambda: self.move_field_row(1)).pack(side="left", padx=(2, 6))
-        ttk.Button(b, text="Αρχικοποίηση", style="Ghost.TButton", command=self.reset_fields).pack(side="left")
-        # Ο πίνακας φτιάχνεται ΜΕΣΑ στο πλαίσιό του: αλλιώς μένει από κάτω του
-        # στη σειρά σχεδίασης και δεν φαίνεται καθόλου.
-        tree_box = ttk.Frame(f)
-        tree_box.pack(fill="x", pady=4)
-        self.tree_box = tree_box
-
         enc = ttk.Frame(self.adv2)
-        enc.pack(fill="x", pady=(6, 2))
+        enc.pack(fill="x", pady=(2, 2))
         ttk.Label(enc, text="Κωδικοσελίδα — είσοδος:").pack(side="left")
         self.v_enc_in = tk.StringVar(value="auto")
         ttk.Combobox(enc, textvariable=self.v_enc_in, width=12, state="readonly",
@@ -4331,12 +4220,94 @@ class App(tk.Tk):
         self.v_bytes = tk.BooleanVar(value=False)
         ttk.Checkbutton(enc, text="Οι θέσεις μετρούν bytes (αρχεία UTF-8)",
                         variable=self.v_bytes).pack(side="left", padx=12)
+
+        fmt = ttk.Frame(self.adv2)
+        fmt.pack(fill="x", pady=(6, 2))
+        ttk.Label(fmt, text="Μορφή product.csv:").pack(side="left")
+        self.v_format = tk.StringVar(value="csv")
+        for val, txt in (("csv", "CSV (κόμμα)"), ("semicolon", "CSV με ερωτηματικό (;)"),
+                         ("tab", "TXT με Tab"), ("fixed", "TXT σταθερού πλάτους")):
+            ttk.Radiobutton(fmt, text=txt, value=val, variable=self.v_format,
+                            command=self.on_format_change).pack(side="left", padx=(10, 0))
+        extra = ttk.Frame(self.adv2)
+        extra.pack(fill="x", pady=(2, 2))
+        self.v_tail = tk.BooleanVar(value=False)
+        self.v_quotes = tk.BooleanVar(value=False)
+        ttk.Checkbutton(extra, text="Γράψε γραμμή επικεφαλίδων", variable=self.v_header).pack(side="left")
+        ttk.Checkbutton(extra, text="Διαχωριστικό και στο τέλος κάθε γραμμής (;…;)",
+                        variable=self.v_tail).pack(side="left", padx=14)
+        ttk.Checkbutton(extra, text="Εισαγωγικά όπου χρειάζεται (πρότυπο CSV)",
+                        variable=self.v_quotes).pack(side="left")
+        extra2 = ttk.Frame(self.adv2)
+        extra2.pack(fill="x", pady=(0, 2))
+        self.v_sanitize = tk.BooleanVar(value=True)
+        self.v_dedupe = tk.BooleanVar(value=False)
+        self.v_finalnl = tk.BooleanVar(value=True)
+        ttk.Checkbutton(extra2, text="Καθάρισε το διαχωριστικό μέσα στις περιγραφές",
+                        variable=self.v_sanitize).pack(side="left")
+        ttk.Checkbutton(extra2, text="Μία εγγραφή ανά κωδικό (κρατά την τελευταία)",
+                        variable=self.v_dedupe).pack(side="left", padx=14)
+        ttk.Checkbutton(extra2, text="Αλλαγή γραμμής στο τέλος του αρχείου",
+                        variable=self.v_finalnl).pack(side="left")
+        self.lbl_intype_hint = ttk.Label(self.adv2, style="Hint.TLabel", justify="left", wraplength=920)
+        self.lbl_intype_hint.pack(anchor="w", pady=(0, 2))
         ttk.Label(self.adv2, style="Hint.TLabel", justify="left", wraplength=920,
-                  text="«auto» αναγνωρίζει μόνο του UTF-8 / Windows-1253 / DOS-737. "
-                       "ΠΡΟΣΟΧΗ: για ελληνικά η ΕΞΟΔΟΣ πρέπει να είναι cp1253 — με utf-8 ο "
-                       "ζυγός δείχνει ακαταλαβίστικους χαρακτήρες."
+                  text="«auto» αναγνωρίζει μόνο του UTF-8 / Windows-1253 / DOS-737. Για ελληνικά η "
+                       "ΕΞΟΔΟΣ πρέπει να είναι cp1253 — με utf-8 ο ζυγός δείχνει ακαταλαβίστικα."
                   ).pack(anchor="w", pady=(0, 2))
 
+        # ---- τα μπλοκ ανά ζυγό
+        self.blocks = ttk.Frame(f)
+        self.blocks.pack(fill="x")
+        self.lbl_no_scales = ttk.Label(
+            self.blocks, style="Hint.TLabel", wraplength=920, justify="left",
+            text="Δεν έχει δηλωθεί κανένας ζυγός στο Βήμα 4 — τσέκαρε εκεί τι ζυγούς έχει το "
+                 "κατάστημα και εδώ θα εμφανιστούν οι ρυθμίσεις του καθενός.")
+
+        # ======== T-Scale ========
+        self.blk_tscale = self._block(
+            self.blocks, "⚖  Ζυγοί T-Scale — αρχείο product.csv",
+            "Τι στέλνεται στον ζυγό και από ποια στήλη του ERP: «Πεδία T-Scale». "
+            "Το προφίλ είναι το έτοιμο σετ ανά πελάτη.")
+        prof = ttk.Frame(self.blk_tscale)
+        prof.pack(fill="x", pady=(2, 4))
+        ttk.Label(prof, text="Προφίλ:").pack(side="left")
+        names = list(self.cfg.get("profiles", {}))
+        self.v_profile = tk.StringVar(value=names[0] if names else "")
+        self.cmb_profile = ttk.Combobox(prof, textvariable=self.v_profile, values=names,
+                                        state="readonly", width=36)
+        self.cmb_profile.pack(side="left", padx=6)
+        ttk.Button(prof, text="Φόρτωση", command=lambda: self.load_profile(self.v_profile.get())
+                   ).pack(side="left")
+        ttk.Button(prof, text="Αποθήκευση ως…", command=self.save_profile).pack(side="left", padx=6)
+        ttk.Button(prof, text="Διαγραφή", style="Ghost.TButton",
+                   command=self.delete_profile).pack(side="left")
+        ttk.Button(prof, text="⚖  Πεδία T-Scale…", style="Accent.TButton",
+                   command=self.tscale_fields_dialog).pack(side="right")
+        g = ttk.Frame(self.blk_tscale)
+        g.pack(fill="x", pady=2)
+        self.v_s2in = tk.StringVar()
+        self.v_s2out = tk.StringVar()
+        self._pick_row(g, "Αρχείο εισόδου — άφησέ το κενό:", self.v_s2in, "file", 0)
+        self._pick_row(g, "Να δημιουργείται εδώ:", self.v_s2out, "save", 1)
+        ttk.Label(self.blk_tscale, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Κενή είσοδος = ό,τι έβγαλε το προηγούμενο βήμα (Βήμα 2, αλλιώς host1). "
+                       "Κενή έξοδος = product.csv στον φάκελο εξόδου."
+                  ).pack(anchor="w", pady=(0, 2))
+        b = ttk.Frame(self.blk_tscale)
+        b.pack(fill="x", pady=(4, 0))
+        ttk.Label(b, text="Πίνακας πεδίων:").pack(side="left")
+        ttk.Button(b, text="Εναλλαγή ✓", command=self.toggle_field).pack(side="left", padx=(8, 0))
+        ttk.Button(b, text="Επεξεργασία", command=self.on_edit_cell).pack(side="left", padx=6)
+        ttk.Button(b, text="+ Γραμμή", command=self.add_field_row).pack(side="left")
+        ttk.Button(b, text="− Αφαίρεση", command=self.remove_field_row).pack(side="left", padx=6)
+        ttk.Button(b, text="▲", width=3, command=lambda: self.move_field_row(-1)).pack(side="left")
+        ttk.Button(b, text="▼", width=3, command=lambda: self.move_field_row(1)).pack(side="left", padx=(2, 6))
+        ttk.Button(b, text="Αρχικοποίηση", style="Ghost.TButton", command=self.reset_fields).pack(side="left")
+        ttk.Button(b, text="Δοκιμή · προεπισκόπηση", command=self.preview_csv).pack(side="right")
+        tree_box = ttk.Frame(self.blk_tscale)
+        tree_box.pack(fill="x", pady=4)
+        self.tree_box = tree_box
         cols = ("name", "out", "pos", "len", "xform", "extra")
         self.tree = ttk.Treeview(tree_box, columns=cols, show="headings",
                                  height=8, selectmode="browse")
@@ -4352,8 +4323,80 @@ class App(tk.Tk):
         sb.pack(side="right", fill="y")
         self.tree.pack(side="left", fill="both", expand=True)
 
-        ttk.Button(b, text="Δοκιμή · προεπισκόπηση", style="Accent.TButton",
-                   command=self.preview_csv).pack(side="right")
+        # ======== Ishida ========
+        self.blk_ishida = self._block(
+            self.blocks, "Ζυγοί Ishida — δεύτερο αρχείο (host2)",
+            "Ίδια δεδομένα, άλλη γραφή (τιμή σε λεπτά). Με απευθείας αποστολή στο Βήμα 4 "
+            "το ScaleLink δεν χρειάζεται.")
+        srow = ttk.Frame(self.blk_ishida)
+        srow.pack(fill="x")
+        self.v_s2b = tk.BooleanVar(value=False)
+        ttk.Checkbutton(srow, text="Φτιάξε το αρχείο της Ishida", variable=self.v_s2b).pack(side="left")
+        ttk.Label(srow, text="προφίλ:").pack(side="left", padx=(14, 3))
+        self.v_s2b_profile = tk.StringVar()
+        self.cmb_s2b = ttk.Combobox(srow, textvariable=self.v_s2b_profile, state="readonly",
+                                    width=34, values=list(self.cfg.get("profiles", {})))
+        self.cmb_s2b.pack(side="left")
+        ttk.Button(srow, text="Τι να ρυθμίσεις στο ScaleLink…", style="Pick.TButton",
+                   command=self.ishida_import_settings_dialog).pack(side="left", padx=(8, 0))
+        g2 = ttk.Frame(self.blk_ishida)
+        g2.pack(fill="x")
+        self.v_s2b_out = tk.StringVar()
+        self._pick_row(g2, "Να δημιουργείται εδώ:", self.v_s2b_out, "save", 0)
+        ttk.Label(self.blk_ishida, style="Hint.TLabel", text="Κενή διαδρομή = host2.csv στον φάκελο εξόδου."
+                  ).pack(anchor="w", pady=(2, 0))
+
+        # ======== ILS ========
+        self.blk_ils = self._block(
+            self.blocks, "Ζυγοί ILS1100 — αρχείο hostILS (σταθερού πλάτους)",
+            "Το ILS διαβάζει το αρχείο με τις θέσεις του «Field settings» (AutoTrans.CFG). "
+            "Με το κουμπί βλέπεις τι πρέπει να λέει για το προφίλ και το γράφεις στο CFG του "
+            "πελάτη (με αντίγραφο).")
+        trow = ttk.Frame(self.blk_ils)
+        trow.pack(fill="x")
+        self.v_s2c = tk.BooleanVar(value=False)
+        ttk.Checkbutton(trow, text="Φτιάξε το αρχείο του ILS", variable=self.v_s2c).pack(side="left")
+        ttk.Label(trow, text="προφίλ:").pack(side="left", padx=(14, 3))
+        self.v_s2c_profile = tk.StringVar()
+        self.cmb_s2c = ttk.Combobox(trow, textvariable=self.v_s2c_profile, state="readonly",
+                                    width=34, values=list(self.cfg.get("profiles", {})))
+        self.cmb_s2c.pack(side="left")
+        ttk.Button(trow, text="Field settings του ILS (AutoTrans.CFG)…", style="Pick.TButton",
+                   command=self.ils_field_settings_dialog).pack(side="left", padx=(8, 0))
+        ttk.Button(trow, text="Διάβασε υπάρχον CFG…", style="Ghost.TButton",
+                   command=self.ils_profile_from_cfg_dialog).pack(side="left", padx=(4, 0))
+        g3 = ttk.Frame(self.blk_ils)
+        g3.pack(fill="x")
+        self.v_s2c_out = tk.StringVar()
+        self._pick_row(g3, "Να δημιουργείται εδώ:", self.v_s2c_out, "save", 0)
+        ttk.Label(self.blk_ils, style="Hint.TLabel", text="Κενή διαδρομή = hostILS.csv στον φάκελο εξόδου."
+                  ).pack(anchor="w", pady=(2, 0))
+
+        self.v_s2c.trace_add("write", lambda *_a: self._refresh_tab2_blocks())
+
+    def _refresh_tab2_blocks(self):
+        """Δείχνει μόνο τα μπλοκ των ζυγών που έχει το κατάστημα (Βήμα 4)."""
+        if not hasattr(self, "v_tscale_on") or not hasattr(self, "blocks"):
+            return
+        for w in self.blocks.winfo_children():
+            w.pack_forget()
+        shown = 0
+        if self.v_tscale_on.get():
+            self.blk_tscale.pack(fill="x"); shown += 1
+        if self.v_ish_on.get():
+            self.blk_ishida.pack(fill="x"); shown += 1
+        # Το ILS δεν έχει «έχει ζυγούς» στο Βήμα 4: φαίνεται αν είναι τσεκαρισμένο
+        # το αρχείο του, αλλιώς ως μία γραμμή για να μπορεί να ενεργοποιηθεί.
+        self.blk_ils.pack(fill="x"); shown += 1
+        for w in self.blk_ils.winfo_children()[2:]:
+            if self.v_s2c.get():
+                w.pack(fill="x")
+            else:
+                w.pack_forget()
+        if not self.v_s2c.get():
+            self.blk_ils.winfo_children()[3].pack(fill="x")   # η γραμμή με το τσεκ μένει
+        if not (self.v_tscale_on.get() or self.v_ish_on.get()):
+            self.lbl_no_scales.pack(anchor="w", pady=6, before=self.blk_ils)
 
     def _build_tab3(self):
         f = self.tab3
@@ -4983,10 +5026,10 @@ class App(tk.Tk):
         """Δείχνει/κρύβει τις αναλυτικές ρυθμίσεις του Βήματος 3."""
         if self.adv2.winfo_ismapped():
             self.adv2.pack_forget()
-            self.btn_adv2.configure(text="⚙  Αναλυτικές ρυθμίσεις  ▾")
+            self.btn_adv2.configure(text="⚙  Πώς διαβάζεται το ERP / μορφή αρχείων  ▾")
         else:
-            self.adv2.pack(fill="x", pady=(4, 0), before=self.tree_box)
-            self.btn_adv2.configure(text="⚙  Αναλυτικές ρυθμίσεις  ▴")
+            self.adv2.pack(fill="x", pady=(4, 0), before=self.blocks)
+            self.btn_adv2.configure(text="⚙  Πώς διαβάζεται το ERP / μορφή αρχείων  ▴")
 
     def on_input_type_change(self):
         delimited = self.v_input_type.get() == "delimited"
