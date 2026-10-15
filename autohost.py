@@ -27,7 +27,7 @@ import datetime
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
-APP_BUILD = "2.20.0-beta.10"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "2.20.0-beta.11"                        # σύγκριση για ενημερώσεις
 # Δοκιμαστική έκδοση (beta): «2.20.0-beta.1». Ζει ΔΙΠΛΑ στην κανονική εγκατάσταση
 # χωρίς να την αγγίζει — άλλο όνομα exe, άλλος φάκελος ρυθμίσεων, άλλη θύρα,
 # άλλο κανάλι ενημερώσεων (branch «beta», pre-releases). Οι κανονικές εγκαταστάσεις
@@ -4599,13 +4599,16 @@ class App(tk.Tk):
         nb.add(page_log, text="Logs")
         self._build_tab_log(page_log)
 
+        self.v_tscale_on = tk.BooleanVar(value=True)
+        self.v_ish_on = tk.BooleanVar(value=False)
+
         self._build_tab_home()
         self._build_tab0()
         self._build_tab1()
         self._build_tab2()
         self._build_tab3()
 
-        # Τα μπλοκ του Βήματος 3 ακολουθούν τα τσεκ «έχει ζυγούς …» του Βήματος 4
+        # Τα μπλοκ του Βήματος 3 ακολουθούν τα τσεκ ζυγών
         self.v_tscale_on.trace_add("write", lambda *_a: self._refresh_tab2_blocks())
         self.v_ish_on.trace_add("write", lambda *_a: self._refresh_tab2_blocks())
         self._refresh_tab2_blocks()
@@ -5045,6 +5048,8 @@ class App(tk.Tk):
         """
         f = self.tab2
         self.v_s2 = tk.BooleanVar()
+        self.v_s2b = tk.BooleanVar(value=False)
+        self.v_s2c = tk.BooleanVar(value=False)
         ttk.Checkbutton(f, style="Big.TCheckbutton", text="Ενεργοποίηση Βήματος 3 — Αρχεία προϊόντων",
                         variable=self.v_s2).pack(anchor="w")
 
@@ -5136,12 +5141,25 @@ class App(tk.Tk):
                        "ΕΞΟΔΟΣ πρέπει να είναι cp1253 — με utf-8 ο ζυγός δείχνει ακαταλαβίστικα."
                   ).pack(anchor="w", pady=(0, 2))
 
+        # Επιλογή ζυγών καταστήματος απευθείας και στο Βήμα 3
+        scale_sel = tk.Frame(f, bg=COLORS["card_subtle"], padx=14, pady=10,
+                             highlightbackground=COLORS["line_subtle"], highlightthickness=1)
+        scale_sel.pack(fill="x", pady=(6, 12))
+        tk.Label(scale_sel, text="Ζυγοί καταστήματος (δημιουργία αρχείων):",
+                 font=FONTS["base_bold"], fg=COLORS["ink"], bg=COLORS["card_subtle"]).pack(side="left", padx=(0, 12))
+        ttk.Checkbutton(scale_sel, text="T-Scale (product.csv)", variable=self.v_tscale_on,
+                        command=self.on_marka_toggle).pack(side="left", padx=8)
+        ttk.Checkbutton(scale_sel, text="Ishida UNI-3 (host2.csv)", variable=self.v_ish_on,
+                        command=self.on_marka_toggle).pack(side="left", padx=8)
+        ttk.Checkbutton(scale_sel, text="ILS 1100 (hostILS.csv)", variable=self.v_s2c,
+                        command=self._refresh_tab2_blocks).pack(side="left", padx=8)
+
         # ---- τα μπλοκ ανά ζυγό
         self.blocks = ttk.Frame(f)
         self.blocks.pack(fill="x")
         self.lbl_no_scales = ttk.Label(
             self.blocks, style="Hint.TLabel", wraplength=920, justify="left",
-            text="Δεν έχει δηλωθεί κανένας ζυγός στο Βήμα 4 — τσέκαρε εκεί τι ζυγούς έχει το "
+            text="Δεν έχει επιλεγεί κανένας ζυγός — τσεκάρετε παραπάνω τι ζυγούς έχει το "
                  "κατάστημα και εδώ θα εμφανιστούν οι ρυθμίσεις του καθενός.")
 
         # ======== T-Scale ========
@@ -5211,7 +5229,8 @@ class App(tk.Tk):
             "απευθείας αποστολή — το ρυθμίζει ο οδηγός, σπάνια με το χέρι.")
         srow = ttk.Frame(self.blk_ishida)
         srow.pack(fill="x")
-        self.v_s2b = tk.BooleanVar(value=False)
+        if not hasattr(self, "v_s2b"):
+            self.v_s2b = tk.BooleanVar(value=False)
         ttk.Checkbutton(srow, text="Φτιάξε το αρχείο της Ishida", variable=self.v_s2b).pack(side="left")
         ttk.Label(srow, text="προφίλ:").pack(side="left", padx=(14, 3))
         self.v_s2b_profile = tk.StringVar()
@@ -5239,7 +5258,8 @@ class App(tk.Tk):
             "πελάτη (με αντίγραφο).")
         trow = ttk.Frame(self.blk_ils)
         trow.pack(fill="x")
-        self.v_s2c = tk.BooleanVar(value=False)
+        if not hasattr(self, "v_s2c"):
+            self.v_s2c = tk.BooleanVar(value=False)
         ttk.Checkbutton(trow, text="Φτιάξε το αρχείο του ILS", variable=self.v_s2c).pack(side="left")
         ttk.Label(trow, text="προφίλ:").pack(side="left", padx=(14, 3))
         self.v_s2c_profile = tk.StringVar()
@@ -5298,7 +5318,8 @@ class App(tk.Tk):
                   ).pack(anchor="w", pady=(0, 8))
 
         # ---------------- T-Scale ----------------
-        self.v_tscale_on = tk.BooleanVar(value=True)
+        if not hasattr(self, "v_tscale_on"):
+            self.v_tscale_on = tk.BooleanVar(value=True)
         ttk.Checkbutton(f, text="Το κατάστημα έχει ζυγούς T-Scale",
                         variable=self.v_tscale_on, style="Big.TCheckbutton",
                         command=self.on_marka_toggle).pack(anchor="w")
@@ -5317,7 +5338,8 @@ class App(tk.Tk):
                   ).pack(anchor="w", pady=(4, 10))
 
         # ---------------- Ishida UNI-3 ----------------
-        self.v_ish_on = tk.BooleanVar(value=False)
+        if not hasattr(self, "v_ish_on"):
+            self.v_ish_on = tk.BooleanVar(value=False)
         ttk.Checkbutton(f, text="Το κατάστημα έχει ζυγούς Ishida UNI-3",
                         variable=self.v_ish_on, style="Big.TCheckbutton",
                         command=self.on_marka_toggle).pack(anchor="w")
