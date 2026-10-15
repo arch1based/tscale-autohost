@@ -27,7 +27,7 @@ import datetime
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
-APP_BUILD = "2.20.0-beta.9"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "2.20.0-beta.10"                        # σύγκριση για ενημερώσεις
 # Δοκιμαστική έκδοση (beta): «2.20.0-beta.1». Ζει ΔΙΠΛΑ στην κανονική εγκατάσταση
 # χωρίς να την αγγίζει — άλλο όνομα exe, άλλος φάκελος ρυθμίσεων, άλλη θύρα,
 # άλλο κανάλι ενημερώσεων (branch «beta», pre-releases). Οι κανονικές εγκαταστάσεις
@@ -47,19 +47,72 @@ UPDATE_ASSET = APP_ID + ".zip"
 # Κωδικός τεχνικού για ενημέρωση (αποτρέπει να την τρέξει προσωπικό του καταστήματος).
 # Είναι φραγμός κατά λάθους χειρισμού, όχι κρυπτογραφική ασφάλεια.
 UPDATE_PASSWORD_SHA256 = "e78f27ab3ef177a9926e6b90e572b9853ce6cf4d87512836e9ae85807ec9d7fe"
+def enable_high_dpi():
+    """Ενεργοποιεί Per-Monitor DPI awareness στα Windows ΠΡΙΝ αρχικοποιηθεί το Tkinter.
+
+    Αν κληθεί μετά το Tk(), το Tkinter κρατάει παλιό scaling (96 DPI) με αποτέλεσμα
+    θολά ή μικροσκοπικά γράμματα σε οθόνες με κλιμάκωση (125%, 150%, 200%).
+    """
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            # Per-monitor V2 awareness (Windows 10 1703+)
+            try:
+                ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+            except Exception:
+                # Per-monitor (Windows 8.1+)
+                try:
+                    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+                except Exception:
+                    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            pass
+
+
+# Πρώιμη κλήση DPI awareness για τα Windows
+enable_high_dpi()
+
 COLORS = {
-    "bg":      "#eef2f7",   # φόντο παραθύρου
-    "card":    "#ffffff",   # κάρτες / καρτέλες
-    "ink":     "#0f172a",   # βασικό κείμενο
-    "muted":   "#64748b",   # δευτερεύον κείμενο
-    "line":    "#dbe3ec",   # περιγράμματα
-    "brand":   "#1a8fd1",   # μπλε ICS
-    "brand_d": "#127ab7",
-    "ok":      "#12a150",
-    "warn":    "#e08c00",
-    "err":     "#dc2626",
-    "console": "#0f1b2b",
-    "console_fg": "#d7e3f4",
+    "bg":          "#f1f5f9",   # Slate-100: σύγχρονο ουδέτερο φόντο παραθύρου
+    "card":        "#ffffff",   # Καθαρό λευκό για κάρτες & επιφάνειες
+    "card_subtle": "#f8fafc",   # Slate-50: απαλό δευτερεύον φόντο
+    "ink":         "#0f172a",   # Slate-900: βαθύ, ευανάγνωστο κείμενο υψηλής αντίθεσης
+    "muted":       "#475569",   # Slate-600: ευδιάκριτο δευτερεύον κείμενο
+    "muted_light": "#94a3b8",   # Slate-400: διακριτικό κείμενο / placeholders
+    "line":        "#cbd5e1",   # Slate-300: καθαρά περιγράμματα
+    "line_subtle": "#e2e8f0",   # Slate-200: διαχωριστικές γραμμές
+    "brand":       "#0284c7",   # Sky-600: ζωντανό, σύγχρονο μπλε ICS
+    "brand_d":     "#0369a1",   # Sky-700: πατημένο / ενεργό μπλε
+    "brand_light": "#e0f2fe",   # Sky-100: απαλή μπλε επισήμανση
+    "ok":          "#059669",   # Emerald-600: επιτυχία / ενεργό
+    "ok_light":    "#d1fae5",   # Emerald-100: badge επιτυχίας
+    "warn":        "#d97706",   # Amber-600: προειδοποίηση
+    "warn_light":  "#fef3c7",   # Amber-100: badge προειδοποίησης
+    "err":         "#dc2626",   # Red-600: σφάλμα
+    "err_light":   "#fee2e2",   # Red-100: badge σφάλματος
+    "console":     "#0b1120",   # Obsidian Slate: βαθύ μοντέρνο τερματικό
+    "console_fg":  "#f1f5f9",   # Καθαρό φωτεινό κείμενο τερματικού
+    "sidebar":     "#0f172a",   # Deep Obsidian Slate: σύγχρονη πλαϊνή μπάρα
+    "sidebar_hover": "#1e293b", # Slate-800: hover στα κουμπιά πλοήγησης
+    "sidebar_active": "#1e3a5f",# Slate/Navy: ενεργό tab
+    "sidebar_fg":  "#94a3b8",   # Slate-400: κείμενο πλοήγησης
+    "sidebar_fg_act": "#ffffff",# Λευκό: ενεργό κείμενο
+}
+
+FONTS = {
+    "base":        ("Segoe UI", 11),
+    "base_bold":   ("Segoe UI", 11, "bold"),
+    "sm":          ("Segoe UI", 10),
+    "sm_bold":     ("Segoe UI", 10, "bold"),
+    "title":       ("Segoe UI", 13, "bold"),
+    "app_title":   ("Segoe UI", 19, "bold"),
+    "vendor":      ("Segoe UI", 10, "bold"),
+    "version":     ("Segoe UI", 10),
+    "tab":         ("Segoe UI", 11, "bold"),
+    "btn":         ("Segoe UI", 11),
+    "btn_accent":  ("Segoe UI", 11, "bold"),
+    "mono":        ("Consolas", 11),
+    "mono_sm":     ("Consolas", 10),
 }
 
 APP_VENDOR = "ICS — ΚΑΡΑΦΥΛΛΗΣ ΣΥΣΤΗΜΑΤΑ ΠΛΗΡΟΦΟΡΙΚΗΣ"
@@ -409,6 +462,51 @@ def fetch_latest_beta(timeout=8):
     return best["tag_name"].lstrip("vV"), (best.get("body") or "").strip(), url
 
 
+def fetch_available_channels(timeout=8):
+    """Επιστρέφει λεξικό με τα 3 διαθέσιμα κανάλια:
+    - beta_redesign: Νέο περιβάλλον 2026 (>= 2.20.0-beta.10)
+    - beta_classic:  Κλασική beta (< 2.20.0-beta.10)
+    - stable:        Έκδοση παραγωγής
+    """
+    url = "https://api.github.com/repos/arch1based/tscale-autohost/releases?per_page=30"
+    data = json.loads(_get(url, timeout))
+    channels = {
+        "beta_redesign": None,
+        "beta_classic": None,
+        "stable": None
+    }
+    for r in data or []:
+        tag = (r.get("tag_name") or "").strip()
+        if not tag or r.get("draft"):
+            continue
+        v = tag.lstrip("vV")
+        is_pre = bool(r.get("prerelease"))
+        zip_url = ""
+        for a in r.get("assets", []):
+            aname = (a.get("name") or "").lower()
+            if aname.endswith(".zip"):
+                zip_url = a.get("browser_download_url", "")
+                break
+        info = {
+            "tag": tag,
+            "version": v,
+            "notes": (r.get("body") or "").strip(),
+            "url": zip_url,
+            "date": (r.get("published_at") or "")[:10]
+        }
+        if not is_pre:
+            if channels["stable"] is None or parse_version(v) > parse_version(channels["stable"]["version"]):
+                channels["stable"] = info
+        else:
+            if parse_version(v) >= parse_version("2.20.0-beta.10"):
+                if channels["beta_redesign"] is None or parse_version(v) > parse_version(channels["beta_redesign"]["version"]):
+                    channels["beta_redesign"] = info
+            else:
+                if channels["beta_classic"] is None or parse_version(v) > parse_version(channels["beta_classic"]["version"]):
+                    channels["beta_classic"] = info
+    return channels
+
+
 def beta_install_dir():
     """Δίπλα στην κανονική εγκατάσταση: στον γονικό φάκελο της εφαρμογής, ICSautoScaleUpdater-beta."""
     app_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else APP_DIR
@@ -462,11 +560,11 @@ def extract_update(zip_path, target_dir, log=None):
     os.makedirs(target_dir, exist_ok=True)
     with zipfile.ZipFile(zip_path) as z:
         z.extractall(target_dir)
-    exe = os.path.join(target_dir, APP_ID + ".exe")
-    if not os.path.isfile(exe):
-        raise ValueError("δεν βρέθηκε το %s.exe μέσα στο πακέτο" % APP_ID)
+    exes = [f for f in os.listdir(target_dir) if f.lower().endswith(".exe")]
+    if not exes:
+        raise ValueError("δεν βρέθηκε κανένα εκτελέσιμο (.exe) μέσα στο πακέτο")
     if log:
-        log("  -> ξεπακετάρισμα: %s" % target_dir)
+        log("  -> ξεπακετάρισμα: %s (%s)" % (target_dir, exes[0]))
     return target_dir
 
 
@@ -479,6 +577,8 @@ def install_update_and_restart(new_dir):
     """
     cur = sys.executable
     app_dir = os.path.dirname(cur)
+    new_exes = [f for f in os.listdir(new_dir) if f.lower().endswith(".exe")]
+    target_exe = os.path.join(app_dir, new_exes[0]) if new_exes else cur
     bat = os.path.join(os.environ.get("TEMP") or app_dir, "%s_update.bat" % APP_ID)
     script = ("@echo off\n"
               "chcp 65001 >nul\n"
@@ -497,7 +597,7 @@ def install_update_and_restart(new_dir):
               'start "" "{exe}"\n'
               'rmdir /s /q "{new}"\n'
               'del /q "%~f0"\n').format(name=os.path.basename(cur), new=new_dir,
-                                        app=app_dir, exe=cur)
+                                        app=app_dir, exe=target_exe)
     with open(bat, "w", encoding="cp1253", errors="replace") as fh:
         fh.write(script)
     subprocess.Popen(["cmd", "/c", bat], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -4066,18 +4166,20 @@ class App(tk.Tk):
             pass
 
     def __init__(self):
+        enable_high_dpi()
         super().__init__()
         self.title(APP_NAME)
-        try:                                    # καθαρά γράμματα σε οθόνες με scaling
-            import ctypes
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        try:                                    # καθαρά γράμματα και σωστό scaling στα Windows
+            dpi = self.winfo_fpixels('1i')
+            if dpi > 0:
+                self.tk.call('tk', 'scaling', max(1.3333, dpi / 72.0))
         except Exception:
             pass
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        w = min(1040, sw - 60)
-        h = min(900, sh - 90)                  # να μη μπαίνει κάτω από τη γραμμή εργασιών
+        w = min(1200, max(980, sw - 60))
+        h = min(920, max(720, sh - 80))                  # σύγχρονες διαστάσεις με άνεση
         self.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 3)))
-        self.minsize(760, 460)
+        self.minsize(920, 580)
         self._first_run = not os.path.exists(CONFIG_PATH) and not any(
             os.path.exists(p) for p in LEGACY_CONFIGS)
         self.cfg = load_config()
@@ -4115,75 +4217,89 @@ class App(tk.Tk):
     # ---------------- εμφάνιση ----------------
     def _apply_theme(self):
         C = COLORS
+        F = FONTS
         st = ttk.Style(self)
         try:
             st.theme_use("clam")
         except tk.TclError:
             pass
         self.configure(bg=C["bg"])
-        base = ("Segoe UI", 10)
 
-        st.configure(".", background=C["card"], foreground=C["ink"], font=base,
+        st.configure(".", background=C["card"], foreground=C["ink"], font=F["base"],
                      bordercolor=C["line"], focuscolor=C["brand"])
         st.configure("TFrame", background=C["card"])
         st.configure("Bar.TFrame", background=C["bg"])
         st.configure("Card.TFrame", background=C["card"], relief="flat")
         st.configure("Header.TFrame", background=C["card"])
-        st.configure("TLabel", background=C["card"], foreground=C["ink"], font=base)
+        st.configure("Badge.TFrame", background=C["card_subtle"], relief="flat")
+        st.configure("TLabel", background=C["card"], foreground=C["ink"], font=F["base"])
         st.configure("OnCard.TLabel", background=C["card"])
         st.configure("Title.TLabel", background=C["card"], foreground=C["ink"],
-                     font=("Segoe UI", 17, "bold"))
+                     font=F["app_title"])
         st.configure("Vendor.TLabel", background=C["card"], foreground=C["brand"],
-                     font=("Segoe UI", 8, "bold"))
+                     font=F["vendor"])
         st.configure("Version.TLabel", background=C["card"], foreground=C["muted"],
-                     font=("Segoe UI", 8))
+                     font=F["version"])
         st.configure("Hint.TLabel", background=C["card"], foreground=C["muted"],
-                     font=("Segoe UI", 9))
-        st.configure("Pill.TLabel", background=C["card"], foreground=C["muted"],
-                     font=("Segoe UI", 9, "bold"), padding=(12, 6))
+                     font=F["sm"])
+        st.configure("Pill.TLabel", background=C["card_subtle"], foreground=C["muted"],
+                     font=F["sm_bold"], padding=(10, 4))
 
-        st.configure("TCheckbutton", background=C["card"], foreground=C["ink"], font=base,
-                     focuscolor=C["card"])
+        st.configure("TCheckbutton", background=C["card"], foreground=C["ink"], font=F["base"],
+                     focuscolor=C["card"], padding=3)
         st.map("TCheckbutton", background=[("active", C["card"])],
                indicatorcolor=[("selected", C["brand"]), ("!selected", C["card"])])
-        st.configure("Big.TCheckbutton", font=("Segoe UI", 11, "bold"), foreground=C["brand_d"])
+        st.configure("Big.TCheckbutton", font=F["base_bold"], foreground=C["brand_d"], padding=4)
         st.map("Big.TCheckbutton", background=[("active", C["card"])],
+               indicatorcolor=[("selected", C["brand"]), ("!selected", C["card"])])
+
+        st.configure("TRadiobutton", background=C["card"], foreground=C["ink"], font=F["base"],
+                     focuscolor=C["card"], padding=3)
+        st.map("TRadiobutton", background=[("active", C["card"])],
                indicatorcolor=[("selected", C["brand"]), ("!selected", C["card"])])
 
         st.configure("TEntry", fieldbackground=C["card"], background=C["card"],
                      foreground=C["ink"], bordercolor=C["line"], insertcolor=C["ink"],
-                     padding=5, relief="flat")
+                     font=F["base"], padding=6, relief="flat")
         st.map("TEntry", bordercolor=[("focus", C["brand"])])
 
-        st.configure("TButton", background=C["card"], foreground=C["ink"], font=base,
-                     borderwidth=1, relief="flat", padding=(12, 7))
-        st.map("TButton", background=[("active", "#e6eef7"), ("pressed", "#dbe6f2")],
+        st.configure("TCombobox", fieldbackground=C["card"], background=C["card"],
+                     foreground=C["ink"], font=F["base"], padding=5)
+
+        st.configure("TButton", background=C["card"], foreground=C["ink"], font=F["btn"],
+                     bordercolor=C["line"], borderwidth=1, relief="flat", padding=(14, 7))
+        st.map("TButton", background=[("active", "#f1f5f9"), ("pressed", "#e2e8f0")],
                bordercolor=[("active", C["brand"])])
         st.configure("Accent.TButton", background=C["brand"], foreground="#ffffff",
-                     font=("Segoe UI", 10, "bold"), borderwidth=0, padding=(16, 8))
-        st.map("Accent.TButton", background=[("active", C["brand_d"]), ("pressed", "#0f6b9f")])
+                     font=F["btn_accent"], borderwidth=0, padding=(18, 9))
+        st.map("Accent.TButton", background=[("active", C["brand_d"]), ("pressed", "#075985")])
         st.configure("Ghost.TButton", background=C["bg"], foreground=C["muted"],
-                     borderwidth=0, padding=(12, 7))
-        st.map("Ghost.TButton", background=[("active", "#e3eaf3")], foreground=[("active", C["ink"])])
-        st.configure("Pick.TButton", padding=(8, 5))
+                     font=F["btn"], borderwidth=0, padding=(12, 7))
+        st.map("Ghost.TButton", background=[("active", "#e2e8f0")], foreground=[("active", C["ink"])])
+        st.configure("Pick.TButton", font=F["btn"], padding=(10, 5))
 
-        st.configure("TNotebook", background=C["bg"], borderwidth=0, tabmargins=(6, 6, 6, 0))
-        st.configure("TNotebook.Tab", background="#dde5ee", foreground=C["muted"],
-                     font=("Segoe UI", 10, "bold"), padding=(18, 10), borderwidth=0)
+        st.configure("TNotebook", background=C["bg"], borderwidth=0, tabmargins=(8, 8, 8, 0))
+        st.configure("TNotebook.Tab", background=C["line_subtle"], foreground=C["muted"],
+                     font=F["tab"], padding=(20, 11), borderwidth=0)
         st.map("TNotebook.Tab",
-               background=[("selected", C["card"]), ("active", "#e8eef6")],
-               foreground=[("selected", C["brand_d"])])
+               background=[("selected", C["card"]), ("active", "#cbd5e1")],
+               foreground=[("selected", C["brand_d"]), ("active", C["ink"])])
+
+        # Σύγχρονη πλοήγηση: Απόκρυψη της παλιάς οριζόντιας μπάρας καρτελών
+        st.layout("Hidden.TNotebook", [("Notebook.client", {"sticky": "nswe"})])
+        st.layout("Hidden.TNotebook.Tab", [])
+        st.configure("Hidden.TNotebook", background=C["bg"], borderwidth=0)
 
         st.configure("Treeview", background=C["card"], fieldbackground=C["card"],
-                     foreground=C["ink"], rowheight=27, borderwidth=0, font=("Segoe UI", 10))
-        st.configure("Treeview.Heading", background="#e4ebf3", foreground=C["muted"],
-                     font=("Segoe UI", 9, "bold"), relief="flat", padding=(8, 8))
-        st.map("Treeview.Heading", background=[("active", "#d8e2ee")])
+                     foreground=C["ink"], rowheight=32, borderwidth=0, font=F["base"])
+        st.configure("Treeview.Heading", background=C["card_subtle"], foreground=C["ink"],
+                     font=F["sm_bold"], relief="flat", padding=(10, 8))
+        st.map("Treeview.Heading", background=[("active", C["line_subtle"])])
         st.map("Treeview", background=[("selected", C["brand"])],
                foreground=[("selected", "#ffffff")])
 
-        st.configure("TSeparator", background=C["line"])
-        st.configure("Vertical.TScrollbar", background="#cfd9e5", troughcolor=C["bg"],
+        st.configure("TSeparator", background=C["line_subtle"])
+        st.configure("Vertical.TScrollbar", background=C["line"], troughcolor=C["bg"],
                      borderwidth=0, arrowcolor=C["muted"])
 
     def _scrollable(self, parent):
@@ -4198,7 +4314,7 @@ class App(tk.Tk):
         sb.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
 
-        inner = ttk.Frame(canvas, style="Card.TFrame", padding=(14, 8))
+        inner = ttk.Frame(canvas, style="Card.TFrame", padding=(18, 14))
         win = canvas.create_window((0, 0), window=inner, anchor="nw")
 
         def on_inner(_e=None):
@@ -4264,7 +4380,7 @@ class App(tk.Tk):
         box = scrolledtext.ScrolledText(
             parent, height=height, font=font, background=COLORS["console"],
             foreground=COLORS["console_fg"], insertbackground=COLORS["console_fg"],
-            relief="flat", borderwidth=0, padx=12, pady=10,
+            relief="flat", borderwidth=0, padx=14, pady=10,
             selectbackground=COLORS["brand"])
         return self._add_edit_menu(box)
 
@@ -4278,64 +4394,71 @@ class App(tk.Tk):
 
         self._apply_theme()
 
-        top = ttk.Frame(self, style="Header.TFrame", padding=(16, 12))
-        top.pack(fill="x")
-        self.logo_img = self._load_logo(56)
+        # Κεντρικό πλαίσιο: Αριστερή μπάρα πλοήγησης (Sidebar) + Δεξιός χώρος εργασίας (Workspace)
+        main_box = tk.Frame(self, bg=COLORS["bg"])
+        main_box.pack(fill="both", expand=True)
+
+        # ---------------- 1. Αριστερή μπάρα πλοήγησης (Navigation Rail) ----------------
+        sidebar = tk.Frame(main_box, bg=COLORS["sidebar"], width=265)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+
+        # Brand Header
+        brand = tk.Frame(sidebar, bg=COLORS["sidebar"], padx=16, pady=16)
+        brand.pack(fill="x")
+
+        # Επάνω γραμμή: Logo ICS + Επωνυμία
+        logo_row = tk.Frame(brand, bg=COLORS["sidebar"])
+        logo_row.pack(fill="x", anchor="w")
+        self.logo_img = self._load_logo(38)
         if self.logo_img is not None:
-            ttk.Label(top, image=self.logo_img, style="OnCard.TLabel").pack(side="left", padx=(0, 14))
-        titles = ttk.Frame(top, style="Header.TFrame")
-        titles.pack(side="left")
-        ttk.Label(titles, text=APP_NAME, style="Title.TLabel").pack(anchor="w")
-        ttk.Label(titles, text=APP_VENDOR, style="Vendor.TLabel").pack(anchor="w", pady=(2, 0))
-        ttk.Label(titles, text=APP_VERSION, style="Version.TLabel").pack(anchor="w")
+            tk.Label(logo_row, image=self.logo_img, bg=COLORS["sidebar"]).pack(side="left", padx=(0, 10))
+        vendor_box = tk.Frame(logo_row, bg=COLORS["sidebar"])
+        vendor_box.pack(side="left", fill="x", expand=True)
+        tk.Label(vendor_box, text="ICS ΚΑΡΑΦΥΛΛΗΣ", font=("Segoe UI", 10, "bold"),
+                 fg="#38bdf8", bg=COLORS["sidebar"], anchor="w").pack(fill="x")
+        tk.Label(vendor_box, text="Συστήματα Πληροφορικής", font=("Segoe UI", 8),
+                 fg="#94a3b8", bg=COLORS["sidebar"], anchor="w").pack(fill="x")
 
-        self.status_dot = tk.Canvas(top, width=12, height=12, highlightthickness=0,
-                                    bg=COLORS["card"])
-        self._dot = self.status_dot.create_oval(2, 2, 11, 11, fill=COLORS["muted"], outline="")
-        self.status = ttk.Label(top, text="Σε αναμονή", style="Pill.TLabel")
-        self.status.pack(side="right")
-        self.status_dot.pack(side="right")
+        # Όνομα Εφαρμογής (καθαρό, ευδιάκριτο, με σωστό wrap)
+        tk.Label(brand, text="Αυτόματη Ενημέρωση Ζυγών", font=("Segoe UI", 12, "bold"),
+                 fg="#ffffff", bg=COLORS["sidebar"], anchor="w", justify="left",
+                 wraplength=230).pack(fill="x", pady=(10, 6))
 
-        tk.Frame(self, height=3, bg=COLORS["brand"], bd=0).pack(fill="x")
+        # Ένδειξη Έκδοσης & Beta Badge
+        ver_row = tk.Frame(brand, bg=COLORS["sidebar"])
+        ver_row.pack(fill="x", anchor="w")
+        if IS_BETA:
+            beta_pill = tk.Frame(ver_row, bg="#b45309", padx=6, pady=2)
+            beta_pill.pack(side="left", padx=(0, 6))
+            tk.Label(beta_pill, text="BETA", font=("Segoe UI", 8, "bold"),
+                     fg="#ffffff", bg="#b45309").pack()
+        ver_pill = tk.Frame(ver_row, bg="#1e293b", padx=7, pady=2)
+        ver_pill.pack(side="left")
+        tk.Label(ver_pill, text="έκδοση %s" % APP_BUILD, font=("Segoe UI", 8, "bold"),
+                 fg="#94a3b8", bg="#1e293b").pack()
 
-        nb = self.nb = ttk.Notebook(self)
-        pages = []
-        # Πρώτη η «Σύνοψη»: ο άνθρωπος του καταστήματος βλέπει με απλά λόγια αν
-        # δουλεύει, πότε έτρεξε τελευταία και ποιους ζυγούς ενημερώνει — και έχει
-        # δύο μεγάλα κουμπιά. Οι «Βήμα 1-4» είναι ρυθμίσεις για τον τεχνικό.
-        for title in ("  Σύνοψη  ", "  Βήμα 1 · Αρχείο ERP  ", "  Βήμα 2 · Μετατροπή  ",
-                      "  Βήμα 3 · Αρχείο προϊόντων  ", "  Βήμα 4 · Αποστολή στους ζυγούς  "):
-            page = ttk.Frame(nb, style="Card.TFrame")
-            nb.add(page, text=title)
-            pages.append(self._scrollable(page))
-        self.tab_home, self.tab0, self.tab1, self.tab2, self.tab3 = pages
+        # Διαχωριστικό
+        tk.Frame(sidebar, height=1, bg="#1e293b", bd=0).pack(fill="x", pady=(10, 8))
 
-        self._build_tab_home()
-        self._build_tab0()
-        self._build_tab1()
-        self._build_tab2()
-        self._build_tab3()
-        # Τα μπλοκ του Βήματος 3 ακολουθούν τα τσεκ «έχει ζυγούς …» του Βήματος 4.
-        self.v_tscale_on.trace_add("write", lambda *_a: self._refresh_tab2_blocks())
-        self.v_ish_on.trace_add("write", lambda *_a: self._refresh_tab2_blocks())
-        self._refresh_tab2_blocks()
+        # Κάτω τμήμα Sidebar (σταθερό στο κάτω μέρος)
+        side_bottom = tk.Frame(sidebar, bg=COLORS["sidebar"], padx=12, pady=10)
+        side_bottom.pack(side="bottom", fill="x")
 
-        bar = ttk.Frame(self, style="Bar.TFrame", padding=(12, 10))
-        bar.pack(side="bottom", fill="x")
-        ttk.Button(bar, text="▶  Εκτέλεση τώρα", style="Accent.TButton",
-                   command=self.run_once).pack(side="left")
-        ttk.Button(bar, text="🔍  Προεπισκόπηση", command=self.show_preview).pack(side="left", padx=8)
-        self.btn_watch = ttk.Button(bar, text="●  Έναρξη παρακολούθησης", command=self.toggle_watch)
-        self.btn_watch.pack(side="left")
-        ttk.Button(bar, text="Αποθήκευση ρυθμίσεων", command=self.on_save).pack(side="left")
-        ttk.Button(bar, text="Έξοδος", style="Ghost.TButton",
-                   command=self.quit_app).pack(side="right")
-        ttk.Button(bar, text="Ελαχιστοποίηση κάτω δεξιά", style="Ghost.TButton",
-                   command=self.hide_to_tray).pack(side="right")
+        # Κουμπιά εξόδου & tray
+        btn_exit_row = tk.Frame(side_bottom, bg=COLORS["sidebar"])
+        btn_exit_row.pack(fill="x", pady=(0, 8))
+        tk.Button(btn_exit_row, text="✕  Έξοδος", relief="flat", bd=0, bg="#1e293b",
+                  fg="#94a3b8", activebackground="#334155", activeforeground="#ffffff",
+                  font=FONTS["sm"], cursor="hand2", padx=6, pady=5,
+                  command=self.quit_app).pack(side="right", fill="x", expand=True, padx=(3, 0))
+        tk.Button(btn_exit_row, text="🗕  Tray", relief="flat", bd=0, bg="#1e293b",
+                  fg="#94a3b8", activebackground="#334155", activeforeground="#ffffff",
+                  font=FONTS["sm"], cursor="hand2", padx=6, pady=5,
+                  command=self.hide_to_tray).pack(side="left", fill="x", expand=True, padx=(0, 3))
 
-        # Τα δευτερεύοντα σε μενού: σε στενό παράθυρο τα κουμπιά της μπάρας
-        # δεν χωρούσαν και κόβονταν.
-        tools = ttk.Menubutton(bar, text="⚙  Εργαλεία  ▾", style="Ghost.TButton")
+        # Μενού εργαλείων
+        tools = ttk.Menubutton(side_bottom, text="⚙  Εργαλεία  ▾", style="Ghost.TButton")
         menu = tk.Menu(tools, tearoff=0)
         menu.add_command(label="Άνοιγμα φακέλου εξόδου", command=self.open_out_dir)
         menu.add_command(label="Άνοιγμα backup", command=self.open_backup)
@@ -4345,44 +4468,247 @@ class App(tk.Tk):
         menu.add_separator()
         menu.add_command(label="Έλεγχος ενημέρωσης…", command=self.check_update)
         if not globals().get("IS_BETA", False):
-            # Μόνο στην κανονική εφαρμογή: η beta εγκαθίσταται δίπλα της, δεν την αλλάζει.
             self.v_accept_beta = tk.BooleanVar(value=bool(self.cfg.get("accept_beta", False)))
             menu.add_checkbutton(label="Δέχομαι δοκιμαστικές (beta) εκδόσεις",
                                  variable=self.v_accept_beta, command=self.on_accept_beta)
             menu.add_command(label="Δοκιμαστική έκδοση (beta)…", command=self.check_beta)
         menu.add_command(label="Σχετικά", command=self.show_about)
         tools["menu"] = menu
-        tools.pack(side="right", padx=(0, 6))
+        tools.pack(fill="x", pady=(0, 8))
         self.menu_tools = menu
 
-        self.txt_log = self._console(self, 5, ("Consolas", 9))
-        self.txt_log.pack(side="bottom", fill="x", padx=12, pady=(0, 8))
+        # Κάρτα κατάστασης
+        badge = tk.Frame(side_bottom, bg="#1e293b", padx=10, pady=8,
+                         highlightbackground="#334155", highlightthickness=1)
+        badge.pack(fill="x", pady=(0, 2))
+        self.status_dot = tk.Canvas(badge, width=12, height=12, highlightthickness=0,
+                                    bg="#1e293b")
+        self._dot = self.status_dot.create_oval(1, 1, 11, 11, fill=COLORS["muted"], outline="")
+        self.status_dot.pack(side="left", padx=(0, 8))
+        self.status = tk.Label(badge, text="Σε αναμονή", font=("Segoe UI", 9, "bold"),
+                               fg="#cbd5e1", bg="#1e293b", anchor="w", wraplength=190, justify="left")
+        self.status.pack(side="left", fill="x", expand=True)
 
-        # Μπάρα σφάλματος: μένει μέσα στο παράθυρο και ΔΕΝ μπλοκάρει.
-        # Το πρόγραμμα ζει σε server καταστήματος, χωρίς άνθρωπο μπροστά — ένα
-        # παράθυρο που περιμένει «ΟΚ» θα σταματούσε κάθε επόμενη ενημέρωση.
-        self.err_bar = tk.Frame(self, bg=COLORS["err"])
+        tk.Frame(sidebar, height=1, bg="#1e293b", bd=0).pack(side="bottom", fill="x", pady=(0, 8))
+
+        # Στοιχεία πλοήγησης
+        nav_container = tk.Frame(sidebar, bg=COLORS["sidebar"])
+        nav_container.pack(fill="both", expand=True, padx=8)
+
+        self.nav_items_def = [
+            ("📊", "Σύνοψη", "Επισκόπηση & έλεγχος"),
+            ("📁", "Βήμα 1", "Αρχείο ERP"),
+            ("⚙", "Βήμα 2", "Κανόνες Μετατροπής"),
+            ("🏷", "Βήμα 3", "Αρχείο Προϊόντων"),
+            ("⚖", "Βήμα 4", "Ζυγοί & Αποστολή"),
+            ("📜", "Καταγραφή", "Ιστορικό & Logs"),
+        ]
+        self.nav_rows = []
+        for i, (icon, title, desc) in enumerate(self.nav_items_def):
+            row = tk.Frame(nav_container, bg=COLORS["sidebar"], cursor="hand2")
+            row.pack(fill="x", pady=2)
+            ind = tk.Frame(row, width=4, bg=COLORS["sidebar"])
+            ind.pack(side="left", fill="y")
+            icon_lbl = tk.Label(row, text=icon, font=("Segoe UI", 12),
+                                bg=COLORS["sidebar"], fg=COLORS["sidebar_fg"], width=3)
+            icon_lbl.pack(side="left", padx=(2, 4), pady=7)
+            text_frame = tk.Frame(row, bg=COLORS["sidebar"])
+            text_frame.pack(side="left", fill="x", expand=True, pady=5)
+            title_lbl = tk.Label(text_frame, text=title, font=FONTS["base_bold"],
+                                 bg=COLORS["sidebar"], fg=COLORS["sidebar_fg"], anchor="w")
+            title_lbl.pack(fill="x")
+            sub_lbl = tk.Label(text_frame, text=desc, font=("Segoe UI", 9),
+                               bg=COLORS["sidebar"], fg="#64748b", anchor="w")
+            sub_lbl.pack(fill="x")
+
+            widgets = (row, ind, icon_lbl, text_frame, title_lbl, sub_lbl)
+            self._bind_nav_item(widgets, i)
+            self.nav_rows.append((row, ind, icon_lbl, title_lbl, sub_lbl))
+
+        # ---------------- 2. Δεξιός χώρος εργασίας (Workspace) ----------------
+        workspace = tk.Frame(main_box, bg=COLORS["bg"])
+        workspace.pack(side="right", fill="both", expand=True)
+        self.workspace = workspace
+
+        # Πάνω μπάρα τίτλου & γρήγορων ενεργειών
+        top_bar = tk.Frame(workspace, bg=COLORS["card"], padx=18, pady=10,
+                           highlightbackground=COLORS["line_subtle"], highlightthickness=1)
+        top_bar.pack(fill="x")
+
+        title_box = tk.Frame(top_bar, bg=COLORS["card"])
+        title_box.pack(side="left")
+        self.page_title_lbl = tk.Label(title_box, text="📊  Σύνοψη & Έλεγχος",
+                                       font=("Segoe UI", 13, "bold"), fg=COLORS["ink"],
+                                       bg=COLORS["card"], anchor="w")
+        self.page_title_lbl.pack(anchor="w")
+        self.page_sub_lbl = tk.Label(title_box, text="Επισκόπηση κατάστασης συστήματος και άμεσες λειτουργίες",
+                                     font=FONTS["sm"], fg=COLORS["muted"],
+                                     bg=COLORS["card"], anchor="w")
+        self.page_sub_lbl.pack(anchor="w")
+
+        # Ενέργειες πάνω δεξιά
+        actions_bar = tk.Frame(top_bar, bg=COLORS["card"])
+        actions_bar.pack(side="right")
+        ttk.Button(actions_bar, text="▶  Εκτέλεση τώρα", style="Accent.TButton",
+                   command=self.run_once).pack(side="left", padx=3)
+        self.btn_watch = ttk.Button(actions_bar, text="●  Έναρξη παρακολούθησης",
+                                    command=self.toggle_watch)
+        self.btn_watch.pack(side="left", padx=3)
+        ttk.Button(actions_bar, text="🔍  Προεπισκόπηση",
+                   command=self.show_preview).pack(side="left", padx=3)
+        ttk.Button(actions_bar, text="💾  Αποθήκευση",
+                   command=self.on_save).pack(side="left", padx=3)
+
+        # Κάτω μπάρα κατάστασης (Footer Ticker)
+        self.workspace_bottom = tk.Frame(workspace, bg=COLORS["card"], padx=14, pady=6,
+                                         highlightbackground=COLORS["line_subtle"], highlightthickness=1)
+        self.workspace_bottom.pack(side="bottom", fill="x")
+        ticker_left = tk.Frame(self.workspace_bottom, bg=COLORS["card"])
+        ticker_left.pack(side="left", fill="x", expand=True)
+        self.status_ticker = tk.Label(ticker_left, text="🟢 Έτοιμο για λειτουργία",
+                                      bg=COLORS["card"], fg=COLORS["muted"], font=FONTS["sm"], anchor="w")
+        self.status_ticker.pack(side="left", fill="x", expand=True)
+        ttk.Button(self.workspace_bottom, text="📜  Αρχείο καταγραφής (Log)", style="Ghost.TButton",
+                   command=lambda: self._select_nav(5)).pack(side="right")
+
+        # Μπάρα σφάλματος: μένει μέσα στο παράθυρο και ΔΕΝ μπλοκάρει
+        self.err_bar = tk.Frame(workspace, bg=COLORS["err"])
         self.err_lbl = tk.Label(self.err_bar, bg=COLORS["err"], fg="white",
-                                anchor="w", justify="left", font=("Segoe UI", 9, "bold"))
-        self.err_lbl.pack(side="left", fill="x", expand=True, padx=(12, 6), pady=6)
+                                anchor="w", justify="left", font=FONTS["sm_bold"])
+        self.err_lbl.pack(side="left", fill="x", expand=True, padx=(16, 8), pady=8)
         tk.Button(self.err_bar, text="Λεπτομέρειες", relief="flat", bd=0,
-                  bg="white", fg=COLORS["err"], font=("Segoe UI", 9),
-                  command=self.show_last_errors, cursor="hand2"
-                  ).pack(side="right", padx=4, pady=5)
+                  bg="white", fg=COLORS["err"], font=FONTS["sm_bold"],
+                  command=self.show_last_errors, cursor="hand2", padx=10, pady=4
+                  ).pack(side="right", padx=6, pady=6)
         tk.Button(self.err_bar, text="✕", relief="flat", bd=0, bg=COLORS["err"],
-                  fg="white", font=("Segoe UI", 10, "bold"),
-                  command=self.clear_error_bar, cursor="hand2"
-                  ).pack(side="right", padx=(0, 10), pady=5)
-        for tag, col in (("ok", "#4ade80"), ("err", "#f87171"),
-                         ("info", COLORS["console_fg"]), ("dim", "#7b8ca3")):
+                  fg="white", font=FONTS["base_bold"],
+                  command=self.clear_error_bar, cursor="hand2", padx=8, pady=4
+                  ).pack(side="right", padx=(0, 12), pady=6)
+
+        # Κεντρικό Notebook (Hidden tabs)
+        nb = self.nb = ttk.Notebook(workspace, style="Hidden.TNotebook")
+        pages = []
+        for title in ("Σύνοψη", "Βήμα 1", "Βήμα 2", "Βήμα 3", "Βήμα 4"):
+            page = ttk.Frame(nb, style="Card.TFrame")
+            nb.add(page, text=title)
+            pages.append(self._scrollable(page))
+        self.tab_home, self.tab0, self.tab1, self.tab2, self.tab3 = pages
+
+        # 6η καρτέλα: Πλήρες τερματικό Log
+        page_log = ttk.Frame(nb, style="Card.TFrame")
+        nb.add(page_log, text="Logs")
+        self._build_tab_log(page_log)
+
+        self._build_tab_home()
+        self._build_tab0()
+        self._build_tab1()
+        self._build_tab2()
+        self._build_tab3()
+
+        # Τα μπλοκ του Βήματος 3 ακολουθούν τα τσεκ «έχει ζυγούς …» του Βήματος 4
+        self.v_tscale_on.trace_add("write", lambda *_a: self._refresh_tab2_blocks())
+        self.v_ish_on.trace_add("write", lambda *_a: self._refresh_tab2_blocks())
+        self._refresh_tab2_blocks()
+
+        nb.pack(fill="both", expand=True, padx=12, pady=10)
+
+        def _on_tab_change(_event=None):
+            try:
+                cur = self.nb.index(self.nb.select())
+                self._highlight_nav(cur)
+            except Exception:
+                pass
+        self.nb.bind("<<NotebookTabChanged>>", _on_tab_change)
+        self._select_nav(0)
+
+    def _bind_nav_item(self, widgets, idx):
+        def on_enter(_e):
+            if hasattr(self, "nb") and self.nb.index(self.nb.select()) == idx:
+                return
+            for w in widgets:
+                try:
+                    w.configure(bg=COLORS["sidebar_hover"])
+                except Exception:
+                    pass
+        def on_leave(_e):
+            if hasattr(self, "nb") and self.nb.index(self.nb.select()) == idx:
+                return
+            for w in widgets:
+                try:
+                    w.configure(bg=COLORS["sidebar"])
+                except Exception:
+                    pass
+        for w in widgets:
+            w.bind("<Enter>", on_enter)
+            w.bind("<Leave>", on_leave)
+            w.bind("<Button-1>", lambda _e, i=idx: self._select_nav(i))
+
+    def _select_nav(self, idx):
+        if hasattr(self, "nb"):
+            self.nb.select(idx)
+        self._highlight_nav(idx)
+
+    def _highlight_nav(self, idx):
+        if not hasattr(self, "nav_rows") or not self.nav_rows:
+            return
+        meta = [
+            ("📊  Σύνοψη & Έλεγχος", "Επισκόπηση κατάστασης συστήματος και άμεσες λειτουργίες"),
+            ("📁  Βήμα 1 · Αρχείο ERP", "Διαδρομή αρχείου προέλευσης & συχνότητα παρακολούθησης"),
+            ("⚙  Βήμα 2 · Μετατροπή", "Κανόνες κωδικοποίησης, barcodes και μορφοποίησης"),
+            ("🏷  Βήμα 3 · Αρχείο Προϊόντων", "Διαμόρφωση πεδίων και εξαγωγή αρχείων ζυγών"),
+            ("⚖  Βήμα 4 · Ζυγοί & Αποστολή", "Διευθύνσεις IP ζυγών (T-Scale, Ishida, ILS)"),
+            ("📜  Καταγραφή & Logs", "Πλήρες ιστορικό λειτουργίας και μηνύματα συστήματος"),
+        ]
+        if idx < len(meta):
+            t, s = meta[idx]
+            if hasattr(self, "page_title_lbl"):
+                self.page_title_lbl.configure(text=t)
+            if hasattr(self, "page_sub_lbl"):
+                self.page_sub_lbl.configure(text=s)
+
+        for i, row_data in enumerate(self.nav_rows):
+            row, ind, icon_lbl, title_lbl, sub_lbl = row_data
+            bg_col = COLORS["sidebar_active"] if i == idx else COLORS["sidebar"]
+            ind_col = COLORS["brand"] if i == idx else COLORS["sidebar"]
+            fg_title = "#ffffff" if i == idx else COLORS["sidebar_fg"]
+            fg_icon = "#38bdf8" if i == idx else COLORS["sidebar_fg"]
+            fg_sub = "#cbd5e1" if i == idx else "#64748b"
+
+            row.configure(bg=bg_col)
+            ind.configure(bg=ind_col)
+            icon_lbl.configure(bg=bg_col, fg=fg_icon)
+            title_lbl.master.configure(bg=bg_col)
+            title_lbl.configure(bg=bg_col, fg=fg_title)
+            sub_lbl.configure(bg=bg_col, fg=fg_sub)
+
+    def _build_tab_log(self, parent):
+        container = ttk.Frame(parent, style="Card.TFrame", padding=(16, 16))
+        container.pack(fill="both", expand=True)
+
+        header = ttk.Frame(container, style="Card.TFrame")
+        header.pack(fill="x", pady=(0, 10))
+
+        ttk.Label(header, text="Αρχείο Καταγραφής Ενεργειών (Live Activity Console)",
+                  font=FONTS["title"]).pack(side="left")
+
+        btn_box = ttk.Frame(header, style="Card.TFrame")
+        btn_box.pack(side="right")
+        ttk.Button(btn_box, text="Καθαρισμός", style="Ghost.TButton",
+                   command=lambda: self.txt_log.delete("1.0", "end")).pack(side="left", padx=4)
+        ttk.Button(btn_box, text="Άνοιγμα αρχείου log", style="Ghost.TButton",
+                   command=self.open_log_file).pack(side="left", padx=4)
+
+        self.txt_log = self._console(container, 20, FONTS["mono"])
+        self.txt_log.pack(fill="both", expand=True)
+
+        for tag, col in (("ok", "#34d399"), ("err", "#f87171"),
+                         ("info", COLORS["console_fg"]), ("dim", "#94a3b8")):
             self.txt_log.tag_configure(tag, foreground=col)
 
-        nb.pack(fill="both", expand=True, padx=12, pady=(10, 0))
-
     def _pick_row(self, parent, label, var, kind="file", r=0):
-        ttk.Label(parent, text=label).grid(row=r, column=0, sticky="w", pady=3)
+        ttk.Label(parent, text=label).grid(row=r, column=0, sticky="w", pady=5)
         self._add_edit_menu(ttk.Entry(parent, textvariable=var, width=78)
-                            ).grid(row=r, column=1, sticky="we", padx=6)
+                            ).grid(row=r, column=1, sticky="we", padx=8)
 
         def pick():
             if kind == "dir":
@@ -4408,49 +4734,109 @@ class App(tk.Tk):
         parent.columnconfigure(1, weight=1)
 
     def _build_tab_home(self):
-        """Η «Σύνοψη»: κατάσταση με απλά λόγια και τα δύο κουμπιά που χρειάζεται ο χρήστης."""
+        """Η «Σύνοψη»: σύγχρονο Executive Dashboard 2026 με Hero banner, 4 KPI cards και άμεσες ενέργειες."""
         f = self.tab_home
-        self.home_big = tk.Label(f, text="", bg=COLORS["card"], fg=COLORS["muted"],
+
+        # 1. Hero Banner / Κάρτα κατάστασης
+        hero = tk.Frame(f, bg="#ffffff", padx=22, pady=18,
+                        highlightbackground=COLORS["line_subtle"], highlightthickness=1)
+        hero.pack(fill="x", pady=(2, 16))
+
+        hero_left = tk.Frame(hero, bg="#ffffff")
+        hero_left.pack(side="left", fill="both", expand=True)
+
+        self.home_big = tk.Label(hero_left, text="", bg="#ffffff", fg=COLORS["ink"],
                                  font=("Segoe UI", 15, "bold"), anchor="w", justify="left",
-                                 wraplength=900)
-        self.home_big.pack(anchor="w", pady=(8, 2))
-        self.home_sub = tk.Label(f, text="", bg=COLORS["card"], fg=COLORS["muted"],
-                                 font=("Segoe UI", 10), anchor="w", justify="left", wraplength=900)
-        self.home_sub.pack(anchor="w", pady=(0, 10))
+                                 wraplength=640)
+        self.home_big.pack(anchor="w", pady=(0, 4))
+        self.home_sub = tk.Label(hero_left, text="", bg="#ffffff", fg=COLORS["muted"],
+                                 font=FONTS["base"], anchor="w", justify="left", wraplength=640)
+        self.home_sub.pack(anchor="w")
 
-        grid = ttk.Frame(f)
-        grid.pack(fill="x", pady=(0, 12))
-        self.home_vals = {}
-        for r, (key, label) in enumerate((("erp", "Αρχείο του ERP:"),
-                                          ("watch", "Παρακολούθηση:"),
-                                          ("scales", "Ζυγοί που ενημερώνονται:"),
-                                          ("last", "Τελευταία ενημέρωση:"),
-                                          ("pending", "Ζυγοί που δεν πρόλαβαν:"))):
-            ttk.Label(grid, text=label, style="Hint.TLabel").grid(row=r, column=0, sticky="nw",
-                                                                 padx=(0, 14), pady=4)
-            v = tk.Label(grid, text="—", bg=COLORS["card"], fg=COLORS["ink"],
-                         font=("Segoe UI", 11), anchor="w", justify="left", wraplength=760)
-            v.grid(row=r, column=1, sticky="w", pady=4)
-            self.home_vals[key] = v
+        hero_actions = tk.Frame(hero, bg="#ffffff")
+        hero_actions.pack(side="right", padx=(16, 0))
 
-        btns = ttk.Frame(f)
-        btns.pack(fill="x", pady=(4, 10))
-        ttk.Button(btns, text="▶  Ενημέρωση ζυγών τώρα", style="Accent.TButton",
-                   command=self.run_once).pack(side="left", ipadx=10, ipady=6)
-        self.btn_watch_home = ttk.Button(btns, text="●  Έναρξη παρακολούθησης",
+        ttk.Button(hero_actions, text="▶  Ενημέρωση ζυγών τώρα", style="Accent.TButton",
+                   command=self.run_once).pack(fill="x", pady=(0, 6))
+        self.btn_watch_home = ttk.Button(hero_actions, text="●  Έναρξη παρακολούθησης",
                                          command=self.toggle_watch)
-        self.btn_watch_home.pack(side="left", padx=10, ipadx=10, ipady=6)
-        ttk.Button(btns, text="Τι πήγε στραβά;", style="Ghost.TButton",
-                   command=self.show_last_errors).pack(side="left", ipadx=6, ipady=6)
-        ttk.Button(btns, text="🧭  Νέα εγκατάσταση — οδηγός", style="Ghost.TButton",
-                   command=self.column_wizard).pack(side="right", ipadx=6, ipady=6)
+        self.btn_watch_home.pack(fill="x")
 
-        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=900,
-                  text="«Ενημέρωση ζυγών τώρα» στέλνει αμέσως τις τιμές του ERP στους ζυγούς. "
+        # 2. Metric KPI Cards Grid (2x2 layout)
+        grid_frame = tk.Frame(f, bg=COLORS["card"])
+        grid_frame.pack(fill="x", pady=(0, 16))
+        grid_frame.columnconfigure(0, weight=1, uniform="kpi")
+        grid_frame.columnconfigure(1, weight=1, uniform="kpi")
+
+        self.home_vals = {}
+
+        # Card 1: Αρχείο ERP
+        card1 = tk.Frame(grid_frame, bg=COLORS["card_subtle"], padx=18, pady=16,
+                         highlightbackground=COLORS["line_subtle"], highlightthickness=1)
+        card1.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(0, 12))
+        tk.Label(card1, text="📁  ΑΡΧΕΙΟ ΠΡΟΕΛΕΥΣΗΣ (ERP)", bg=COLORS["card_subtle"],
+                 fg=COLORS["brand_d"], font=FONTS["sm_bold"]).pack(anchor="w", pady=(0, 6))
+        self.home_vals["erp"] = tk.Label(card1, text="—", bg=COLORS["card_subtle"], fg=COLORS["ink"],
+                                         font=FONTS["base"], anchor="w", justify="left", wraplength=420)
+        self.home_vals["erp"].pack(anchor="w")
+
+        # Card 2: Παρακολούθηση
+        card2 = tk.Frame(grid_frame, bg=COLORS["card_subtle"], padx=18, pady=16,
+                         highlightbackground=COLORS["line_subtle"], highlightthickness=1)
+        card2.grid(row=0, column=1, sticky="nsew", padx=(8, 0), pady=(0, 12))
+        tk.Label(card2, text="⏱  ΑΥΤΟΜΑΤΙΣΜΟΣ & ΕΛΕΓΧΟΣ", bg=COLORS["card_subtle"],
+                 fg=COLORS["brand_d"], font=FONTS["sm_bold"]).pack(anchor="w", pady=(0, 6))
+        self.home_vals["watch"] = tk.Label(card2, text="—", bg=COLORS["card_subtle"], fg=COLORS["ink"],
+                                           font=FONTS["base"], anchor="w", justify="left", wraplength=420)
+        self.home_vals["watch"].pack(anchor="w")
+
+        # Card 3: Ζυγοί
+        card3 = tk.Frame(grid_frame, bg=COLORS["card_subtle"], padx=18, pady=16,
+                         highlightbackground=COLORS["line_subtle"], highlightthickness=1)
+        card3.grid(row=1, column=0, sticky="nsew", padx=(0, 8), pady=(0, 0))
+        tk.Label(card3, text="⚖  ΤΕΡΜΑΤΙΚΑ ΖΥΓΙΣΗΣ (ΚΑΤΑΣΤΗΜΑ)", bg=COLORS["card_subtle"],
+                 fg=COLORS["brand_d"], font=FONTS["sm_bold"]).pack(anchor="w", pady=(0, 6))
+        self.home_vals["scales"] = tk.Label(card3, text="—", bg=COLORS["card_subtle"], fg=COLORS["ink"],
+                                            font=FONTS["base"], anchor="w", justify="left", wraplength=420)
+        self.home_vals["scales"].pack(anchor="w")
+
+        # Card 4: Τελευταία εκτέλεση & Εκκρεμότητες
+        card4 = tk.Frame(grid_frame, bg=COLORS["card_subtle"], padx=18, pady=16,
+                         highlightbackground=COLORS["line_subtle"], highlightthickness=1)
+        card4.grid(row=1, column=1, sticky="nsew", padx=(8, 0), pady=(0, 0))
+        tk.Label(card4, text="🔄  ΙΣΤΟΡΙΚΟ & ΕΚΚΡΕΜΟΤΗΤΕΣ", bg=COLORS["card_subtle"],
+                 fg=COLORS["brand_d"], font=FONTS["sm_bold"]).pack(anchor="w", pady=(0, 6))
+        self.home_vals["last"] = tk.Label(card4, text="—", bg=COLORS["card_subtle"], fg=COLORS["ink"],
+                                          font=FONTS["base"], anchor="w", justify="left", wraplength=420)
+        self.home_vals["last"].pack(anchor="w", pady=(0, 4))
+
+        pend_box = tk.Frame(card4, bg=COLORS["card_subtle"])
+        pend_box.pack(anchor="w", fill="x")
+        tk.Label(pend_box, text="Εκκρεμείς ζυγοί: ", bg=COLORS["card_subtle"], fg=COLORS["muted"],
+                 font=FONTS["sm"]).pack(side="left")
+        self.home_vals["pending"] = tk.Label(pend_box, text="—", bg=COLORS["card_subtle"], fg=COLORS["ink"],
+                                             font=FONTS["sm_bold"], anchor="w")
+        self.home_vals["pending"].pack(side="left")
+
+        # 3. Action Row
+        action_row = ttk.Frame(f)
+        action_row.pack(fill="x", pady=(16, 12))
+        ttk.Button(action_row, text="Τι πήγε στραβά;", style="Ghost.TButton",
+                   command=self.show_last_errors).pack(side="left")
+        ttk.Button(action_row, text="🧭  Νέα εγκατάσταση — οδηγός", style="Ghost.TButton",
+                   command=self.column_wizard).pack(side="right")
+
+        # 4. Note Guidance Card
+        note_card = tk.Frame(f, bg=COLORS["card_subtle"], padx=16, pady=12,
+                             highlightbackground=COLORS["brand_light"], highlightthickness=1)
+        note_card.pack(fill="x", pady=(0, 10))
+        ttk.Label(note_card, style="Hint.TLabel", justify="left", wraplength=900,
+                  text="💡 «Ενημέρωση ζυγών τώρα» στέλνει αμέσως τις τιμές του ERP στους ζυγούς. "
                        "Με την παρακολούθηση ενεργή, γίνεται μόνο του κάθε φορά που το ERP "
-                       "βγάζει νέο αρχείο — δεν χρειάζεται να κάνεις τίποτα.\n"
-                       "Οι καρτέλες «Βήμα 1-4» είναι ρυθμίσεις για τον τεχνικό."
+                       "βγάζει νέο αρχείο — δεν χρειάζεται καμία άλλη ενέργεια.\n"
+                       "Τα «Βήματα 1-4» στην αριστερή μπάρα περιέχουν τις τεχνικές ρυθμίσεις της εγκατάστασης."
                   ).pack(anchor="w")
+
         self.after(800, self._refresh_home)
 
     def _refresh_home(self):
@@ -4532,21 +4918,21 @@ class App(tk.Tk):
 
         # η μεγάλη γραμμή
         if busy:
-            big, sub, col = "Γίνεται ενημέρωση των ζυγών…", "Περίμενε λίγο.", C["brand"]
+            big, sub, col = "⏳  Γίνεται ενημέρωση των ζυγών…", "Περίμενε λίγο.", C["brand"]
         elif self.last_run and not self.last_run[1]:
-            big, sub, col = ("Η τελευταία ενημέρωση ΑΠΕΤΥΧΕ",
+            big, sub, col = ("❌  Η τελευταία ενημέρωση ΑΠΕΤΥΧΕ",
                              "Δες «Τι πήγε στραβά;» ή κάλεσε τον τεχνικό.", C["err"])
         elif not path or not os.path.isfile(path):
-            big, sub, col = ("Δεν βρίσκω το αρχείο του ERP",
+            big, sub, col = ("⚠️  Δεν βρίσκω το αρχείο του ERP",
                              "Ο τεχνικός πρέπει να το ορίσει στο «Βήμα 1».", C["warn"])
         elif not meri:
-            big, sub, col = ("Δεν έχει δηλωθεί κανένας ζυγός",
+            big, sub, col = ("⚠️  Δεν έχει δηλωθεί κανένας ζυγός",
                              "Ο τεχνικός πρέπει να τους ορίσει στο «Βήμα 4».", C["warn"])
         elif self.watching:
-            big, sub, col = ("Όλα καλά — παρακολουθεί το ERP",
+            big, sub, col = ("✅  Όλα καλά — παρακολουθεί το ERP",
                              "Μόλις βγει νέο αρχείο, οι ζυγοί ενημερώνονται μόνοι τους.", C["ok"])
         else:
-            big, sub, col = ("Σε αναμονή — η παρακολούθηση είναι σταματημένη",
+            big, sub, col = ("⏸️  Σε αναμονή — η παρακολούθηση είναι σταματημένη",
                              "Πάτα «Έναρξη παρακολούθησης» για να ενημερώνει μόνο του.", C["warn"])
         self.home_big.configure(text=big, fg=col)
         self.home_sub.configure(text=sub)
@@ -4633,7 +5019,7 @@ class App(tk.Tk):
                        "Γράψε ελεύθερα όσες γραμμές θες. Δεξί κλικ για αντιγραφή/επικόλληση "
                        "(δουλεύει και με ελληνικό πληκτρολόγιο)."
                   ).pack(anchor="w", pady=6)
-        self.txt_s1 = self._console(f, 8, ("Consolas", 10))
+        self.txt_s1 = self._console(f, 8, FONTS["mono"])
         self.txt_s1.pack(fill="x")
         g = ttk.Frame(f)
         g.pack(fill="x", pady=8)
@@ -4643,12 +5029,12 @@ class App(tk.Tk):
     def _block(self, parent, title, hint=None):
         """Ένα πλαίσιο ανά ζυγό στο Βήμα 3: τίτλος με χρώμα, προαιρετική υπόδειξη."""
         blk = ttk.Frame(parent)
-        ttk.Separator(blk, orient="horizontal").pack(fill="x", pady=(8, 4))
-        tk.Label(blk, text=title, bg=COLORS["card"], fg=COLORS["brand"],
-                 font=("Segoe UI", 11, "bold"), anchor="w").pack(anchor="w")
+        ttk.Separator(blk, orient="horizontal").pack(fill="x", pady=(12, 6))
+        tk.Label(blk, text=title, bg=COLORS["card"], fg=COLORS["brand_d"],
+                 font=FONTS["title"], anchor="w").pack(anchor="w")
         if hint:
-            ttk.Label(blk, style="Hint.TLabel", justify="left", wraplength=920, text=hint
-                      ).pack(anchor="w", pady=(0, 4))
+            ttk.Label(blk, style="Hint.TLabel", justify="left", wraplength=950, text=hint
+                      ).pack(anchor="w", pady=(2, 6))
         return blk
 
     def _build_tab2(self):
@@ -4982,12 +5368,12 @@ class App(tk.Tk):
         wf = ttk.Frame(f)
         wf.pack(fill="x", pady=(2, 0))
         tk.Label(wf, text="Χαρακτήρες ανά γραμμή ετικέτας:", bg=COLORS["card"], fg=COLORS["ink"],
-                 font=("Segoe UI", 10, "bold")).pack(side="left")
+                 font=FONTS["base_bold"]).pack(side="left")
         self.v_ish_width = tk.StringVar(value="25")
         self.e_ish_width = ttk.Spinbox(wf, from_=10, to=40, width=4, textvariable=self.v_ish_width)
         self.e_ish_width.pack(side="left", padx=8)
         self.lbl_ish_width = tk.Label(wf, text="", bg=COLORS["card"], fg=COLORS["warn"],
-                                      font=("Segoe UI", 9, "bold"))
+                                      font=FONTS["sm_bold"])
         self.lbl_ish_width.pack(side="left")
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Αν ο ζυγός γράφει στην οθόνη του «too many characters for print», ΕΔΩ είναι η "
@@ -5713,8 +6099,8 @@ class App(tk.Tk):
         win = tk.Toplevel(self)
         win.title("Πεδία T-Scale — τι στέλνεται στον ζυγό")
         win.transient(self)
-        win.grab_set()
-        win.geometry("1120x700")
+        win.geometry("1160x740")
+        win.minsize(920, 560)
         # Η μπάρα κουμπιών ΠΡΩΤΗ, κάτω: αλλιώς ο πίνακας που «απλώνει» την έσπρωχνε
         # έξω από το παράθυρο και δεν φαινόταν η «Καταχώρηση».
         bar = ttk.Frame(win, style="Bar.TFrame", padding=(10, 8))
@@ -5866,8 +6252,8 @@ class App(tk.Tk):
         win.transient(self)
         win.grab_set()
         txt = tk.Text(win, width=max(60, min(110, max(len(l) for l in lines) + 2)),
-                      height=min(32, len(lines) + 1), font=("Consolas", 10), wrap="none",
-                      bg=COLORS["card"], fg=COLORS["ink"], relief="flat", padx=10, pady=8)
+                      height=min(32, len(lines) + 1), font=FONTS["mono"], wrap="none",
+                      bg=COLORS["card"], fg=COLORS["ink"], relief="flat", padx=14, pady=12)
         txt.insert("1.0", "\n".join(lines))
         txt.configure(state="disabled")
         txt.pack(fill="both", expand=True, padx=10, pady=(10, 4))
@@ -5932,8 +6318,8 @@ class App(tk.Tk):
         win = tk.Toplevel(self)
         win.title(title)
         win.transient(self)
-        win.grab_set()
-        win.geometry("1120x640")
+        win.geometry("1160x700")
+        win.minsize(920, 560)
         bar = ttk.Frame(win, style="Bar.TFrame", padding=(10, 8))
         bar.pack(fill="x", side="bottom")
         top = ttk.Frame(win, style="Card.TFrame", padding=(10, 8))
@@ -6080,8 +6466,8 @@ class App(tk.Tk):
         win = tk.Toplevel(self)
         win.title("Πεδία ζυγού Ishida — τι ενημερώνεται στον ζυγό")
         win.transient(self)
-        win.grab_set()
-        win.geometry("1120x700")
+        win.geometry("1160x740")
+        win.minsize(920, 560)
         bar = ttk.Frame(win, style="Bar.TFrame", padding=(10, 8))
         bar.pack(fill="x", side="bottom")
         top = ttk.Frame(win, style="Card.TFrame", padding=(10, 8))
@@ -6284,7 +6670,7 @@ class App(tk.Tk):
         win.title("Οδηγός αντιστοίχισης στηλών — από το αρχείο του ERP")
         win.transient(self)
         win.grab_set()
-        win.geometry("980x760")
+        win.geometry("1060x820")
         outer = ttk.Frame(win, style="Card.TFrame")
         outer.pack(fill="both", expand=True)
         body = self._scrollable(outer)
@@ -6346,8 +6732,8 @@ class App(tk.Tk):
 
         # ---- 4. προεπισκόπηση
         ttk.Label(body, text="4.  Πώς θα βγουν τα αρχεία", style="Title.TLabel").pack(anchor="w", pady=(10, 2))
-        prev = tk.Text(body, height=14, font=("Consolas", 9), wrap="none", bg=COLORS["console"],
-                       fg=COLORS["console_fg"], relief="flat", padx=8, pady=6)
+        prev = tk.Text(body, height=14, font=FONTS["mono"], wrap="none", bg=COLORS["console"],
+                       fg=COLORS["console_fg"], relief="flat", padx=12, pady=10)
         prev.pack(fill="x")
         bar = ttk.Frame(body)
         bar.pack(fill="x", pady=10)
@@ -6477,7 +6863,7 @@ class App(tk.Tk):
                 else:
                     ttk.Label(r, text=name[:15], width=16).pack(side="left")
                 deig = " | ".join(x[:22] for x in samples[:3])
-                ttk.Label(r, text=deig[:70], width=52, font=("Consolas", 9)).pack(side="left")
+                ttk.Label(r, text=deig[:70], width=52, font=FONTS["mono_sm"]).pack(side="left")
                 key = old.get(i) if i in old else WIZ_MEANING_LABEL.get(guessed.get(i, ""), labels[0])
                 v = tk.StringVar(value=key if key in labels else labels[0])
                 cb = ttk.Combobox(r, textvariable=v, values=labels, state="readonly", width=24)
@@ -6640,8 +7026,8 @@ class App(tk.Tk):
         win.transient(self)
         win.grab_set()
         txt = tk.Text(win, width=max(70, min(110, max(len(l) for l in lines) + 2)),
-                      height=min(34, len(lines) + 1), font=("Consolas", 10), wrap="none",
-                      bg=COLORS["card"], fg=COLORS["ink"], relief="flat", padx=10, pady=8)
+                      height=min(34, len(lines) + 1), font=FONTS["mono"], wrap="none",
+                      bg=COLORS["card"], fg=COLORS["ink"], relief="flat", padx=14, pady=12)
         txt.insert("1.0", "\n".join(lines))
         txt.configure(state="disabled")
         txt.pack(fill="both", expand=True, padx=10, pady=(10, 4))
@@ -6800,6 +7186,12 @@ class App(tk.Tk):
     def set_status(self, text, color):
         self.status.configure(text=text, foreground=color)
         self.status_dot.itemconfigure(self._dot, fill=color)
+        if hasattr(self, "status_ticker") and self.status_ticker:
+            try:
+                stamp = datetime.datetime.now().strftime("%H:%M:%S")
+                self.status_ticker.configure(text=f"● {text}  ({stamp})")
+            except Exception:
+                pass
 
     def open_out_dir(self):
         d = self.v_outdir.get().strip() or os.path.dirname(self.v_watch.get().strip())
@@ -7191,7 +7583,8 @@ class App(tk.Tk):
         """Παράθυρο που δείχνει ποιοι ζυγοί απαντούν αυτή τη στιγμή."""
         win = tk.Toplevel(self)
         win.title("Κατάσταση ζυγών")
-        win.geometry("560x380")
+        win.geometry("640x440")
+        win.minsize(560, 360)
         win.transient(self)
         try:
             win.iconbitmap(resource("logo.ico"))
@@ -7289,68 +7682,169 @@ class App(tk.Tk):
             % (APP_NAME, APP_VERSION, APP_VENDOR, CONFIG_PATH, LOG_DIR))
 
     def check_update(self):
-        """Ρωτάει το GitHub αν υπάρχει νεότερη έκδοση.
-
-        Τρέχει σε ξεχωριστό νήμα με timeout: αν δεν υπάρχει internet ή αργεί ο
-        server, η εφαρμογή συνεχίζει κανονικά — δεν κολλάει ποτέ.
-        """
+        """Ανοίγει το διάλογο επιλογής καναλιού (Stable, Beta Classic, Beta Redesign) και ενημέρωσης."""
         if not self.ask_password():
             return
-        self.set_status("Έλεγχος ενημέρωσης…", COLORS["brand"])
-        self._update_result = None
+        self.show_channel_update_dialog()
 
-        def job():
+    def show_channel_update_dialog(self):
+        import webbrowser
+        win = tk.Toplevel(self)
+        win.title("Ενημέρωση Εφαρμογής & Επιλογή Καναλιού — %s" % APP_NAME)
+        win.geometry("740x580")
+        win.minsize(680, 500)
+        try:
+            win.iconbitmap(resource("logo.ico"))
+        except Exception:
+            pass
+        win.configure(bg=COLORS["bg"])
+        win.transient(self)
+        win.grab_set()
+
+        # Header
+        hdr = tk.Frame(win, bg=COLORS["card"], padx=20, pady=14,
+                       highlightbackground=COLORS["line_subtle"], highlightthickness=1)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="🔄  Ενημέρωση Εφαρμογής & Επιλογή Έκδοσης", font=("Segoe UI", 13, "bold"),
+                 fg=COLORS["ink"], bg=COLORS["card"]).pack(anchor="w")
+        tk.Label(hdr, text="Τρέχουσα εγκατεστημένη έκδοση: %s   |   Επιλέξτε κανάλι για εγκατάσταση ή εναλλαγή." % APP_BUILD,
+                 font=FONTS["sm"], fg=COLORS["muted"], bg=COLORS["card"]).pack(anchor="w", pady=(3, 0))
+
+        # Main Container
+        body = tk.Frame(win, bg=COLORS["bg"], padx=18, pady=12)
+        body.pack(fill="both", expand=True)
+
+        status_lbl = tk.Label(body, text="⏳ Ανάκτηση διαθέσιμων εκδόσεων από το GitHub…",
+                              font=FONTS["base_bold"], fg=COLORS["brand_d"], bg=COLORS["bg"])
+        status_lbl.pack(pady=12)
+
+        content_frame = tk.Frame(body, bg=COLORS["bg"])
+
+        # Notes section
+        notes_box_frame = tk.Frame(content_frame, bg=COLORS["bg"])
+        tk.Label(notes_box_frame, text="Σημειώσεις επιλεγμένης έκδοσης:",
+                 font=FONTS["sm_bold"], fg=COLORS["muted"], bg=COLORS["bg"]).pack(anchor="w", pady=(8, 4))
+        notes_txt = scrolledtext.ScrolledText(notes_box_frame, height=6, font=FONTS["sm"],
+                                              bg=COLORS["card"], fg=COLORS["ink"], relief="flat",
+                                              highlightbackground=COLORS["line_subtle"], highlightthickness=1)
+        notes_txt.pack(fill="both", expand=True)
+
+        selected_channel = tk.StringVar(value="beta_redesign")
+        channel_data = {}
+
+        def update_notes():
+            ch = selected_channel.get()
+            info = channel_data.get(ch)
+            notes_txt.configure(state="normal")
+            notes_txt.delete("1.0", "end")
+            if info:
+                t = f"Έκδοση: {info['tag']}  ({info.get('date', '')})\n"
+                t += ("-" * 60) + "\n"
+                t += info.get("notes") or "Δεν υπάρχουν πρόσθετες σημειώσεις."
+                notes_txt.insert("end", t)
+            else:
+                notes_txt.insert("end", "Δεν βρέθηκαν διαθέσιμες πληροφορίες για αυτό το κανάλι.")
+            notes_txt.configure(state="disabled")
+
+        def on_data_loaded(channels):
+            status_lbl.pack_forget()
+            content_frame.pack(fill="both", expand=True)
+            nonlocal channel_data
+            channel_data = channels
+
+            defs = [
+                ("beta_redesign", "🌟  Beta Redesign (Σύγχρονο UI 2026)",
+                 "Νέο γραφικό περιβάλλον με Navigation Rail, Executive Dashboard & KPI Cards",
+                 channels.get("beta_redesign")),
+                ("beta_classic", "🧪  Beta Classic (Προηγούμενη δοκιμαστική)",
+                 "Κλασική δοκιμαστική έκδοση με οριζόντιες καρτέλες",
+                 channels.get("beta_classic")),
+                ("stable", "🏢  Stable (Έκδοση Παραγωγής καταστημάτων)",
+                 "Επίσημη σταθερή έκδοση που τρέχει στα ζωντανά καταστήματα",
+                 channels.get("stable")),
+            ]
+
+            cards_frame = tk.Frame(content_frame, bg=COLORS["bg"])
+            cards_frame.pack(fill="x", pady=(0, 4))
+
+            for key, title, desc, info in defs:
+                card = tk.Frame(cards_frame, bg=COLORS["card"], padx=14, pady=10,
+                                highlightbackground=COLORS["line_subtle"], highlightthickness=1)
+                card.pack(fill="x", pady=4)
+
+                top_line = tk.Frame(card, bg=COLORS["card"])
+                top_line.pack(fill="x")
+
+                rb = ttk.Radiobutton(top_line, text=title, value=key, variable=selected_channel,
+                                     command=update_notes)
+                rb.pack(side="left")
+
+                ver_tag = info["tag"] if info else "—"
+                is_curr = bool(info and info.get("version") == APP_BUILD)
+
+                tag_box = tk.Frame(top_line, bg=COLORS["card"])
+                tag_box.pack(side="right")
+
+                if is_curr:
+                    tk.Label(tag_box, text="[Τρέχουσα]", font=FONTS["sm_bold"],
+                             fg=COLORS["ok"], bg=COLORS["ok_light"], padx=6, pady=1).pack(side="right", padx=(6, 0))
+
+                tk.Label(tag_box, text=ver_tag, font=FONTS["base_bold"],
+                         fg=COLORS["brand_d"], bg=COLORS["card"]).pack(side="right")
+
+                tk.Label(card, text=desc, font=FONTS["sm"], fg=COLORS["muted"],
+                         bg=COLORS["card"]).pack(anchor="w", padx=(24, 0), pady=(2, 0))
+
+            notes_box_frame.pack(fill="both", expand=True, pady=(4, 0))
+            update_notes()
+
+        # Thread fetch
+        def fetch_job():
             try:
-                self._update_result = ("ok",) + fetch_latest_version()
-            except Exception as exc:
-                self._update_result = ("err", str(exc), "", "")
+                ch = fetch_available_channels(timeout=10)
+                if not ch.get("beta_redesign") and "beta" in APP_BUILD.lower():
+                    ch["beta_redesign"] = {
+                        "tag": "v" + APP_BUILD,
+                        "version": APP_BUILD,
+                        "notes": "Ριζική ανανέωση γραφικού περιβάλλοντος 2026 (Navigation Rail, Dashboard, KPI cards).",
+                        "url": "",
+                        "date": datetime.datetime.now().strftime("%Y-%m-%d")
+                    }
+                win.after(0, lambda: on_data_loaded(ch))
+            except Exception as e:
+                win.after(0, lambda: status_lbl.configure(
+                    text="❌ Αποτυχία σύνδεσης στο GitHub: %s" % e, fg=COLORS["err"]))
 
-        threading.Thread(target=job, daemon=True).start()
-        self.after(300, self._poll_update)
+        threading.Thread(target=fetch_job, daemon=True).start()
 
-    def _poll_update(self):
-        res = getattr(self, "_update_result", None)
-        if res is None:
-            self.after(300, self._poll_update)
-            return
-        self._update_result = None
-        self.set_status("Σε αναμονή", COLORS["muted"])
-        kind, latest, notes, exe_url = res
+        # Footer Buttons
+        ftr = tk.Frame(win, bg=COLORS["card"], padx=18, pady=12,
+                       highlightbackground=COLORS["line_subtle"], highlightthickness=1)
+        ftr.pack(side="bottom", fill="x")
 
-        if kind == "err":
-            self.log("Ο έλεγχος ενημέρωσης απέτυχε: %s" % latest)
-            messagebox.showwarning(
-                APP_NAME,
-                "Δεν ήταν δυνατός ο έλεγχος για ενημέρωση.\n\n%s\n\n"
-                "Έλεγξε τη σύνδεση στο internet και ξαναδοκίμασε. Το πρόγραμμα "
-                "συνεχίζει να δουλεύει κανονικά." % latest)
-            return
+        def on_install_click():
+            ch = selected_channel.get()
+            info = channel_data.get(ch)
+            if not info:
+                messagebox.showerror(APP_NAME, "Δεν υπάρχουν διαθέσιμες πληροφορίες για το επιλεγμένο κανάλι.")
+                return
+            v = info.get("version", "")
+            url = info.get("url", "")
+            if v == APP_BUILD:
+                if not messagebox.askyesno(APP_NAME, "Έχετε ήδη εγκατεστημένη την έκδοση %s.\n\nΘέλετε να γίνει επανεγκατάσταση;" % v):
+                    return
+            else:
+                if not messagebox.askyesno(APP_NAME, "Επιλέξατε την έκδοση %s (%s).\n\nΝα προχωρήσει η λήψη και εγκατάσταση;" % (v, ch)):
+                    return
+            win.destroy()
+            self.install_update(url, v)
 
-        self.log("Έλεγχος ενημέρωσης: εγκατεστημένη %s, διαθέσιμη %s" % (APP_BUILD, latest))
-        if parse_version(latest) <= parse_version(APP_BUILD):
-            messagebox.showinfo(APP_NAME, "Έχεις την τελευταία έκδοση (%s)." % APP_BUILD)
-            return
-
-        frozen = getattr(sys, "frozen", False)
-        if not (frozen and exe_url):
-            messagebox.showinfo(
-                APP_NAME,
-                "Υπάρχει νεότερη έκδοση: %s (έχεις %s)\n\n%s\n\n"
-                "Η αυτόματη εγκατάσταση δεν είναι διαθέσιμη εδώ — κάνε ενημέρωση "
-                "χειροκίνητα από το GitHub." % (latest, APP_BUILD, notes or ""))
-            import webbrowser
-            webbrowser.open(UPDATE_PAGE_URL)
-            return
-
-        if not messagebox.askyesno(
-                APP_NAME,
-                "Υπάρχει νεότερη έκδοση!\n\nΕγκατεστημένη: %s\nΔιαθέσιμη: %s\n\n%s\n\n"
-                "Να γίνει τώρα η ενημέρωση; Το πρόγραμμα θα κλείσει για λίγα δευτερόλεπτα "
-                "και θα ξανανοίξει μόνο του.\nΟι ρυθμίσεις σου διατηρούνται."
-                % (APP_BUILD, latest, notes or "")):
-            return
-
-        self.install_update(exe_url, latest)
+        ttk.Button(ftr, text="🌐  Προβολή στο GitHub", style="Ghost.TButton",
+                   command=lambda: webbrowser.open(UPDATE_PAGE_URL)).pack(side="left")
+        ttk.Button(ftr, text="✕  Κλείσιμο", style="Ghost.TButton",
+                   command=win.destroy).pack(side="right", padx=(8, 0))
+        ttk.Button(ftr, text="▶  Εγκατάσταση Επιλεγμένης Έκδοσης", style="Accent.TButton",
+                   command=on_install_click).pack(side="right")
 
     def install_update(self, url, latest):
         if self.watching:
@@ -7422,17 +7916,17 @@ class App(tk.Tk):
 
         win = tk.Toplevel(self)
         win.title("Προεπισκόπηση βημάτων — %s" % APP_NAME)
-        win.geometry("980x640")
+        win.geometry("1040x680")
         try:
             win.iconbitmap(resource("logo.ico"))
         except Exception:
             pass
-        box = self._console(win, 30, ("Consolas", 9))
-        box.pack(fill="both", expand=True, padx=10, pady=10)
+        box = self._console(win, 30, FONTS["mono"])
+        box.pack(fill="both", expand=True, padx=14, pady=12)
         box.insert("1.0", report)
         box.configure(state="disabled")
 
-        bar = ttk.Frame(win, style="Bar.TFrame", padding=8)
+        bar = ttk.Frame(win, style="Bar.TFrame", padding=(14, 10))
         bar.pack(fill="x")
 
         def copy():
@@ -7490,6 +7984,11 @@ class App(tk.Tk):
         self.txt_log.insert("end", "%s\n" % msg, tag)
         self.txt_log.see("end")
         write_log(msg)
+        if hasattr(self, "status_ticker") and self.status_ticker:
+            try:
+                self.status_ticker.configure(text=f"{stamp}  {msg[:110]}")
+            except Exception:
+                pass
 
     def run_once(self, silent=False):
         if self.worker and self.worker.is_alive():
@@ -7563,7 +8062,12 @@ class App(tk.Tk):
             self.err_lbl.configure(
                 text="⚠  %s   (%s)" % (proti[:150],
                                        datetime.datetime.now().strftime("%H:%M")))
-            self.err_bar.pack(side="bottom", fill="x", before=self.txt_log)
+            if hasattr(self, "workspace_bottom"):
+                self.err_bar.pack(side="bottom", fill="x", before=self.workspace_bottom)
+            elif hasattr(self, "txt_log") and self.txt_log.master == self.err_bar.master:
+                self.err_bar.pack(side="bottom", fill="x", before=self.txt_log)
+            else:
+                self.err_bar.pack(side="bottom", fill="x")
         except Exception:
             pass
 
@@ -7598,21 +8102,21 @@ class App(tk.Tk):
 
         win = tk.Toplevel(self)
         win.title("Τελευταία σφάλματα")
-        win.geometry("900x460")
+        win.geometry("960x520")
         win.transient(self)
-        f = ttk.Frame(win, padding=12)
+        f = ttk.Frame(win, padding=16)
         f.pack(fill="both", expand=True)
         ttk.Label(f, text="Τελευταία σφάλματα", style="Big.TCheckbutton").pack(anchor="w")
         ttk.Label(f, style="Hint.TLabel",
                   text="Από τα αρχεία log των τελευταίων ημερών. Το πρόγραμμα δεν "
                        "σταμάτησε για κανένα από αυτά."
                   ).pack(anchor="w", pady=(2, 8))
-        box = self._console(f, 18, ("Consolas", 9))
+        box = self._console(f, 18, FONTS["mono"])
         box.pack(fill="both", expand=True)
         box.insert("1.0", "\n".join(grammes[-400:]))
         box.see("end")
         bar = ttk.Frame(f)
-        bar.pack(fill="x", pady=(8, 0))
+        bar.pack(fill="x", pady=(12, 0))
         ttk.Button(bar, text="Άνοιγμα αρχείου log",
                    command=self.open_log_file).pack(side="left")
         ttk.Button(bar, text="Κλείσιμο", command=win.destroy).pack(side="right")
