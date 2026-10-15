@@ -2938,6 +2938,100 @@ ILS_CFG_OPTIONS = {
     "Bartype_PCS": "Τύπος barcode τεμαχιακών (π.χ. 102)",
 }
 ILS_SEP_INDEX = {",": 0, "\t": 1, ";": 2, " ": 3, "": 4}
+# Πλήρες AutoTrans.CFG όπως το γράφει το ίδιο το ScaleAutoTrans (δομή και σειρά
+# κλειδιών από πραγματική εγκατάσταση). Δεν υπάρχει «πρότυπο» από τον κατασκευαστή:
+# το φτιάχνουμε εμείς, και τα πεδία/επιλογές γράφονται πάνω σε αυτό.
+ILS_CFG_TEMPLATE = """[Language]
+Code=CHINESE
+Area=CHINA
+lngstr=_en
+[AutoTranSet]
+FontSize=9
+FontName=Arial
+FontCharset=1
+IsAutoUpdate=1
+[ImportPluSet]
+ChkHotKey=0
+ChkPluName=1
+ChkLfCode=1
+ChkCode=1
+chkBarCode=0
+ChkUnitPrice=1
+ChkDeptMent=0
+ChkTare=0
+ChkShleftime=0
+ChkWeightUnit=0
+CboxHotKey=1
+CboxPluName=7
+CboxLfcode=2
+CboxCode=2
+CboxBarCode=5
+CboxUnitPrice=64
+CboxDeptMent=11
+CboxTare=10
+CboxShleftime=11
+ChkDiv100=0
+ChkTolerance=0
+CboxTolerance=16
+CboxPluSep=4
+ChkDiv1000=0
+CboxWeightPos=69
+ChkFixWeightUnit=0
+CboxFixWeightUnit=0
+ChkRecommendDays=0
+CboxRecommendDays=22
+ChkDiscount=0
+CboxDisCount=18
+ChkAllowPriceChange=0
+CboxAllowPriceChange=15
+ChkMessage1=0
+CboxMessage1=16
+ChkMultiLabel=0
+CboxMultiLabel=17
+ChkPricingMode=0
+CboxPricingMode=9
+Bartype_Weight=101
+Bartype_PCS=102
+ChkPluNameExtent=0
+PluNameExtent=2
+ChkIsHead=0
+ChkDiv10=0
+ChkUpdateFlag=0
+CboxUpdateFlag=1
+HotKey_Len=3
+PluName_Len=30
+lfCode_Len=5
+Code_Len=5
+BarCode_Len=2
+UnitPrice_Len=5
+Department_Len=2
+Tare_Len=5
+Shleftime_Len=3
+WeightUnit_Len=1
+RecommendDays_Len=3
+AllowPriceChange_Len=1
+Discount_Len=2
+Message1_Len=4
+Tolerance_Len=2
+MultiLabel_Len=3
+PricingMode_Len=1
+PluNameExtent_Len=1
+UpdateFlag_Len=1
+[WeightIDSet]
+0=10
+1=4
+2=2
+3=3
+4=0
+5=5
+6=6
+7=7
+8=8
+9=9
+10=1
+11=11
+12=12
+"""
 
 
 def parse_autotrans_cfg(path):
@@ -3122,9 +3216,12 @@ def write_autotrans_cfg(settings, out_path, existing=None, options=None):
     values = ils_cfg_values(settings) + list(options or [])
     wanted = {k.lower(): (k, v) for k, v in values}
     changed, added = [], []
-    if existing:
-        with open(existing, "rb") as fh:
-            raw = fh.read()
+    if True:
+        if existing:
+            with open(existing, "rb") as fh:
+                raw = fh.read()
+        else:
+            raw = ILS_CFG_TEMPLATE.replace("\n", "\r\n").encode("cp1253")
         nl = b"\r\n" if b"\r\n" in raw else b"\n"
         text = raw.decode("cp1253", "replace")
         lines = text.split(nl.decode())
@@ -3151,13 +3248,13 @@ def write_autotrans_cfg(settings, out_path, existing=None, options=None):
             for k, v in reversed(missing):
                 lines.insert(idx + 1, "%s=%s" % (k, v))
             added = ["%s=%s" % (k, v) for k, v in missing]
-        backup = "%s.bak-%s" % (existing, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
-        shutil.copyfile(existing, backup)
+        if existing:
+            backup = "%s.bak-%s" % (existing, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+            shutil.copyfile(existing, backup)
+        else:
+            backup = ""
+            changed = []                      # νέο αρχείο: δεν έχει νόημα «τι άλλαξε»
         data = nl.decode().join(lines).encode("cp1253", "replace")
-    else:
-        backup = ""
-        added = ["%s=%s" % (k, v) for k, v in values]
-        data = ("\r\n".join("%s=%s" % (k, v) for k, v in values) + "\r\n").encode("cp1253")
     with open(out_path, "wb") as fh:
         fh.write(data)
     return backup, changed, added
@@ -5951,53 +6048,47 @@ class App(tk.Tk):
         txt.configure(state="disabled")
         txt.pack(fill="both", expand=True, padx=10, pady=(10, 4))
         ttk.Label(win, style="Hint.TLabel", wraplength=760, justify="left",
-                  text="«Ενημέρωση» αλλάζει ΜΟΝΟ τα πεδία στο AutoTrans.CFG του πελάτη και "
-                       "κρατά πρώτα αντίγραφο (.bak). Κλείσε το ScaleAutoTrans πριν. "
-                       "Αλλιώς γράψε τις τιμές με το χέρι στο Field settings του.").pack(
-            anchor="w", padx=10)
+                  text="«Γράψε το AutoTrans.CFG» φτιάχνει το αρχείο στον φάκελο του ScaleAutoTrans "
+                       "(συνήθως C:\\ScaleAutoTrans). Αν υπάρχει ήδη, αλλάζει μόνο τα πεδία και κρατά "
+                       "αντίγραφο .bak· αλλιώς το φτιάχνει ολόκληρο. Κλείσε το ScaleAutoTrans πριν, "
+                       "άνοιξέ το μετά και δες το Field settings.").pack(anchor="w", padx=10)
         bar = ttk.Frame(win)
         bar.pack(fill="x", padx=10, pady=(6, 10))
 
         def enimerosi():
-            path = filedialog.askopenfilename(
-                parent=win, title="Το AutoTrans.CFG του πελάτη (φάκελος του ScaleAutoTrans)",
-                filetypes=[("AutoTrans.CFG", "*.CFG *.cfg"), ("Όλα", "*.*")])
+            arxikos = r"C:\ScaleAutoTrans" if os.path.isdir(r"C:\ScaleAutoTrans") else None
+            path = filedialog.asksaveasfilename(
+                parent=win, title="Πού είναι (ή πού να γραφτεί) το AutoTrans.CFG του ScaleAutoTrans",
+                initialdir=arxikos, initialfile="AutoTrans.CFG", defaultextension=".CFG",
+                confirmoverwrite=False, filetypes=[("AutoTrans.CFG", "*.CFG *.cfg"), ("Όλα", "*.*")])
             if not path:
                 return
+            yparxei = os.path.isfile(path)
             try:
-                backup, changed, added = write_autotrans_cfg(settings, path, existing=path,
-                                                             options=options)
+                backup, changed, added = write_autotrans_cfg(
+                    settings, path, existing=path if yparxei else None, options=options)
             except Exception as exc:
                 messagebox.showerror(APP_NAME, "Δεν γράφτηκε το CFG.\n\n%s\n%s" % (path, exc),
                                      parent=win)
                 return
-            self.log("AutoTrans.CFG ενημερώθηκε: %s (αντίγραφο: %s) — %d αλλαγές, %d νέα κλειδιά"
-                     % (path, backup, len(changed), len(added)))
-            for c in changed + added:
-                self.log("  " + c)
-            messagebox.showinfo(
-                APP_NAME, "Έγινε.\n\nΑρχείο: %s\nΑντίγραφο: %s\n\nΑλλαγές: %d\n%s%s"
-                % (path, backup, len(changed), "\n".join(changed[:12]) or "(ήταν ήδη σωστό)",
-                   "\n\nΠροστέθηκαν: %d" % len(added) if added else ""), parent=win)
-            win.destroy()
-
-        def neo():
-            path = filedialog.asksaveasfilename(
-                parent=win, title="Νέο αρχείο με τα Field settings", initialfile="AutoTrans.CFG",
-                defaultextension=".CFG", filetypes=[("CFG", "*.CFG *.cfg"), ("Όλα", "*.*")])
-            if not path:
-                return
-            try:
-                write_autotrans_cfg(settings, path, options=options)
-            except Exception as exc:
-                messagebox.showerror(APP_NAME, "Δεν γράφτηκε το αρχείο.\n\n%s" % exc, parent=win)
-                return
-            self.log("Field settings ILS γράφτηκαν σε νέο αρχείο: %s" % path)
+            if yparxei:
+                self.log("AutoTrans.CFG ενημερώθηκε: %s (αντίγραφο: %s) — %d αλλαγές, %d νέα κλειδιά"
+                         % (path, backup, len(changed), len(added)))
+                for c in changed + added:
+                    self.log("  " + c)
+                minima = ("Ενημερώθηκε.\n\nΑρχείο: %s\nΑντίγραφο: %s\n\nΑλλαγές: %d\n%s%s"
+                          % (path, backup, len(changed), "\n".join(changed[:12]) or "(ήταν ήδη σωστό)",
+                             "\n\nΠροστέθηκαν: %d" % len(added) if added else ""))
+            else:
+                self.log("AutoTrans.CFG γράφτηκε από την αρχή: %s" % path)
+                minima = ("Γράφτηκε ολόκληρο.\n\nΑρχείο: %s\n\nΆνοιξε το ScaleAutoTrans → System Set → "
+                          "Field settings και δες ότι τα πεδία είναι όπως εδώ." % path)
+            messagebox.showinfo(APP_NAME, minima, parent=win)
             win.destroy()
 
         ttk.Button(bar, text="Κλείσιμο", style="Ghost.TButton", command=win.destroy).pack(side="right")
-        ttk.Button(bar, text="Νέο αρχείο…", style="Ghost.TButton", command=neo).pack(side="right", padx=8)
-        ttk.Button(bar, text="Ενημέρωση AutoTrans.CFG του πελάτη…", command=enimerosi).pack(side="right")
+        ttk.Button(bar, text="Γράψε το AutoTrans.CFG…", style="Accent.TButton",
+                   command=enimerosi).pack(side="right", padx=8)
         win.wait_window()
 
     def ils_profile_from_cfg_dialog(self):
