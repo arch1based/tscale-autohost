@@ -1216,6 +1216,51 @@ MODEL_FIELDS = [
 ] + [("remark_%d" % i, "") for i in range(1, 9)]
 
 
+# Όλα τα πεδία που δέχεται ο ζυγός T-Scale (κλάση ModelProduct, 40 πεδία), με
+# ελληνική περιγραφή και το όνομα της στήλης στη βάση του ζυγού (όπως φαίνεται
+# στην εξαγωγή Excel του ζυγού). Από εδώ διαλέγει ο τεχνικός τι θα στέλνει σε
+# κάθε πελάτη — στο παράθυρο «Πεδία T-Scale», σαν το παλιό «Παράμετροι».
+#   (στήλη CSV, πεδίο JSON, περιγραφή, στήλη στη βάση του ζυγού, βασικό;)
+# «βασικό» = το έστελνε και το AutoProcess· τα υπόλοιπα θέλουν το
+# direct_all_fields, που ανοίγει μόνο του όταν ενεργοποιηθεί τέτοιο πεδίο.
+TSCALE_FIELDS = (
+    ("ProductNumber", "product_number", "Κωδικός είδους (PLU)", "PRODUCT_NUM", True),
+    ("BarCode", "product_code", "Barcode / κωδικός ετικέτας", "BARCODE", True),
+    ("ProductName", "product_name", "Όνομα είδους", "PRODUCT_NAME", True),
+    ("Abbr", "product_abbr", "Συντομογραφία ονόματος (2η γραμμή ετικέτας)", "ABBR", True),
+    ("Price", "original_price", "Τιμή, π.χ. 5.40", "PRICE", True),
+    ("Price Low", "sales_price", "Τιμή προσφοράς", "PRICE_LOWEST", True),
+    ("Price Unit", "price_unit_index", "Μονάδα τιμής: 0 = ανά κιλό, 1 = ανά τεμάχιο", "PRICEUNIT", True),
+    ("Category", "category_num", "Κατηγορία (αριθμός στον ζυγό)", "CATEGORY", True),
+    ("Department", "department_num", "Τμήμα (αριθμός στον ζυγό)", "DEPARTMENT", True),
+    ("Pre tare", "pre_tare_value", "Απόβαρο", "TARE", True),
+    ("BarCode Format", "barcode_format", "Μορφή barcode (αριθμός)", "BARCODE_FORMAT", True),
+    ("Label Format", "label_format_num", "Μορφή ετικέτας (αριθμός· -1 = προεπιλογή)", "LABELFORMAT", True),
+    ("Disabled", "disabled", "Απενεργοποιημένο είδος (0/1)", "DISABLED", True),
+    ("NameSpell", "name_sort", "Όνομα για ταξινόμηση / αναζήτηση", "NAME_SPELL", False),
+    ("AbbrSpell", "abbr_sort", "Συντομογραφία για αναζήτηση", "ABBR_SPELL", False),
+    ("Tax", "tax_num", "ΦΠΑ (αριθμός κατηγορίας ΦΠΑ στον ζυγό)", "TAX_NUM", False),
+    ("Pcs", "pcs_flag", "Τεμαχιακό (0/1)", "PCS_FLAG", False),
+    ("Origin", "place_of_origin", "Προέλευση", "AREA", False),
+    ("Label Format2", "label_format_num2", "2η μορφή ετικέτας", "", False),
+    ("Shelf Number", "shelf_num", "Ράφι", "", False),
+    ("Image", "image_filename", "Αρχείο εικόνας", "IMAGE", False),
+    ("Period", "used_by_days", "Ημέρες μέχρι τη λήξη", "PERIOD", False),
+    ("Recommend", "reccommend_days", "Ημέρες προτεινόμενης κατανάλωσης", "RECOMMEND", False),
+    ("Ingredient", "ingredients", "Συστατικά / αλλεργιογόνα", "INGREDIENT", False),
+    ("Temperautre", "temperature_info", "Θερμοκρασία συντήρησης (κείμενο)", "TEMP_TEXT", False),
+    ("Nutritional", "nutrition", "Διατροφικά στοιχεία", "NUTRITIONAL", False),
+    ("Produced", "produced", "Παραγωγός", "PRODUCED", False),
+    ("Pre tare unit", "pre_tare_unit_index", "Μονάδα απόβαρου", "P_TARE_UNIT", False),
+    ("Production date", "produced_date", "Ημερομηνία παραγωγής", "KILL_DATA", False),
+    ("Packing date", "pack_date", "Ημερομηνία συσκευασίας", "PACKING_DATA", False),
+    ("Use By date", "exp_date", "Ανάλωση έως", "USED_DATA", False),
+    ("Expiration", "expiration_date", "Λήξη", "", False),
+) + tuple(("REMARK%d" % i, "remark_%d" % i, "Σημείωση %d (ελεύθερο κείμενο)" % i, "REMARK%d" % i, False)
+          for i in range(1, 9))
+TSCALE_BY_CSV = {t[0]: t for t in TSCALE_FIELDS}
+
+
 def csv_map(cfg):
     """Η αντιστοίχιση στηλών: ίδια με το AutoProcess, ή διευρυμένη αν ζητηθεί."""
     m = dict(CSV_TO_JSON)
@@ -4256,9 +4301,15 @@ class App(tk.Tk):
 
         b = ttk.Frame(f)
         b.pack(side="bottom", fill="x", pady=(6, 0))
-        ttk.Button(b, text="Εναλλαγή ✓ (ή Space)", command=self.toggle_field).pack(side="left")
+        ttk.Button(b, text="⚖  Πεδία T-Scale…", style="Accent.TButton",
+                   command=self.tscale_fields_dialog).pack(side="left")
+        ttk.Button(b, text="Εναλλαγή ✓ (ή Space)", command=self.toggle_field).pack(side="left", padx=(10, 0))
         ttk.Button(b, text="Επεξεργασία γραμμής", command=self.on_edit_cell).pack(side="left", padx=6)
-        ttk.Button(b, text="Αρχικοποίηση", command=self.reset_fields).pack(side="left")
+        ttk.Button(b, text="+ Νέα γραμμή", command=self.add_field_row).pack(side="left")
+        ttk.Button(b, text="− Αφαίρεση", command=self.remove_field_row).pack(side="left", padx=6)
+        ttk.Button(b, text="▲", width=3, command=lambda: self.move_field_row(-1)).pack(side="left")
+        ttk.Button(b, text="▼", width=3, command=lambda: self.move_field_row(1)).pack(side="left", padx=(2, 6))
+        ttk.Button(b, text="Αρχικοποίηση", style="Ghost.TButton", command=self.reset_fields).pack(side="left")
         # Ο πίνακας φτιάχνεται ΜΕΣΑ στο πλαίσιό του: αλλιώς μένει από κάτω του
         # στη σειρά σχεδίασης και δεν φαίνεται καθόλου.
         tree_box = ttk.Frame(f)
@@ -4970,35 +5021,81 @@ class App(tk.Tk):
         self.refresh_tree()
         self.tree.selection_set(str(i))
 
-    def on_edit_cell(self, _event=None):
+    def add_field_row(self, name=None, select=True):
+        """Νέα γραμμή στον πίνακα (κενή ή με όνομα στήλης του ζυγού)."""
+        from tkinter import simpledialog
+        if name is None:
+            name = simpledialog.askstring(APP_NAME, "Όνομα στήλης (π.χ. Tax, REMARK1 — ή ό,τι θες "
+                                          "για αρχείο Ishida/ILS):", parent=self)
+            if not name or not name.strip():
+                return None
+            name = name.strip()
+        f = {"name": name, "enabled": True, "pos": 0, "len": 0, "extra": "", "xform": "", "align": ""}
+        self.cfg.setdefault("step2_fields", []).append(f)
+        self.refresh_tree()
+        i = len(self.cfg["step2_fields"]) - 1
+        if select:
+            self.tree.selection_set(str(i))
+            self.tree.see(str(i))
+        return i
+
+    def remove_field_row(self):
         i = self._sel()
         if i is None:
             return
         f = self.cfg["step2_fields"][i]
-        win = tk.Toplevel(self)
+        if not messagebox.askyesno(APP_NAME, "Να αφαιρεθεί η γραμμή «%s»;" % f["name"]):
+            return
+        del self.cfg["step2_fields"][i]
+        self.refresh_tree()
+
+    def move_field_row(self, delta):
+        i = self._sel()
+        if i is None:
+            return
+        j = i + delta
+        fields = self.cfg["step2_fields"]
+        if not (0 <= j < len(fields)):
+            return
+        fields[i], fields[j] = fields[j], fields[i]
+        self.refresh_tree()
+        self.tree.selection_set(str(j))
+
+    def edit_field_dialog(self, f, parent=None, on_done=None):
+        """Το παράθυρο επεξεργασίας ενός πεδίου (κοινό για πίνακα και «Πεδία T-Scale»)."""
+        win = tk.Toplevel(parent or self)
         win.title("Πεδίο: %s" % f["name"])
-        win.transient(self)
+        win.transient(parent or self)
         win.grab_set()
+        kat = TSCALE_BY_CSV.get(f.get("name", ""))
+        if kat:
+            ttk.Label(win, text="%s  →  %s" % (kat[2], kat[1]), style="Hint.TLabel",
+                      wraplength=360, justify="left").grid(row=0, column=0, columnspan=2,
+                                                            sticky="w", padx=8, pady=(8, 2))
+        delimited = self.cfg.get("step2_input_type", "fixed") == "delimited"
         vals = {k: tk.StringVar(value=str(f.get(k, ""))) for k in ("name", "pos", "len", "extra")}
         en = tk.BooleanVar(value=bool(f.get("enabled")))
-        for r, (k, lbl) in enumerate((("name", "Περιγραφή"), ("pos", "Από Θέση"),
-                                      ("len", "Μήκος Πεδίου"), ("extra", "Εξτρα περιγραφή"))):
+        rows = (("name", "Περιγραφή / στήλη"),
+                ("pos", "Στήλη του ERP (1 = πρώτη, -1 = τελευταία)" if delimited else "Από Θέση"),
+                ("len", "Κόψιμο σε χαρακτήρες (0 = όλο)" if delimited else "Μήκος Πεδίου"),
+                ("extra", "Σταθερή τιμή (αν δεν έρχεται από το ERP)"))
+        for r, (k, lbl) in enumerate(rows, 1):
             ttk.Label(win, text=lbl).grid(row=r, column=0, sticky="w", padx=8, pady=4)
             ttk.Entry(win, textvariable=vals[k], width=34).grid(row=r, column=1, padx=8, pady=4)
-        ttk.Label(win, text="Μετατροπή").grid(row=4, column=0, sticky="w", padx=8, pady=4)
+        ttk.Label(win, text="Μετατροπή").grid(row=5, column=0, sticky="w", padx=8, pady=4)
         labels = list(XFORMS.values())
         keys = list(XFORMS.keys())
         xf = tk.StringVar(value=XFORMS.get(f.get("xform", ""), "—"))
         ttk.Combobox(win, textvariable=xf, values=labels, state="readonly",
-                     width=32).grid(row=4, column=1, padx=8, pady=4)
+                     width=32).grid(row=5, column=1, padx=8, pady=4)
         ALIGNS = [("", "αριστερά (προεπιλογή)"), ("right", "δεξιά, με κενά"),
                   ("zero", "δεξιά, με μηδενικά (000009)")]
         al_labels = [lbl for _k, lbl in ALIGNS]
         al_keys = [k for k, _l in ALIGNS]
         al = tk.StringVar(value=dict(ALIGNS).get(f.get("align", ""), al_labels[0]))
-        ttk.Label(win, text="Στοίχιση (σταθερό πλάτος):").grid(row=5, column=0, sticky="e", padx=8)
+        ttk.Label(win, text="Στοίχιση (σταθερό πλάτος):").grid(row=6, column=0, sticky="e", padx=8)
         ttk.Combobox(win, textvariable=al, values=al_labels, state="readonly",
-                     width=32).grid(row=5, column=1, sticky="w", padx=8)
+                     width=32).grid(row=6, column=1, sticky="w", padx=8)
         role_labels = [lbl for _k, lbl in ILS_ROLES]
         role_keys = [k for k, _l in ILS_ROLES]
         cur_role = f.get("ils")
@@ -5006,10 +5103,11 @@ class App(tk.Tk):
             cur_role = guess_ils_role(f.get("name"), {x.get("ils") for x in self.cfg["step2_fields"]
                                                        if x is not f and x.get("ils")})
         rl = tk.StringVar(value=ILS_ROLE_LABEL.get(cur_role, role_labels[0]))
-        ttk.Label(win, text="Πεδίο ILS (Field settings):").grid(row=6, column=0, sticky="e", padx=8)
+        ttk.Label(win, text="Πεδίο ILS (Field settings):").grid(row=7, column=0, sticky="e", padx=8)
         ttk.Combobox(win, textvariable=rl, values=role_labels, state="readonly",
-                     width=32).grid(row=6, column=1, sticky="w", padx=8)
-        ttk.Checkbutton(win, text="Για έξοδο σε αρχείο", variable=en).grid(row=7, column=1, sticky="w", padx=8)
+                     width=32).grid(row=7, column=1, sticky="w", padx=8)
+        ttk.Checkbutton(win, text="Για έξοδο σε αρχείο / αποστολή", variable=en).grid(
+            row=8, column=1, sticky="w", padx=8)
 
         def ok():
             try:
@@ -5025,9 +5123,142 @@ class App(tk.Tk):
             f["align"] = al_keys[al_labels.index(al.get())] if al.get() in al_labels else ""
             f["ils"] = role_keys[role_labels.index(rl.get())] if rl.get() in role_labels else ""
             win.destroy()
+            if on_done:
+                on_done()
+        ttk.Button(win, text="Καταχώρηση", command=ok).grid(row=9, column=1, sticky="e", padx=8, pady=10)
+        win.wait_window()
+
+    def tscale_fields_dialog(self):
+        """«Πεδία T-Scale» — το παλιό «Παράμετροι», μοντέρνο: όλα τα 40 πεδία του ζυγού.
+
+        Ο τεχνικός τσεκάρει τι στέλνεται στον συγκεκριμένο πελάτη και ορίζει από
+        ποια στήλη/θέση του ERP γεμίζει το καθένα. Ό,τι τσεκάρει μπαίνει στον
+        πίνακα του Βήματος 3 — ο πίνακας είναι η αλήθεια, αυτό είναι η θέα του.
+        """
+        self.collect()
+        win = tk.Toplevel(self)
+        win.title("Πεδία T-Scale — τι στέλνεται στον ζυγό")
+        win.transient(self)
+        win.grab_set()
+        win.geometry("1120x700")
+        # Η μπάρα κουμπιών ΠΡΩΤΗ, κάτω: αλλιώς ο πίνακας που «απλώνει» την έσπρωχνε
+        # έξω από το παράθυρο και δεν φαινόταν η «Καταχώρηση».
+        bar = ttk.Frame(win, style="Bar.TFrame", padding=(10, 8))
+        bar.pack(fill="x", side="bottom")
+        top = ttk.Frame(win, style="Card.TFrame", padding=(10, 8))
+        top.pack(fill="both", expand=True)
+        ttk.Label(top, text="Πεδία T-Scale", style="Title.TLabel").pack(anchor="w")
+        delimited = self.cfg.get("step2_input_type", "fixed") == "delimited"
+        ttk.Label(top, style="Hint.TLabel", wraplength=960, justify="left",
+                  text="Τσέκαρε (κλικ στο ✓ ή Space) ποια πεδία θα στέλνονται στον ζυγό και με "
+                       "διπλό κλικ όρισε από πού γεμίζει το καθένα: %s, ή σταθερή τιμή. "
+                       "Τα «βασικά» είναι όσα έστελνε και το AutoProcess· τα υπόλοιπα τα δέχεται "
+                       "ο ζυγός κανονικά. Πεδίο χωρίς στήλη και χωρίς σταθερή τιμή στέλνεται κενό."
+                       % ("στήλη του ERP" if delimited else "θέση/μήκος στη γραμμή του ERP")
+                  ).pack(anchor="w", pady=(2, 6))
+        cols = ("out", "csv", "desc", "pos", "len", "extra", "xform", "kind")
+        tv = ttk.Treeview(top, columns=cols, show="headings", selectmode="browse", height=22)
+        for c, t, w in (("out", "Στέλνεται", 80), ("csv", "Πεδίο", 135), ("desc", "Περιγραφή", 330),
+                        ("pos", "Στήλη" if delimited else "Από Θέση", 75),
+                        ("len", "Κόψιμο" if delimited else "Μήκος", 65), ("extra", "Σταθερή τιμή", 100),
+                        ("xform", "Μετατροπή", 180), ("kind", "", 80)):
+            tv.heading(c, text=t)
+            tv.column(c, width=w, minwidth=w, anchor="w", stretch=(c == "desc"))
+        sb = ttk.Scrollbar(top, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sb.set)
+        tv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y")
+        tv.tag_configure("off", foreground=COLORS["muted"])
+        tv.tag_configure("on", foreground=COLORS["ink"])
+
+        def row_for(csv_name):
+            for f in self.cfg["step2_fields"]:
+                if f.get("name") == csv_name:
+                    return f
+            return None
+
+        def fill():
+            tv.delete(*tv.get_children())
+            for csv_name, _json, desc, _db, basic in TSCALE_FIELDS:
+                f = row_for(csv_name)
+                on = bool(f and f.get("enabled"))
+                tv.insert("", "end", iid=csv_name, tags=("on" if on else "off",), values=(
+                    "✓" if on else "—", csv_name, desc,
+                    (f.get("pos") or "—") if f else "—", (f.get("len") or "—") if f else "—",
+                    f.get("extra", "") if f else "", XFORMS.get(f.get("xform", ""), "—") if f else "—",
+                    "βασικό" if basic else "επιπλέον"))
+            alla = [f for f in self.cfg["step2_fields"] if f.get("name") not in TSCALE_BY_CSV]
+            if alla:
+                tv.insert("", "end", iid="__alla__", values=("", "", "— άλλες γραμμές του πίνακα "
+                          "(δεν είναι πεδία T-Scale, π.χ. για Ishida/ILS): %s"
+                          % ", ".join(f["name"] for f in alla), "", "", "", "", ""), tags=("off",))
+
+        def ensure(csv_name):
+            f = row_for(csv_name)
+            if f is None:
+                f = {"name": csv_name, "enabled": False, "pos": 0, "len": 0, "extra": "",
+                     "xform": "", "align": ""}
+                self.cfg["step2_fields"].append(f)
+            return f
+
+        def toggle(_e=None):
+            sel = tv.selection()
+            if not sel or sel[0] == "__alla__":
+                return
+            f = ensure(sel[0])
+            f["enabled"] = not f.get("enabled")
+            if f["enabled"] and not TSCALE_BY_CSV[sel[0]][4]:
+                self.cfg["direct_all_fields"] = True
+            fill()
+            tv.selection_set(sel[0])
+
+        def edit(_e=None):
+            sel = tv.selection()
+            if not sel or sel[0] == "__alla__":
+                return
+            f = ensure(sel[0])
+
+            def done():
+                if f.get("enabled") and not TSCALE_BY_CSV[sel[0]][4]:
+                    self.cfg["direct_all_fields"] = True
+                fill()
+                tv.selection_set(sel[0])
+            self.edit_field_dialog(f, parent=win, on_done=done)
+
+        def click(e):
+            if tv.identify_column(e.x) == "#1" and tv.identify_row(e.y):
+                tv.selection_set(tv.identify_row(e.y))
+                toggle()
+                return "break"
+        tv.bind("<Button-1>", click)
+        tv.bind("<space>", toggle)
+        tv.bind("<Double-1>", edit)
+
+        ttk.Button(bar, text="Εναλλαγή ✓", command=toggle).pack(side="left")
+        ttk.Button(bar, text="Επεξεργασία…", command=edit).pack(side="left", padx=6)
+
+        def kleisimo():
+            # Αφαιρούμε όσα δεν στέλνονται ΚΑΙ δεν έχουν ρυθμιστεί — να μη γεμίζει
+            # ο πίνακας με άδειες γραμμές.
+            self.cfg["step2_fields"] = [
+                f for f in self.cfg["step2_fields"]
+                if f.get("enabled") or f.get("pos") or str(f.get("extra", "")).strip()
+                or f.get("name") not in TSCALE_BY_CSV]
+            stelnontai = [f["name"] for f in self.cfg["step2_fields"]
+                          if f.get("enabled") and f["name"] in TSCALE_BY_CSV]
             self.refresh_tree()
-            self.tree.selection_set(str(i))
-        ttk.Button(win, text="Καταχώρηση", command=ok).grid(row=8, column=1, sticky="e", padx=8, pady=10)
+            self.log("Πεδία T-Scale: στέλνονται %d — %s" % (len(stelnontai), ", ".join(stelnontai)))
+            win.destroy()
+        ttk.Button(bar, text="Καταχώρηση", style="Accent.TButton", command=kleisimo).pack(side="right")
+        fill()
+        win.wait_window()
+
+    def on_edit_cell(self, _event=None):
+        i = self._sel()
+        if i is None:
+            return
+        f = self.cfg["step2_fields"][i]
+        self.edit_field_dialog(f, on_done=lambda: (self.refresh_tree(), self.tree.selection_set(str(i))))
 
     def load_profile(self, name):
         """Έτοιμο σετ θέσεων/μηκών για γνωστό τύπο αρχείου."""
