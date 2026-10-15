@@ -410,7 +410,7 @@ def fetch_latest_beta(timeout=8):
 
 
 def beta_install_dir():
-    """Δίπλα στην κανονική εγκατάσταση: <φάκελος της εφαρμογής>\..\ICSautoScaleUpdater-beta."""
+    """Δίπλα στην κανονική εγκατάσταση: στον γονικό φάκελο της εφαρμογής, ICSautoScaleUpdater-beta."""
     app_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else APP_DIR
     return os.path.join(os.path.dirname(app_dir), BETA_DIR_NAME)
 
