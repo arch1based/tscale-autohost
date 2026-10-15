@@ -4337,8 +4337,10 @@ class App(tk.Tk):
         self.cmb_s2b = ttk.Combobox(srow, textvariable=self.v_s2b_profile, state="readonly",
                                     width=34, values=list(self.cfg.get("profiles", {})))
         self.cmb_s2b.pack(side="left")
+        ttk.Button(srow, text="Πεδία Ishida…", style="Accent.TButton",
+                   command=lambda: self.profile_fields_dialog("ishida")).pack(side="left", padx=(8, 0))
         ttk.Button(srow, text="Τι να ρυθμίσεις στο ScaleLink…", style="Pick.TButton",
-                   command=self.ishida_import_settings_dialog).pack(side="left", padx=(8, 0))
+                   command=self.ishida_import_settings_dialog).pack(side="left", padx=(6, 0))
         g2 = ttk.Frame(self.blk_ishida)
         g2.pack(fill="x")
         self.v_s2b_out = tk.StringVar()
@@ -4361,8 +4363,10 @@ class App(tk.Tk):
         self.cmb_s2c = ttk.Combobox(trow, textvariable=self.v_s2c_profile, state="readonly",
                                     width=34, values=list(self.cfg.get("profiles", {})))
         self.cmb_s2c.pack(side="left")
-        ttk.Button(trow, text="Field settings του ILS (AutoTrans.CFG)…", style="Pick.TButton",
-                   command=self.ils_field_settings_dialog).pack(side="left", padx=(8, 0))
+        ttk.Button(trow, text="Πεδία ILS…", style="Accent.TButton",
+                   command=lambda: self.profile_fields_dialog("ils")).pack(side="left", padx=(8, 0))
+        ttk.Button(trow, text="Field settings (AutoTrans.CFG)…", style="Pick.TButton",
+                   command=self.ils_field_settings_dialog).pack(side="left", padx=(6, 0))
         ttk.Button(trow, text="Διάβασε υπάρχον CFG…", style="Ghost.TButton",
                    command=self.ils_profile_from_cfg_dialog).pack(side="left", padx=(4, 0))
         g3 = ttk.Frame(self.blk_ils)
@@ -5352,6 +5356,177 @@ class App(tk.Tk):
             ttk.Button(bar, text=no, style="Ghost.TButton", command=win.destroy).pack(side="right", padx=8)
         win.wait_window()
         return answer["ok"]
+
+    def profile_fields_dialog(self, which):
+        """«Πεδία ILS» / «Πεδία Ishida»: ο πίνακας πεδίων του προφίλ του αντίστοιχου αρχείου.
+
+        Ό,τι είναι ο πίνακας του Βήματος 3 για την T-Scale, είναι αυτό για τα
+        άλλα αρχεία: σειρά πεδίων, από πού γεμίζουν, μήκη (ILS: θέσεις στη
+        γραμμή, ρόλος για το Field settings). Δουλεύει πάνω σε ΔΙΚΟ ΜΑΣ προφίλ
+        (★)· ένα ενσωματωμένο αντιγράφεται πρώτα, για να μείνει άθικτο.
+        """
+        self.collect()
+        is_ils = which == "ils"
+        var_prof = self.v_s2c_profile if is_ils else self.v_s2b_profile
+        key = "step2c_profile" if is_ils else "step2b_profile"
+        title = "Πεδία ILS — αρχείο hostILS" if is_ils else "Πεδία Ishida — αρχείο host2"
+        name = var_prof.get().strip()
+        _n, entry = resolve_profile(self.cfg.get("profiles") or {}, name) if name else ("", None)
+        if not entry:
+            messagebox.showinfo(APP_NAME, "Διάλεξε πρώτα προφίλ για το αρχείο %s (ή φτιάξε με τον οδηγό)."
+                                % ("ILS" if is_ils else "της Ishida"))
+            return
+        if not name.startswith("★ "):
+            # ενσωματωμένο: αντίγραφο ως δικό μας, για να μπορεί να αλλάξει
+            from tkinter import simpledialog
+            neo = simpledialog.askstring(
+                APP_NAME, "Το «%s» είναι ενσωματωμένο και δεν αλλάζει.\nΌνομα για δικό σου αντίγραφο "
+                "(π.χ. πελάτης · %s):" % (name, "ILS" if is_ils else "Ishida"),
+                initialvalue="%s · %s" % ("ΠΕΛΑΤΗΣ", "ILS" if is_ils else "Ishida"), parent=self)
+            if not neo or not neo.strip():
+                return
+            neo = neo.strip().replace("★", "").strip()
+            user = load_user_profiles()
+            user[neo] = {"settings": dict(entry.get("settings", {})) if isinstance(entry, dict) else {},
+                         "fields": [dict(f) for f in (entry.get("fields", entry) if isinstance(entry, dict) else entry)]}
+            save_user_profiles(user)
+            self.cfg["profiles"]["★ " + neo] = user[neo]
+            self.refresh_profiles()
+            name = "★ " + neo
+            var_prof.set(name)
+            self.cfg[key] = name
+            entry = user[neo]
+        fields = entry.get("fields", entry) if isinstance(entry, dict) else entry
+        settings = entry.get("settings", {}) if isinstance(entry, dict) else {}
+        fixed = settings.get("step2_format") == "fixed"
+        work = [dict(f) for f in fields]
+
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.transient(self)
+        win.grab_set()
+        win.geometry("1120x640")
+        bar = ttk.Frame(win, style="Bar.TFrame", padding=(10, 8))
+        bar.pack(fill="x", side="bottom")
+        top = ttk.Frame(win, style="Card.TFrame", padding=(10, 8))
+        top.pack(fill="both", expand=True)
+        ttk.Label(top, text="%s   —   προφίλ %s" % (title, name), style="Title.TLabel").pack(anchor="w")
+        ttk.Label(top, style="Hint.TLabel", wraplength=1080, justify="left",
+                  text=("Κάθε γραμμή = ένα κομμάτι της γραμμής του αρχείου, με τη σειρά. Οι θέσεις "
+                        "βγαίνουν από τα μήκη. Διπλό κλικ: από ποια στήλη του ERP γεμίζει, μήκος, "
+                        "μηδενικά μπροστά, και «Πεδίο ILS» για το Field settings." if fixed else
+                        "Κάθε γραμμή = μία στήλη του αρχείου, με τη σειρά. Η απευθείας αποστολή Ishida "
+                        "διαβάζει: κωδικός 1η στήλη, όνομα 2η, τιμή 3η από το τέλος, ΦΠΑ τελευταία.")
+                  ).pack(anchor="w", pady=(2, 6))
+        cols = ("n", "pos", "name", "src", "len", "xform", "role")
+        tv = ttk.Treeview(top, columns=cols, show="headings", selectmode="browse", height=18)
+        heads = (("n", "#", 40), ("pos", "ΘΕΣΕΙΣ" if fixed else "ΣΤΗΛΗ", 90), ("name", "Πεδίο", 170),
+                 ("src", "Γεμίζει από", 260), ("len", "Μήκος" if fixed else "Κόψιμο", 70),
+                 ("xform", "Μετατροπή", 230), ("role", "Πεδίο ILS" if fixed else "", 200 if fixed else 10))
+        for c, t, w in heads:
+            tv.heading(c, text=t)
+            tv.column(c, width=w, minwidth=w, anchor="w", stretch=(c == "src"))
+        sb = ttk.Scrollbar(top, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sb.set)
+        tv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y")
+        tv.tag_configure("off", foreground=COLORS["muted"])
+
+        def fill(select=None):
+            tv.delete(*tv.get_children())
+            cursor = 1
+            col = 1
+            for i, f in enumerate(work):
+                ln = int(f.get("len") or 0)
+                pos = int(f.get("pos") or 0)
+                if pos:
+                    src = "στήλη %d του ERP" % pos
+                    if f.get("skip"):
+                        src += " (από τον %dο χαρ.)" % (int(f["skip"]) + 1)
+                elif str(f.get("extra", "")).strip():
+                    src = "σταθερό «%s»" % f["extra"]
+                else:
+                    src = "κενά" if fixed else "κενό"
+                if f.get("align") == "zero":
+                    src += " · μηδενικά μπροστά"
+                thesi = ("%d-%d" % (cursor, cursor + ln - 1) if ln else "—") if fixed else str(col)
+                tv.insert("", "end", iid=str(i), tags=() if f.get("enabled") else ("off",), values=(
+                    i + 1, thesi, f["name"], src, ln or "—", XFORMS.get(f.get("xform", ""), "—"),
+                    ILS_ROLE_LABEL.get(f.get("ils") or "", "—") if fixed else ""))
+                if f.get("enabled"):
+                    cursor += ln
+                    col += 1
+            total = sum(int(f.get("len") or 0) for f in work if f.get("enabled"))
+            lbl_total.configure(text="Μήκος γραμμής: %d χαρακτήρες" % total if fixed
+                                else "%d στήλες" % sum(1 for f in work if f.get("enabled")))
+            if select is not None and 0 <= select < len(work):
+                tv.selection_set(str(select)); tv.see(str(select))
+
+        def sel():
+            x = tv.selection()
+            return int(x[0]) if x else None
+
+        def edit(_e=None):
+            i = sel()
+            if i is None:
+                return
+            self.edit_field_dialog(work[i], parent=win, on_done=lambda: fill(i))
+
+        def add():
+            work.append({"name": "Νέο πεδίο", "enabled": True, "pos": 0, "len": 0, "extra": "",
+                         "xform": "", "align": "", "ils": ""})
+            fill(len(work) - 1)
+            edit()
+
+        def remove():
+            i = sel()
+            if i is None:
+                return
+            del work[i]
+            fill(min(i, len(work) - 1))
+
+        def move(d):
+            i = sel()
+            if i is None or not (0 <= i + d < len(work)):
+                return
+            work[i], work[i + d] = work[i + d], work[i]
+            fill(i + d)
+
+        def toggle():
+            i = sel()
+            if i is None:
+                return
+            work[i]["enabled"] = not work[i].get("enabled")
+            fill(i)
+
+        def save():
+            user = load_user_profiles()
+            plain = name.replace("★ ", "", 1)
+            user[plain] = {"settings": dict(settings), "fields": [dict(f) for f in work]}
+            save_user_profiles(user)
+            self.cfg["profiles"][name] = user[plain]
+            self.log("Αποθηκεύτηκε το προφίλ «%s»: %d πεδία%s" % (
+                name, len(work), ", γραμμή %d χαρακτήρων" % sum(int(f.get("len") or 0) for f in work
+                                                                  if f.get("enabled")) if fixed else ""))
+            win.destroy()
+
+        tv.bind("<Double-1>", edit)
+        tv.bind("<space>", lambda e: toggle())
+        lbl_total = ttk.Label(bar, style="Hint.TLabel", text="")
+        lbl_total.pack(side="left", padx=(0, 12))
+        ttk.Button(bar, text="Επεξεργασία…", command=edit).pack(side="left")
+        ttk.Button(bar, text="+ Γραμμή", command=add).pack(side="left", padx=6)
+        ttk.Button(bar, text="− Αφαίρεση", command=remove).pack(side="left")
+        ttk.Button(bar, text="▲", width=3, command=lambda: move(-1)).pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="▼", width=3, command=lambda: move(1)).pack(side="left", padx=(2, 6))
+        ttk.Button(bar, text="Εναλλαγή ✓", command=toggle).pack(side="left")
+        if fixed:
+            ttk.Button(bar, text="Field settings (AutoTrans.CFG)…", style="Pick.TButton",
+                       command=lambda: (save(), self.ils_field_settings_dialog())).pack(side="left", padx=12)
+        ttk.Button(bar, text="Άκυρο", style="Ghost.TButton", command=win.destroy).pack(side="right")
+        ttk.Button(bar, text="Αποθήκευση", style="Accent.TButton", command=save).pack(side="right", padx=8)
+        fill(0)
+        win.wait_window()
 
     def ishida_import_settings_dialog(self):
         """Οδηγίες για το «Setup Text Import» του ScaleLink Pro: πώς είναι το αρχείο μας.
