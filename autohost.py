@@ -3214,8 +3214,16 @@ def ils_profile_from_cfg(ils_fields, erp_fields, cfg):
         if pos > cursor:
             fields.append({"name": "(κενό)", "enabled": True, "pos": 0, "len": pos - cursor,
                            "extra": "", "xform": "", "align": "", "ils": ""})
+        elif pos + ln <= cursor:
+            # Δύο πεδία του ILS στις ίδιες θέσεις (π.χ. Code και LFCode και τα δύο στη
+            # θέση 2): το αρχείο έχει ΜΙΑ τιμή εκεί και το ILS τη διαβάζει δύο φορές.
+            # Στο προφίλ μας δεν γράφεται δεύτερη — θα μετατόπιζε τα επόμενα.
+            warnings.append("Το «%s» (θέσεις %d-%d) διαβάζει τις ίδιες θέσεις με προηγούμενο πεδίο· "
+                            "γράφεται μία φορά." % (label, pos, pos + ln - 1))
+            i += 1
+            continue
         elif pos < cursor:
-            warnings.append("ΠΡΟΣΟΧΗ: το «%s» (θέση %d) πέφτει πάνω στο προηγούμενο πεδίο — "
+            warnings.append("ΠΡΟΣΟΧΗ: το «%s» (θέση %d) πέφτει μερικώς πάνω στο προηγούμενο πεδίο — "
                             "έλεγξε το CFG." % (label, pos))
         f = {"name": label, "enabled": True, "pos": 0, "len": ln, "extra": "", "xform": "",
              "align": "", "ils": name if name in ILS_ROLE_LABEL else ""}
