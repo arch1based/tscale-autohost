@@ -382,6 +382,58 @@ def fetch_latest_version(timeout=8):
     return lines[0], "\n".join(lines[1:]), ""
 
 
+BETA_API_URL = "https://api.github.com/repos/arch1based/tscale-autohost/releases?per_page=30"
+BETA_ASSET = "ICSautoScaleUpdater-beta.zip"
+BETA_DIR_NAME = "ICSautoScaleUpdater-beta"
+
+
+def fetch_latest_beta(timeout=8):
+    """(έκδοση, σημειώσεις, url_zip) της νεότερης δοκιμαστικής (pre-release) στο GitHub.
+
+    Οι κανονικές εγκαταστάσεις ρωτούν το /releases/latest, που δεν δίνει ποτέ
+    pre-releases· εδώ ρωτάμε ρητά τη λίστα, μόνο όταν ο τεχνικός το ζητήσει.
+    """
+    rels = json.loads(_get(BETA_API_URL, timeout))
+    best = None
+    for rel in rels or []:
+        if rel.get("draft") or not rel.get("prerelease") or not rel.get("tag_name"):
+            continue
+        if best is None or parse_version(rel["tag_name"]) > parse_version(best["tag_name"]):
+            best = rel
+    if not best:
+        return "", "", ""
+    url = ""
+    for asset in best.get("assets", []):
+        if asset.get("name", "").lower() == BETA_ASSET.lower():
+            url = asset.get("browser_download_url", "")
+    return best["tag_name"].lstrip("vV"), (best.get("body") or "").strip(), url
+
+
+def beta_install_dir():
+    """Δίπλα στην κανονική εγκατάσταση: <φάκελος της εφαρμογής>\..\ICSautoScaleUpdater-beta."""
+    app_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else APP_DIR
+    return os.path.join(os.path.dirname(app_dir), BETA_DIR_NAME)
+
+
+def install_beta_side_by_side(zip_path, target_dir, log=None):
+    """Ξεπακετάρει τη beta σε δικό της φάκελο και επιστρέφει τη διαδρομή του exe της."""
+    import zipfile
+    with zipfile.ZipFile(zip_path) as z:
+        names = z.namelist()
+        exe = BETA_DIR_NAME + ".exe"
+        if not any(n.lower().endswith(exe.lower()) for n in names):
+            raise ValueError("το πακέτο δεν περιέχει το %s" % exe)
+        os.makedirs(target_dir, exist_ok=True)
+        z.extractall(target_dir)
+    for root, _dirs, files in os.walk(target_dir):
+        for f in files:
+            if f.lower() == exe.lower():
+                if log:
+                    log("Η beta ξεπακεταρίστηκε στο %s" % root)
+                return os.path.join(root, f)
+    raise ValueError("δεν βρέθηκε το exe της beta μετά το ξεπακετάρισμα")
+
+
 def download_update(url, dest, timeout=300, log=None):
     """Κατεβάζει το zip της νέας έκδοσης και το ελέγχει πριν χρησιμοποιηθεί."""
     data = _get(url, timeout, binary=True)
@@ -4019,6 +4071,12 @@ class App(tk.Tk):
         menu.add_command(label="Καθαρισμός οθόνης", command=lambda: self.txt_log.delete("1.0", "end"))
         menu.add_separator()
         menu.add_command(label="Έλεγχος ενημέρωσης…", command=self.check_update)
+        if not globals().get("IS_BETA", False):
+            # Μόνο στην κανονική εφαρμογή: η beta εγκαθίσταται δίπλα της, δεν την αλλάζει.
+            self.v_accept_beta = tk.BooleanVar(value=bool(self.cfg.get("accept_beta", False)))
+            menu.add_checkbutton(label="Δέχομαι δοκιμαστικές (beta) εκδόσεις",
+                                 variable=self.v_accept_beta, command=self.on_accept_beta)
+            menu.add_command(label="Δοκιμαστική έκδοση (beta)…", command=self.check_beta)
         menu.add_command(label="Σχετικά", command=self.show_about)
         tools["menu"] = menu
         tools.pack(side="right", padx=(0, 6))
@@ -4997,6 +5055,8 @@ class App(tk.Tk):
         self.v_poll_unit.set(unit)
         self.refresh_poll_hint()
         self.v_auto.set(bool(c.get("auto_run", False)))
+        if getattr(self, "v_accept_beta", None) is not None:
+            self.v_accept_beta.set(bool(c.get("accept_beta", False)))
         self.v_backup.set(bool(c.get("backup_enabled", True)))
         self.v_popup.set(bool(c.get("show_success_popup", False)))
         self.v_keep.set(str(c.get("backup_keep", 3)))
@@ -5094,6 +5154,8 @@ class App(tk.Tk):
         except ValueError:
             c["poll_seconds"] = 3
         c["auto_run"] = self.v_auto.get()
+        if getattr(self, "v_accept_beta", None) is not None:
+            c["accept_beta"] = bool(self.v_accept_beta.get())
         c["backup_enabled"] = self.v_backup.get()
         c["show_success_popup"] = self.v_popup.get()
         try:
@@ -6214,6 +6276,87 @@ class App(tk.Tk):
             subprocess.Popen(["xdg-open", d])
 
     # ---------------- ενημέρωση (μόνο χειροκίνητα, με κωδικό) ----------------
+    def on_accept_beta(self):
+        """Το τικ «Δέχομαι beta» θέλει κωδικό τεχνικού — όχι προσωπικό καταστήματος."""
+        if self.v_accept_beta.get() and not self.ask_password():
+            self.v_accept_beta.set(False)
+            return
+        self.cfg["accept_beta"] = bool(self.v_accept_beta.get())
+        try:
+            save_config(self.collect())
+        except Exception:
+            pass
+        self.log("Δοκιμαστικές εκδόσεις: %s" % ("δεκτές" if self.cfg["accept_beta"] else "όχι"))
+
+    def check_beta(self):
+        """Βρίσκει τη νεότερη beta στο GitHub και την εγκαθιστά ΔΙΠΛΑ στην κανονική."""
+        if not getattr(self, "v_accept_beta", None) or not self.v_accept_beta.get():
+            messagebox.showinfo(APP_NAME, "Πρώτα τσέκαρε «Δέχομαι δοκιμαστικές (beta) εκδόσεις» "
+                                          "στα Εργαλεία (θέλει κωδικό τεχνικού).")
+            return
+        self.set_status("Έλεγχος για beta…", COLORS["brand"])
+        self._beta_result = None
+
+        def job():
+            try:
+                self._beta_result = ("ok",) + fetch_latest_beta()
+            except Exception as exc:
+                self._beta_result = ("err", str(exc), "", "")
+        threading.Thread(target=job, daemon=True).start()
+        self.after(300, self._poll_beta)
+
+    def _poll_beta(self):
+        res = getattr(self, "_beta_result", None)
+        if res is None:
+            self.after(300, self._poll_beta)
+            return
+        self._beta_result = None
+        self.set_status("Σε αναμονή", COLORS["muted"])
+        kind, version, notes, url = res
+        if kind == "err":
+            messagebox.showwarning(APP_NAME, "Δεν ήταν δυνατός ο έλεγχος για beta.\n\n%s" % version)
+            return
+        if not version or not url:
+            messagebox.showinfo(APP_NAME, "Δεν υπάρχει διαθέσιμη δοκιμαστική έκδοση αυτή τη στιγμή.")
+            return
+        target = beta_install_dir()
+        if not messagebox.askyesno(
+                APP_NAME, "Δοκιμαστική έκδοση: %s\n\n%s\n\nΘα εγκατασταθεί ΔΙΠΛΑ στην κανονική "
+                "(δεν την αλλάζει), στον φάκελο:\n%s\n\nκαι θα ανοίξει. Συνέχεια;"
+                % (version, notes or "", target)):
+            return
+        self.set_status("Λήψη beta…", COLORS["brand"])
+        tmp = os.environ.get("TEMP") or target
+        dest = os.path.join(tmp, BETA_ASSET)
+
+        def job():
+            try:
+                log = lambda m: self.after(0, self.log, m)
+                download_update(url, dest, log=log)
+                exe = install_beta_side_by_side(dest, target, log=log)
+                self.after(0, self._beta_ready, exe, version)
+            except Exception as exc:
+                self.after(0, self._beta_failed, str(exc))
+        threading.Thread(target=job, daemon=True).start()
+
+    def _beta_ready(self, exe, version):
+        self.set_status("Σε αναμονή", COLORS["muted"])
+        self.log("Η beta %s εγκαταστάθηκε: %s" % (version, exe))
+        try:
+            subprocess.Popen([exe], cwd=os.path.dirname(exe))
+        except Exception as exc:
+            messagebox.showwarning(APP_NAME, "Η beta εγκαταστάθηκε αλλά δεν άνοιξε μόνη της.\n\n%s\n%s"
+                                   % (exe, exc))
+            return
+        messagebox.showinfo(APP_NAME, "Η δοκιμαστική έκδοση %s άνοιξε δίπλα στην κανονική.\n\n%s\n\n"
+                            "Έχει δικές της ρυθμίσεις (αντιγράφει τις τρέχουσες στην πρώτη εκκίνηση, "
+                            "με την αυτόματη έναρξη σβηστή)." % (version, exe))
+
+    def _beta_failed(self, text):
+        self.set_status("Σε αναμονή", COLORS["muted"])
+        self.log("Η εγκατάσταση της beta απέτυχε: %s" % text)
+        messagebox.showerror(APP_NAME, "Η εγκατάσταση της beta απέτυχε.\n\n%s" % text)
+
     def ask_password(self):
         """Κωδικός τεχνικού. Φραγμός κατά λάθους χειρισμού, όχι ασφάλεια."""
         win = tk.Toplevel(self)
