@@ -1842,6 +1842,44 @@ ISHIDA_PLU_FIELDS = (
 ISHIDA_PLU_BY_POS = {p: (n, d) for p, n, d in ISHIDA_PLU_FIELDS}
 
 
+# Τα πεδία που γράφουμε ΠΑΝΤΑ (δεν ρυθμίζονται από τον πίνακα «Πεδία ζυγού Ishida»).
+ISHIDA_CORE_FIELDS = (ISHIDA_CODE_FIELD, ISHIDA_NAME_FIELD, ISHIDA_PRICE_FIELD,
+                      ISHIDA_PRICE_PIECE_FIELD, ISHIDA_BCFORMAT_FIELD, ISHIDA_BCCODE_FIELD)
+
+
+def ishida_extra_value(entry, row):
+    """Η τιμή για ένα επιπλέον πεδίο: από στήλη του host2 (1 = πρώτη, -1 = τελευταία) ή σταθερή.
+    Επιστρέφει None αν δεν προκύπτει τίποτα (τότε το πεδίο μένει όπως το έχει ο ζυγός)."""
+    try:
+        col = int(entry.get("col") or 0)
+    except (TypeError, ValueError):
+        col = 0
+    val = ""
+    if col:
+        cols = row.get("cols") or []
+        idx = col - 1 if col > 0 else col
+        if -len(cols) <= idx < len(cols):
+            val = cols[idx].strip()
+    if not val and str(entry.get("extra", "")).strip():
+        val = str(entry["extra"]).strip()
+    if not val:
+        return None
+    return apply_xform(val, entry.get("xform", ""))
+
+
+def ishida_active_extra_fields(cfg):
+    """Τα ενεργά επιπλέον πεδία από τις ρυθμίσεις (λίστα dict με pos/col/extra/xform)."""
+    out = []
+    for e in cfg.get("ishida_fields") or []:
+        try:
+            pos = int(e.get("pos"))
+        except (TypeError, ValueError):
+            continue
+        if e.get("enabled") and 0 < pos < ISHIDA_FIELDS and pos not in ISHIDA_CORE_FIELDS:
+            out.append(dict(e, pos=pos))
+    return out
+
+
 def ishida_price_index(pedia):
     """Πού είναι η τιμή: 70 για ζυγιζόμενο (τρόπος 0/3), 71 για τεμάχιο."""
     try:
@@ -2188,7 +2226,7 @@ def ishida_read_price_file(cfg, log):
         except IndexError:
             fpa = ""
         items.append({"product_number": kodikos, "original_price": timi,
-                      "product_name": onoma, "tax": fpa})
+                      "product_name": onoma, "tax": fpa, "cols": [c.strip() for c in cols]})
     # Δικλείδα: αν το αρχείο έχει τιμές με υποδιαστολή ενώ έχει δηλωθεί ότι
     # είναι σε λεπτά, το «8.50» θα γινόταν 8 λεπτά — δηλαδή λάθος τιμή στο ράφι,
     # χωρίς κανένα σφάλμα. Καλύτερα να σταματήσουμε και να το πούμε.
@@ -2372,7 +2410,7 @@ def ishida_new_record(protypo, kodikos, onoma, lepta, fpa, morfi_barcode):
 
 def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
                        morfi_barcode=ISHIDA_BC_KEEP, kodikos_sto_barcode=False,
-                       dimiourgia=False, onomata=True):
+                       dimiourgia=False, onomata=True, extra_fields=None):
     """Κρατάει τις εγγραφές του ζυγού και αλλάζει ΜΟΝΟ την τιμή.
 
     Ίδιος λόγος με τους T-Scale: τα ονόματα στον ζυγό είναι γραμμένα με τη
@@ -2381,6 +2419,8 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
     """
     telika, allages, agnosta, akyres = [], 0, [], 0
     barcode_allages, kaina, onomata_allages, spasmena = 0, 0, 0, 0
+    extra_fields = list(extra_fields or [])
+    extra_allages = 0
     # Πρότυπο για τα καινούργια: προτιμάμε ένα υπαρκτό προϊόν του ίδιου του
     # ζυγού — ξέρει καλύτερα από εμάς πώς είναι στημένη η εγκατάσταση. Μόνο σε
     # εντελώς άδειο ζυγό πέφτουμε στο ενσωματωμένο.
@@ -2408,9 +2448,16 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
             if not onoma or lepta is None:
                 akyres += 1
                 continue
-            telika.append(ishida_new_record(
-                protypo, kodikos, onoma, lepta, (row.get("tax") or "").strip(),
-                morfi_barcode))
+            neo = ishida_new_record(protypo, kodikos, onoma, lepta, (row.get("tax") or "").strip(),
+                                    morfi_barcode)
+            if extra_fields:
+                p = ishida_split_fields(neo)
+                for e in extra_fields:
+                    v = ishida_extra_value(e, row)
+                    if v is not None and e["pos"] < len(p):
+                        p[e["pos"]] = v
+                neo = ",".join(p)
+            telika.append(neo)
             kaina += 1
             continue
         if lepta is None:
@@ -2452,7 +2499,18 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
                     pedia[ISHIDA_BCCODE_FIELD] = gymnos
                     piraxe_barcode = True
 
-        if idia_timi and not piraxe_barcode and not allaxe_onoma:
+        # Επιπλέον πεδία από τον πίνακα «Πεδία ζυγού Ishida» (τμήμα, ομάδα, απόβαρο…):
+        # γράφονται μόνο αν διαφέρουν από ό,τι έχει ο ζυγός.
+        allaxe_extra = False
+        for e in extra_fields:
+            v = ishida_extra_value(e, row)
+            if v is not None and e["pos"] < len(pedia) and pedia[e["pos"]] != v:
+                pedia[e["pos"]] = v
+                allaxe_extra = True
+        if allaxe_extra:
+            extra_allages += 1
+
+        if idia_timi and not piraxe_barcode and not allaxe_onoma and not allaxe_extra:
             continue                                # τίποτα δεν άλλαξε: δεν το στέλνουμε
         pedia[thesi_timis] = str(lepta)
         telika.append(",".join(pedia))
@@ -2469,6 +2527,10 @@ def ishida_merge_prices(yparxonta, items, log, idi_se_lepta=True,
         log("  άλλαξαν τα ονόματα σε %d προϊόντα" % (onomata_allages - spasmena))
     if spasmena:
         log("  %d ονόματα ξαναχωρίστηκαν σε γραμμές που χωράνε στον ζυγό" % spasmena)
+    if extra_fields:
+        log("  επιπλέον πεδία (%s): άλλαξαν σε %d προϊόντα"
+            % (", ".join("%d %s" % (e["pos"], ISHIDA_PLU_BY_POS.get(e["pos"], ("?", ""))[0])
+                         for e in extra_fields), extra_allages))
     if morfi_barcode != ISHIDA_BC_KEEP:
         log("  μορφή barcode -> %s: άλλαξε σε %d προϊόντα"
             % (ishida_barcode_label(morfi_barcode), barcode_allages))
@@ -2575,7 +2637,8 @@ def run_ishida_direct(cfg, log, stop_event=None):
                 morfi_barcode=int(cfg.get("ishida_barcode", ISHIDA_BC_KEEP)),
                 kodikos_sto_barcode=bool(cfg.get("ishida_barcode_code", False)),
                 dimiourgia=dimiourgia,
-                onomata=bool(cfg.get("ishida_update_names", True)))
+                onomata=bool(cfg.get("ishida_update_names", True)),
+                extra_fields=ishida_active_extra_fields(cfg))
         except StepError:
             raise
         except Exception as exc:
@@ -4711,7 +4774,7 @@ class App(tk.Tk):
                    command=lambda: self.profile_fields_dialog("ishida")).pack(side="left", padx=(8, 0))
         ttk.Button(srow, text="Τι να ρυθμίσεις στο ScaleLink…", style="Pick.TButton",
                    command=self.ishida_import_settings_dialog).pack(side="left", padx=(6, 0))
-        ttk.Button(srow, text="Τα 118 πεδία του ζυγού…", style="Ghost.TButton",
+        ttk.Button(srow, text="⚖  Πεδία ζυγού Ishida…", style="Accent.TButton",
                    command=self.ishida_scale_fields_dialog).pack(side="left", padx=(6, 0))
         g2 = ttk.Frame(self.blk_ishida)
         g2.pack(fill="x")
@@ -4846,20 +4909,39 @@ class App(tk.Tk):
             nmf, text="Ενημέρωσε και τα ονόματα, όταν αλλάξουν στο ERP",
             variable=self.v_ish_names)
         self.chk_ish_names.pack(side="left")
-        ttk.Label(nmf, text="χαρακτήρες ανά γραμμή:").pack(side="left", padx=(18, 4))
-        self.v_ish_width = tk.StringVar(value="25")
-        self.e_ish_width = ttk.Spinbox(nmf, from_=10, to=40, width=4,
-                                       textvariable=self.v_ish_width)
-        self.e_ish_width.pack(side="left")
         ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
                   text="Αλλάζει μόνο το όνομα που είναι όντως διαφορετικό από του ERP· τα "
                        "υπόλοιπα μένουν όπως τα έχει ο ζυγός. Η μορφοποίηση της ετικέτας "
-                       "(μέγεθος γραμμάτων, συστατικά κάτω από το όνομα) κρατιέται.\n"
-                       "Τα ονόματα σπάνε σε δύο γραμμές. Αν ο ζυγός γράφει «too many char "
-                       "for print», χαμήλωσε τους χαρακτήρες ανά γραμμή (π.χ. 23) — "
-                       "εξαρτάται από το πλάτος της ετικέτας. Όσα δεν χωράνε ξαναχωρίζονται "
-                       "μόνα τους στην επόμενη αποστολή."
+                       "(μέγεθος γραμμάτων, συστατικά κάτω από το όνομα) κρατιέται."
                   ).pack(anchor="w", pady=(2, 4))
+        # Η λύση για το «too many characters for print»: τα ονόματα σπάνε σε γραμμές
+        # τόσων χαρακτήρων όσους χωράει η ετικέτα. Ξεχωριστή, ευδιάκριτη γραμμή —
+        # είναι η ρύθμιση που έσωσε τον ERGON και την ψάχνει κάθε τεχνικός.
+        wf = ttk.Frame(f)
+        wf.pack(fill="x", pady=(2, 0))
+        tk.Label(wf, text="Χαρακτήρες ανά γραμμή ετικέτας:", bg=COLORS["card"], fg=COLORS["ink"],
+                 font=("Segoe UI", 10, "bold")).pack(side="left")
+        self.v_ish_width = tk.StringVar(value="25")
+        self.e_ish_width = ttk.Spinbox(wf, from_=10, to=40, width=4, textvariable=self.v_ish_width)
+        self.e_ish_width.pack(side="left", padx=8)
+        self.lbl_ish_width = tk.Label(wf, text="", bg=COLORS["card"], fg=COLORS["warn"],
+                                      font=("Segoe UI", 9, "bold"))
+        self.lbl_ish_width.pack(side="left")
+        ttk.Label(f, style="Hint.TLabel", justify="left", wraplength=920,
+                  text="Αν ο ζυγός γράφει στην οθόνη του «too many characters for print», ΕΔΩ είναι η "
+                       "ρύθμιση: χαμήλωσε τον αριθμό. ERGON: 25 (η γραμματοσειρά C25 της ετικέτας "
+                       "χωράει 25· με 30 έβγαζε το μήνυμα). Τα ονόματα σπάνε μόνα τους σε γραμμές "
+                       "τόσων χαρακτήρων και όσα δεν χωράνε ξαναχωρίζονται στην επόμενη αποστολή."
+                  ).pack(anchor="w", pady=(2, 4))
+
+        def _width_note(*_a):
+            try:
+                n = int(self.v_ish_width.get())
+            except ValueError:
+                n = 0
+            self.lbl_ish_width.configure(
+                text="" if n == 25 else ("← ERGON: 25" if 10 <= n <= 40 else "← 10 έως 40"))
+        self.v_ish_width.trace_add("write", _width_note)
 
         crf = ttk.Frame(f)
         crf.pack(fill="x", pady=(6, 0))
@@ -5905,23 +5987,160 @@ class App(tk.Tk):
         win.wait_window()
 
     def ishida_scale_fields_dialog(self):
-        """Αναφορά: η εγγραφή PLU του ζυγού Ishida, πεδίο προς πεδίο, και τι γράφουμε εμείς."""
-        grafoume = {ISHIDA_CODE_FIELD: "γράφουμε: κωδικός", ISHIDA_NAME_FIELD: "γράφουμε: όνομα (αν άλλαξε)",
-                    ISHIDA_PRICE_FIELD: "γράφουμε: ΤΙΜΗ (ζυγιζόμενα)", ISHIDA_PRICE_PIECE_FIELD: "γράφουμε: ΤΙΜΗ (τεμάχια)",
-                    ISHIDA_BCFORMAT_FIELD: "γράφουμε: μορφή barcode (αν ζητηθεί)",
-                    ISHIDA_BCCODE_FIELD: "γράφουμε: κωδικός στο barcode"}
-        lines = ["Η εγγραφή PLU του Ishida UNI-3/UNI-7: 118 πεδία CSV. Διαβάζουμε όλη την εγγραφή από τον",
-                 "ζυγό, αλλάζουμε μόνο τα παρακάτω «γράφουμε» και τη στέλνουμε πίσω — τα υπόλοιπα μένουν",
-                 "όπως τα έχει ο ζυγός. Νέο είδος = αντίγραφο υπάρχοντος με την ίδια μορφή barcode.", "",
-                 "%-5s %-18s %s" % ("ΘΕΣΗ", "ΠΕΔΙΟ", "ΤΙ ΕΙΝΑΙ")]
-        for pos, name, desc in ISHIDA_PLU_FIELDS:
-            if not name:
-                continue
-            extra = grafoume.get(pos, "")
-            lines.append("%-5d %-18s %s%s" % (pos, name, desc, ("   ← " + extra) if extra else ""))
-        lines += ["", "Κενές θέσεις (το SLP τις αφήνει πάντα κενές): %s" % ", ".join(
-            str(p) for p, n, _d in ISHIDA_PLU_FIELDS if not n)]
-        self._confirm_text("Τα 118 πεδία του ζυγού Ishida", lines, yes="Κλείσιμο", no=None)
+        """«Πεδία ζυγού Ishida» — όπως τα «Πεδία T-Scale»: τα 118 πεδία της εγγραφής του ζυγού.
+
+        Τα βασικά (κωδικός, όνομα, τιμή, barcode) γράφονται πάντα. Για τα υπόλοιπα ο
+        τεχνικός τσεκάρει ποια θα ενημερώνονται και από ποια στήλη του αρχείου της
+        Ishida (host2) ή με ποια σταθερή τιμή — ανά πελάτη. Αποθηκεύεται στο
+        «ishida_fields» των ρυθμίσεων και το χρησιμοποιεί η απευθείας αποστολή.
+        """
+        self.collect()
+        entries = {}
+        for e in self.cfg.get("ishida_fields") or []:
+            try:
+                entries[int(e.get("pos"))] = dict(e)
+            except (TypeError, ValueError):
+                pass
+        core_txt = {ISHIDA_CODE_FIELD: "πάντα: κωδικός", ISHIDA_NAME_FIELD: "πάντα: όνομα (αν άλλαξε στο ERP)",
+                    ISHIDA_PRICE_FIELD: "πάντα: ΤΙΜΗ ζυγιζόμενων", ISHIDA_PRICE_PIECE_FIELD: "πάντα: ΤΙΜΗ τεμαχίων",
+                    ISHIDA_BCFORMAT_FIELD: "πάντα: μορφή barcode (Βήμα 4)", ISHIDA_BCCODE_FIELD: "πάντα: κωδικός στο barcode"}
+
+        win = tk.Toplevel(self)
+        win.title("Πεδία ζυγού Ishida — τι ενημερώνεται στον ζυγό")
+        win.transient(self)
+        win.grab_set()
+        win.geometry("1120x700")
+        bar = ttk.Frame(win, style="Bar.TFrame", padding=(10, 8))
+        bar.pack(fill="x", side="bottom")
+        top = ttk.Frame(win, style="Card.TFrame", padding=(10, 8))
+        top.pack(fill="both", expand=True)
+        ttk.Label(top, text="Πεδία ζυγού Ishida (εγγραφή PLU, 118 πεδία)", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(top, style="Hint.TLabel", wraplength=1080, justify="left",
+                  text="Διαβάζουμε όλη την εγγραφή από τον ζυγό και αλλάζουμε μόνο ό,τι είναι τσεκαρισμένο· "
+                       "τα υπόλοιπα μένουν όπως τα έχει ο ζυγός. Τα «πάντα» γράφονται σε κάθε αποστολή. "
+                       "Για τα άλλα: κλικ στο ✓ (ή Space) για ενεργοποίηση, διπλό κλικ για να ορίσεις από ποια "
+                       "στήλη του αρχείου της Ishida (host2) γεμίζει ή ποια σταθερή τιμή παίρνει."
+                  ).pack(anchor="w", pady=(2, 6))
+        cols = ("out", "pos", "name", "desc", "src")
+        tv = ttk.Treeview(top, columns=cols, show="headings", selectmode="browse", height=24)
+        for c, t, w, st in (("out", "Ενημερώνεται", 95, False), ("pos", "Θέση", 50, False),
+                            ("name", "Πεδίο", 140, False), ("desc", "Τι είναι", 420, True),
+                            ("src", "Γεμίζει από", 260, False)):
+            tv.heading(c, text=t)
+            tv.column(c, width=w, minwidth=w, anchor="w", stretch=st)
+        sb = ttk.Scrollbar(top, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sb.set)
+        tv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y")
+        tv.tag_configure("off", foreground=COLORS["muted"])
+        tv.tag_configure("core", foreground=COLORS["brand"])
+
+        def src_text(e):
+            try:
+                col = int(e.get("col") or 0)
+            except (TypeError, ValueError):
+                col = 0
+            parts = []
+            if col:
+                parts.append("στήλη %d του host2" % col)
+            if str(e.get("extra", "")).strip():
+                parts.append("σταθερό «%s»" % e["extra"])
+            if e.get("xform"):
+                parts.append(XFORMS.get(e["xform"], e["xform"]))
+            return " · ".join(parts) or "—"
+
+        def fill(select=None):
+            tv.delete(*tv.get_children())
+            for pos, name, desc in ISHIDA_PLU_FIELDS:
+                if not name:
+                    continue
+                if pos in core_txt:
+                    tv.insert("", "end", iid=str(pos), tags=("core",),
+                              values=("✓ πάντα", pos, name, desc, core_txt[pos]))
+                    continue
+                e = entries.get(pos, {})
+                on = bool(e.get("enabled"))
+                tv.insert("", "end", iid=str(pos), tags=() if on else ("off",),
+                          values=("✓" if on else "—", pos, name, desc, src_text(e) if e else "—"))
+            if select is not None:
+                tv.selection_set(str(select)); tv.see(str(select))
+
+        def sel():
+            x = tv.selection()
+            return int(x[0]) if x else None
+
+        def toggle(_e=None):
+            pos = sel()
+            if pos is None or pos in core_txt:
+                return
+            e = entries.setdefault(pos, {"pos": pos, "enabled": False, "col": 0, "extra": "", "xform": ""})
+            e["enabled"] = not e.get("enabled")
+            if e["enabled"] and not (e.get("col") or str(e.get("extra", "")).strip()):
+                edit()
+            fill(pos)
+
+        def edit(_e=None):
+            pos = sel()
+            if pos is None or pos in core_txt:
+                return
+            e = entries.setdefault(pos, {"pos": pos, "enabled": False, "col": 0, "extra": "", "xform": ""})
+            d = tk.Toplevel(win)
+            d.title("Πεδίο %d — %s" % (pos, ISHIDA_PLU_BY_POS[pos][0]))
+            d.transient(win)
+            d.grab_set()
+            ttk.Label(d, text=ISHIDA_PLU_BY_POS[pos][1], style="Hint.TLabel", wraplength=380,
+                      justify="left").grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(8, 4))
+            v_col = tk.StringVar(value=str(e.get("col") or ""))
+            v_extra = tk.StringVar(value=str(e.get("extra", "")))
+            ttk.Label(d, text="Στήλη του host2 (1 = πρώτη, -1 = τελευταία, κενό = καμία):").grid(
+                row=1, column=0, sticky="w", padx=8, pady=4)
+            ttk.Entry(d, textvariable=v_col, width=8).grid(row=1, column=1, sticky="w", padx=8)
+            ttk.Label(d, text="Σταθερή τιμή (αν δεν έρχεται από στήλη):").grid(row=2, column=0, sticky="w", padx=8, pady=4)
+            ttk.Entry(d, textvariable=v_extra, width=24).grid(row=2, column=1, sticky="w", padx=8)
+            labels = list(XFORMS.values()); keys = list(XFORMS.keys())
+            v_xf = tk.StringVar(value=XFORMS.get(e.get("xform", ""), "—"))
+            ttk.Label(d, text="Μετατροπή:").grid(row=3, column=0, sticky="w", padx=8, pady=4)
+            ttk.Combobox(d, textvariable=v_xf, values=labels, state="readonly", width=32).grid(
+                row=3, column=1, sticky="w", padx=8)
+            v_on = tk.BooleanVar(value=bool(e.get("enabled")))
+            ttk.Checkbutton(d, text="Ενημερώνεται στον ζυγό", variable=v_on).grid(row=4, column=1, sticky="w", padx=8)
+
+            def ok():
+                try:
+                    e["col"] = int(v_col.get() or 0)
+                except ValueError:
+                    messagebox.showerror(APP_NAME, "Η στήλη πρέπει να είναι αριθμός.", parent=d)
+                    return
+                e["extra"] = v_extra.get()
+                e["xform"] = keys[labels.index(v_xf.get())] if v_xf.get() in labels else ""
+                e["enabled"] = v_on.get()
+                d.destroy()
+                fill(pos)
+            ttk.Button(d, text="Καταχώρηση", command=ok).grid(row=5, column=1, sticky="e", padx=8, pady=10)
+            d.wait_window()
+
+        def click(ev):
+            if tv.identify_column(ev.x) == "#1" and tv.identify_row(ev.y):
+                tv.selection_set(tv.identify_row(ev.y))
+                toggle()
+                return "break"
+        tv.bind("<Button-1>", click)
+        tv.bind("<space>", toggle)
+        tv.bind("<Double-1>", edit)
+
+        def save():
+            self.cfg["ishida_fields"] = [dict(e) for e in entries.values()
+                                         if e.get("enabled") or e.get("col") or str(e.get("extra", "")).strip()]
+            energa = [e for e in self.cfg["ishida_fields"] if e.get("enabled")]
+            self.log("Πεδία ζυγού Ishida: επιπλέον ενημερώνονται %d — %s" % (
+                len(energa), ", ".join("%d %s" % (e["pos"], ISHIDA_PLU_BY_POS[e["pos"]][0]) for e in energa) or "κανένα"))
+            win.destroy()
+        ttk.Button(bar, text="Εναλλαγή ✓", command=toggle).pack(side="left")
+        ttk.Button(bar, text="Επεξεργασία…", command=edit).pack(side="left", padx=6)
+        ttk.Button(bar, text="Άκυρο", style="Ghost.TButton", command=win.destroy).pack(side="right")
+        ttk.Button(bar, text="Καταχώρηση", style="Accent.TButton", command=save).pack(side="right", padx=8)
+        fill()
+        win.wait_window()
 
     def ishida_import_settings_dialog(self):
         """Οδηγίες για το «Setup Text Import» του ScaleLink Pro: πώς είναι το αρχείο μας.
