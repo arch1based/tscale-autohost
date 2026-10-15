@@ -4758,9 +4758,10 @@ class App(tk.Tk):
 
         # ======== Ishida ========
         self.blk_ishida = self._block(
-            self.blocks, "Ζυγοί Ishida — δεύτερο αρχείο (host2)",
-            "Ίδια δεδομένα, άλλη γραφή (τιμή σε λεπτά). Με απευθείας αποστολή στο Βήμα 4 "
-            "το ScaleLink δεν χρειάζεται.")
+            self.blocks, "Ζυγοί Ishida",
+            "Τι ενημερώνεται στον ζυγό: «Πεδία ζυγού Ishida» (τα 118 πεδία του). Το host2 είναι "
+            "το ενδιάμεσο αρχείο που φτιάχνουμε από το ERP (τιμή σε λεπτά) και διαβάζει η "
+            "απευθείας αποστολή — το ρυθμίζει ο οδηγός, σπάνια με το χέρι.")
         srow = ttk.Frame(self.blk_ishida)
         srow.pack(fill="x")
         self.v_s2b = tk.BooleanVar(value=False)
@@ -4770,7 +4771,7 @@ class App(tk.Tk):
         self.cmb_s2b = ttk.Combobox(srow, textvariable=self.v_s2b_profile, state="readonly",
                                     width=34, values=list(self.cfg.get("profiles", {})))
         self.cmb_s2b.pack(side="left")
-        ttk.Button(srow, text="Πεδία Ishida…", style="Accent.TButton",
+        ttk.Button(srow, text="Στήλες αρχείου host2…", style="Ghost.TButton",
                    command=lambda: self.profile_fields_dialog("ishida")).pack(side="left", padx=(8, 0))
         ttk.Button(srow, text="Τι να ρυθμίσεις στο ScaleLink…", style="Pick.TButton",
                    command=self.ishida_import_settings_dialog).pack(side="left", padx=(6, 0))
@@ -5827,7 +5828,8 @@ class App(tk.Tk):
         is_ils = which == "ils"
         var_prof = self.v_s2c_profile if is_ils else self.v_s2b_profile
         key = "step2c_profile" if is_ils else "step2b_profile"
-        title = "Πεδία ILS — αρχείο hostILS" if is_ils else "Πεδία Ishida — αρχείο host2"
+        title = ("Πεδία ILS — αρχείο hostILS" if is_ils
+                 else "Στήλες του αρχείου host2 (ενδιάμεσο αρχείο, ΟΧΙ τα πεδία του ζυγού)")
         name = var_prof.get().strip()
         _n, entry = resolve_profile(self.cfg.get("profiles") or {}, name) if name else ("", None)
         if not entry:
@@ -5873,7 +5875,9 @@ class App(tk.Tk):
                   text=("Κάθε γραμμή = ένα κομμάτι της γραμμής του αρχείου, με τη σειρά. Οι θέσεις "
                         "βγαίνουν από τα μήκη. Διπλό κλικ: από ποια στήλη του ERP γεμίζει, μήκος, "
                         "μηδενικά μπροστά, και «Πεδίο ILS» για το Field settings." if fixed else
-                        "Κάθε γραμμή = μία στήλη του αρχείου, με τη σειρά. Η απευθείας αποστολή Ishida "
+                        "Αυτό είναι το ενδιάμεσο αρχείο που φτιάχνουμε από το ERP, όχι ο ζυγός — τα 118 "
+                        "πεδία του ζυγού είναι στο «Πεδία ζυγού Ishida». Κάθε γραμμή εδώ = μία στήλη του "
+                        "αρχείου, με τη σειρά. Η απευθείας αποστολή Ishida "
                         "διαβάζει: κωδικός 1η στήλη, όνομα 2η, τιμή 3η από το τέλος, ΦΠΑ τελευταία.")
                   ).pack(anchor="w", pady=(2, 6))
         cols = ("n", "pos", "name", "src", "len", "xform", "role")
