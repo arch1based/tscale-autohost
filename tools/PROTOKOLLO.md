@@ -324,3 +324,63 @@ T-Scale: **διαβάζουμε τα πάντα με 2001, αλλάζουμε μ
   κανονικά κι εμείς βλέπουμε κάθε byte, μαζί με τις αληθινές απαντήσεις του ζυγού.
 - `psefti_ishida_uni3.py` — ψεύτικος UNI-3 στη 8071, όταν δεν θέλουμε αληθινό ζυγό.
 - `analysi_ishida.py` — διαβάζει τα ωμά αρχεία της γέφυρας και βγάζει τον πίνακα πεδίων.
+
+---
+
+# ILS1100 — ScaleAutoTrans (Rongda «PLU automatic update tool»)
+
+Το ILS δεν έχει δικτυακό πρωτόκολλο που ξέρουμε: του δίνουμε αρχείο και το
+πρόγραμμά του (`ScaleAutoTrans.exe`, φάκελος `C:\ScaleAutoTrans`) το εισάγει
+με τις ρυθμίσεις του «Field settings», που σώζονται στο `AutoTrans.CFG`,
+ενότητα `[ImportPluSet]`. Επαληθευμένο 15/10/2026 με το αρχείο γλώσσας
+`ScaleAutoTrans_en.lng` και πραγματικό CFG.
+
+## Τα 19 πεδία — κλειδιά του CFG
+
+Για κάθε πεδίο: `Chk…=1/0` (ενεργό), `Cbox…=θέση` (1-based χαρακτήρας στη γραμμή
+όταν «No delimiter», αλλιώς αριθμός στήλης), `…_Len=μήκος`.
+
+| Field settings | Chk | θέση | μήκος | σημείωση |
+|---|---|---|---|---|
+| Code | ChkCode | CboxCode | Code_Len | |
+| LFCode | ChkLfCode | CboxLfcode | lfCode_Len | **υποχρεωτικό** (αστερίσκος) — γι' αυτό ο ERGON έχει τον κωδικό δύο φορές |
+| Plu Name | ChkPluName | CboxPluName | PluName_Len | **υποχρεωτικό** |
+| Plu name extension | ChkPluNameExtent | PluNameExtent | PluNameExtent_Len | «Plu name + extension <= 36» |
+| Unit Price | ChkUnitPrice | CboxUnitPrice | UnitPrice_Len | ακέραιος· βλ. ChkDiv |
+| Unit Weight | ChkWeightUnit | CboxWeightPos | WeightUnit_Len | μονάδα βάρους, μέσω «Unit value setting» |
+| Pricing type | ChkPricingMode | CboxPricingMode | PricingMode_Len | 0 ζυγιζόμενο, 1 τεμάχια |
+| Department | ChkDeptMent | CboxDeptMent | Department_Len | |
+| PT Weight | ChkTare | CboxTare | Tare_Len | απόβαρο |
+| BarCode Type | chkBarCode | CboxBarCode | BarCode_Len | |
+| HotKey | ChkHotKey | CboxHotKey | HotKey_Len | |
+| Shelf Time | ChkShleftime | CboxShleftime | Shleftime_Len | |
+| Recommend Days | ChkRecommendDays | CboxRecommendDays | RecommendDays_Len | |
+| Error | ChkTolerance | CboxTolerance | Tolerance_Len | ανοχή |
+| Label | ChkMultiLabel | CboxMultiLabel | MultiLabel_Len | «Label setting» |
+| Discount Rate | ChkDiscount | CboxDisCount | Discount_Len | |
+| Allowed price change | ChkAllowPriceChange | CboxAllowPriceChange | AllowPriceChange_Len | 0 ναι, 1 όχι |
+| Message1 | ChkMessage1 | CboxMessage1 | Message1_Len | |
+| Update flag | ChkUpdateFlag | CboxUpdateFlag | UpdateFlag_Len | 0 διαγραφή, 1 ενημέρωση |
+
+## Επιλογές (όχι πεδία)
+
+- `CboxPluSep` = διαχωριστικό: 0 κόμμα, 1 TAB, 2 ερωτηματικό, 3 κενό, **4 κανένα**
+  (σταθερό πλάτος — αυτό χρησιμοποιούμε).
+- `ChkIsHead` = η 1η γραμμή είναι επικεφαλίδες.
+- `ChkDiv10` / `ChkDiv100` / `ChkDiv1000` = «Multiply by N when importing unit price».
+  Το δικό μας αρχείο έχει την τιμή **ήδη σε λεπτά** (00540 = 5,40 €) → όλα 0.
+  Αν το αρχείο έχει 5.40 → `ChkDiv100=1`.
+- `ChkFixWeightUnit` / `CboxFixWeightUnit` = σταθερή μονάδα βάρους για όλα.
+- `Bartype_Weight` (101) / `Bartype_PCS` (102) = τύποι barcode.
+- `[WeightIDSet]` = αντιστοίχιση μονάδων («Unit value setting»).
+
+Δεν υπάρχει πεδίο ΦΠΑ στο ILS — το ΦΠΑ στις θέσεις 70-71 του αρχείου ERGON
+δεν το διαβάζει.
+
+## Πώς τα γράφουμε
+
+`ils_field_settings(fields)` στο `autohost.py` βγάζει από το προφίλ (ρόλος `ils`
+σε κάθε πεδίο) τι πρέπει να λέει το Field settings· `write_autotrans_cfg` αλλάζει
+**μόνο** αυτά τα κλειδιά στο CFG του πελάτη, με `.bak`, και αφήνει `[Language]`,
+`[AutoTranSet]`, `[WeightIDSet]` κ.λπ. όπως είναι. Αντίστροφα, `parse_autotrans_cfg`
+διαβάζει έτοιμη εγκατάσταση.

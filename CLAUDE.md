@@ -38,7 +38,9 @@ pre-releases. **Ποτέ beta commit/VERSION στο main** — το main είν�
   γράφουμε το Field settings του ILS**, όχι το ανάποδο. Κάθε πεδίο έχει ρόλο `ils` (`ILS_ROLES`)·
   `ils_field_settings` → `write_autotrans_cfg` ενημερώνει μόνο τα κλειδιά πεδίων στο CFG του πελάτη, με .bak.
   Αντίστροφα για έτοιμες εγκαταστάσεις: `parse_autotrans_cfg` / `ils_profile_from_cfg`. Κλειδί `skip` σε πεδίο =
-  παράλειψη των πρώτων Ν χαρακτήρων. Άγνωστο ακόμη (θέλει το CFG του ERGON): τι ρόλο έχουν το ΦΠΑ (70-71) και
-  ο «κωδικός ξανά» (72-76), και αν το CFG έχει κλειδί για το μήκος γραμμής (116).
+  παράλειψη των πρώτων Ν χαρακτήρων. Πλήρης κατάλογος 19 πεδίων + επιλογών (`ILS_CFG_FIELDS`, `ILS_CFG_OPTIONS`)
+  επαληθευμένος με πραγματικό CFG και το Field settings του ScaleAutoTrans (τεκμηρίωση στο PROTOKOLLO.md).
+  Ο «κωδικός ξανά» (72-76) του ERGON είναι το LFCode (υποχρεωτικό)· το ILS δεν έχει πεδίο ΦΠΑ. Αντίγραφο του
+  ScaleAutoTrans (λογισμικό τρίτου) υπάρχει στο `C:\ScaleAutoTrans` του μηχανήματος — όχι στο repo.
 - Δοκιμή χωρίς ζυγό: `tools/fake_scale.py` στη 1235, `tools/dokimi_ishida.py`.
 - Ο αποσυναρμολογημένος κώδικας της Ishida είναι στο ιδιωτικό repo `ishida-analysi`, ποτέ εδώ.

@@ -2880,7 +2880,7 @@ def wizard_build_profiles(meanings, analysis, price_mode, name_cap=40):
                       F("Τύπος", 0, 1, extra="0", ils="WeightUnit"),
                       F("ΦΠΑ", col("vat"), 2, xform="digits", align="zero", ils="",
                         extra="" if by.get("vat") else "00"),
-                      F("Κωδικός ξανά", col("code"), 5, xform="digits", align="zero", ils=""),
+                      F("Κωδικός ξανά", col("code"), 5, xform="digits", align="zero", ils="LfCode"),
                       F("(κενό τέλος)", 0, 40, ils="")]}
     return {"tscale": tscale, "ishida": ishida, "ils": ils}
 
@@ -2897,16 +2897,47 @@ def wizard_build_profiles(meanings, analysis, price_mode, name_cap=40):
 # --------------------------------------------------------------------------
 ILS_CFG_FIELDS = (
     # (όνομα ILS, ενεργό, θέση, μήκος, ετικέτα για τον πίνακα)
-    ("Code", "ChkCode", "CboxCode", "Code_Len", "Κωδικός"),
-    ("LfCode", "ChkLfCode", "CboxLfcode", "lfCode_Len", "LF κωδικός"),
-    ("PluName", "ChkPluName", "CboxPluName", "PluName_Len", "Όνομα"),
+    # Όλα τα πεδία του «Field settings» του ScaleAutoTrans (Rongda), με τα ακριβή
+    # κλειδιά του AutoTrans.CFG [ImportPluSet]. Θέση = 1-based χαρακτήρας στη
+    # γραμμή (με «No delimiter»), ή αριθμός στήλης αν οριστεί διαχωριστικό.
+    ("Code", "ChkCode", "CboxCode", "Code_Len", "Κωδικός (Code)"),
+    ("LfCode", "ChkLfCode", "CboxLfcode", "lfCode_Len", "LF κωδικός (LFCode) — υποχρεωτικό"),
+    ("PluName", "ChkPluName", "CboxPluName", "PluName_Len", "Όνομα (Plu Name) — υποχρεωτικό"),
     ("PluNameExtent", "ChkPluNameExtent", "PluNameExtent", "PluNameExtent_Len",
-     "Όνομα (συνέχεια)"),
-    ("UnitPrice", "ChkUnitPrice", "CboxUnitPrice", "UnitPrice_Len", "Τιμή"),
-    ("Department", "ChkDeptMent", "CboxDeptMent", "Department_Len", "Τμήμα"),
-    ("Tare", "ChkTare", "CboxTare", "Tare_Len", "Απόβαρο"),
-    ("WeightUnit", "ChkWeightUnit", "CboxWeightPos", "WeightUnit_Len", "Τύπος πώλησης"),
+     "Όνομα, συνέχεια (Plu name extension)"),
+    ("UnitPrice", "ChkUnitPrice", "CboxUnitPrice", "UnitPrice_Len", "Τιμή (Unit Price)"),
+    ("WeightUnit", "ChkWeightUnit", "CboxWeightPos", "WeightUnit_Len", "Μονάδα βάρους (Unit Weight)"),
+    ("PricingMode", "ChkPricingMode", "CboxPricingMode", "PricingMode_Len",
+     "Τύπος πώλησης (Pricing type: 0 ζυγιζόμενο, 1 τεμάχια)"),
+    ("Department", "ChkDeptMent", "CboxDeptMent", "Department_Len", "Τμήμα (Department)"),
+    ("Tare", "ChkTare", "CboxTare", "Tare_Len", "Απόβαρο (PT Weight)"),
+    ("BarCode", "chkBarCode", "CboxBarCode", "BarCode_Len", "Τύπος barcode (BarCode Type)"),
+    ("HotKey", "ChkHotKey", "CboxHotKey", "HotKey_Len", "Πλήκτρο (HotKey)"),
+    ("Shleftime", "ChkShleftime", "CboxShleftime", "Shleftime_Len", "Ημέρες διατήρησης (Shelf Time)"),
+    ("RecommendDays", "ChkRecommendDays", "CboxRecommendDays", "RecommendDays_Len",
+     "Ημέρες συνιστώμενης κατανάλωσης (Recommend Days)"),
+    ("Tolerance", "ChkTolerance", "CboxTolerance", "Tolerance_Len", "Ανοχή (Error)"),
+    ("MultiLabel", "ChkMultiLabel", "CboxMultiLabel", "MultiLabel_Len", "Ετικέτα (Label)"),
+    ("Discount", "ChkDiscount", "CboxDisCount", "Discount_Len", "Ποσοστό έκπτωσης (Discount Rate)"),
+    ("AllowPriceChange", "ChkAllowPriceChange", "CboxAllowPriceChange", "AllowPriceChange_Len",
+     "Επιτρέπεται αλλαγή τιμής (0 ναι, 1 όχι)"),
+    ("Message1", "ChkMessage1", "CboxMessage1", "Message1_Len", "Μήνυμα 1 (Message1)"),
+    ("UpdateFlag", "ChkUpdateFlag", "CboxUpdateFlag", "UpdateFlag_Len",
+     "Σημαία ενημέρωσης (Update flag: 0 διαγραφή, 1 ενημέρωση)"),
 )
+# Επιλογές του Field settings που ΔΕΝ είναι πεδία — τις γράφουμε κι αυτές στο CFG.
+ILS_CFG_OPTIONS = {
+    "CboxPluSep": "Διαχωριστικό: 0 κόμμα, 1 TAB, 2 ερωτηματικό, 3 κενό, 4 κανένα (σταθερό πλάτος)",
+    "ChkIsHead": "Η 1η γραμμή είναι επικεφαλίδες",
+    "ChkDiv10": "Πολλαπλασίασε την τιμή ×10 στην εισαγωγή",
+    "ChkDiv100": "Πολλαπλασίασε την τιμή ×100 (αρχείο με 5.40 → 540)",
+    "ChkDiv1000": "Πολλαπλασίασε την τιμή ×1000",
+    "ChkFixWeightUnit": "Σταθερή μονάδα βάρους για όλα",
+    "CboxFixWeightUnit": "Η σταθερή μονάδα",
+    "Bartype_Weight": "Τύπος barcode ζυγιζόμενων (π.χ. 101)",
+    "Bartype_PCS": "Τύπος barcode τεμαχιακών (π.χ. 102)",
+}
+ILS_SEP_INDEX = {",": 0, "\t": 1, ";": 2, " ": 3, "": 4}
 
 
 def parse_autotrans_cfg(path):
@@ -2959,17 +2990,8 @@ def parse_autotrans_cfg(path):
 
 # Ρόλοι πεδίων του ILS — κλειδί «ils» σε κάθε πεδίο προφίλ. Από αυτούς βγαίνει το
 # Field settings (AutoTrans.CFG) ώστε ο ζυγός να διαβάσει το αρχείο που φτιάχνουμε.
-ILS_ROLES = (
-    ("", "— (το ILS δεν το διαβάζει)"),
-    ("Code", "Κωδικός (Code)"),
-    ("LfCode", "LF κωδικός / barcode (LfCode)"),
-    ("PluName", "Όνομα (Plu Name)"),
-    ("PluNameExtent", "Όνομα, συνέχεια (Plu name extens)"),
-    ("UnitPrice", "Τιμή (Unit price)"),
-    ("Department", "Τμήμα (Department)"),
-    ("Tare", "Απόβαρο (Tare)"),
-    ("WeightUnit", "Τύπος πώλησης (Weight unit)"),
-)
+ILS_ROLES = (("", "— (το ILS δεν το διαβάζει)"),) + tuple(
+    (name, label) for name, _chk, _cbox, _ln, label in ILS_CFG_FIELDS)
 ILS_ROLE_LABEL = dict(ILS_ROLES)
 # Το Plu Name του ILS χωράει 30 χαρακτήρες· ό,τι περισσεύει πάει στο Plu name extens
 # (ERGON: 7-36 + 37-46). Επαληθευμένο με το αρχείο που δέχεται ο ζυγός του πελάτη.
@@ -2982,10 +3004,18 @@ def guess_ils_role(name, taken):
     rules = (
         (("τιμ", "price", "unitprice"), "UnitPrice"),
         (("όνομα", "περιγρ", "name", "desc", "plu"), "PluName"),
+        (("σημαία", "update", "flag"), "UpdateFlag"),
+        (("τύπος πώλησης", "pricing", "τεμαχ"), "PricingMode"),
         (("τμήμα", "dept", "depart", "σταθερό 01"), "Department"),
         (("απόβαρο", "tare"), "Tare"),
-        (("τύπος", "weight", "ζυγιζ"), "WeightUnit"),
-        (("lf", "barcode"), "LfCode"),
+        (("μονάδα", "weight", "ζυγιζ", "τύπος"), "WeightUnit"),
+        (("έκπτωσ", "discount"), "Discount"),
+        (("μήνυμα", "message"), "Message1"),
+        (("ετικέτ", "label"), "MultiLabel"),
+        (("ημέρες", "shelf", "διατήρ"), "Shleftime"),
+        (("πλήκτρο", "hotkey"), "HotKey"),
+        (("barcode",), "BarCode"),
+        (("lf",), "LfCode"),
         (("κωδ", "code", "productnumber"), "Code"),
     )
     for keys, role in rules:
@@ -3032,10 +3062,13 @@ def ils_field_settings(fields):
                             "αγνοήσει. Αν πρέπει να το διαβάζει, όρισε «Πεδίο ILS» στον πίνακα."
                             % (f["name"], cursor, cursor + ln - 1))
         cursor += ln
-    for must in ("Code", "PluName", "UnitPrice"):
+    for must in ("Code", "LfCode", "PluName", "UnitPrice"):
         if must not in found:
-            warnings.append("Λείπει πεδίο με ρόλο «%s» — χωρίς αυτό το ILS δεν ενημερώνεται σωστά."
-                            % ILS_ROLE_LABEL[must])
+            warnings.append("Λείπει πεδίο με ρόλο «%s» — το ILS το απαιτεί (στο Field settings έχει "
+                            "αστερίσκο)." % ILS_ROLE_LABEL[must])
+    if "PluName" in found and found["PluName"][1] + found.get("PluNameExtent", (0, 0, ""))[1] > 36:
+        warnings.append("Όνομα + συνέχεια = %d χαρακτήρες· το ILS γράφει «Plu name + extension <= 36»."
+                        % (found["PluName"][1] + found.get("PluNameExtent", (0, 0, ""))[1]))
     out = []
     for role, _label in ILS_ROLES[1:]:
         if role in found:
@@ -3059,7 +3092,25 @@ def ils_cfg_values(settings):
     return out
 
 
-def write_autotrans_cfg(settings, out_path, existing=None):
+def ils_cfg_options(profile_settings, fields):
+    """Οι επιλογές του Field settings για το αρχείο που φτιάχνουμε.
+
+    Σταθερό πλάτος → «No delimiter» (4). Επικεφαλίδα κατά το προφίλ. Η τιμή στο
+    δικό μας αρχείο είναι ήδη σε λεπτά (tocents/digits) → κανένας πολλαπλασιασμός·
+    αν το προφίλ γράφει τιμή με υποδιαστολή, ×100.
+    """
+    fmt = profile_settings.get("step2_format", "fixed")
+    sep = "" if fmt == "fixed" else {"csv": ",", "tab": "\t", "semicolon": ";"}.get(
+        fmt, profile_settings.get("step2_delimiter", ","))
+    price = next((f for f in fields if f.get("enabled") and f.get("ils") == "UnitPrice"), None)
+    decimal = bool(price and price.get("xform") in ("comma2dot", "dot2comma", "dec2dot", "dec2comma",
+                                                     "cents2dot", "cents2comma"))
+    return [("CboxPluSep", str(ILS_SEP_INDEX.get(sep, 4))),
+            ("ChkIsHead", "1" if profile_settings.get("step2_write_header") else "0"),
+            ("ChkDiv10", "0"), ("ChkDiv100", "1" if decimal else "0"), ("ChkDiv1000", "0")]
+
+
+def write_autotrans_cfg(settings, out_path, existing=None, options=None):
     """Γράφει τα Field settings στο AutoTrans.CFG.
 
     Με «existing»: ΕΝΗΜΕΡΩΝΕΙ το αρχείο του πελάτη — αλλάζει μόνο τα κλειδιά των
@@ -3068,7 +3119,7 @@ def write_autotrans_cfg(settings, out_path, existing=None):
     Χωρίς existing: νέο αρχείο μόνο με τα κλειδιά των πεδίων.
     Επιστρέφει (αντίγραφο ή "", [αλλαγές], [προστέθηκαν]).
     """
-    values = ils_cfg_values(settings)
+    values = ils_cfg_values(settings) + list(options or [])
     wanted = {k.lower(): (k, v) for k, v in values}
     changed, added = [], []
     if existing:
@@ -3189,7 +3240,14 @@ def ils_profile_from_cfg(ils_fields, erp_fields, cfg):
         elif name == "Tare":
             f.update(extra="0", align="zero")
         elif name == "WeightUnit":
-            f.update(extra="0")                   # 0 = ζυγιζόμενο
+            f.update(extra="0")
+        elif name == "PricingMode":
+            f.update(extra="0")                   # 0 = ζυγιζόμενο, 1 = τεμάχια
+        elif name == "UpdateFlag":
+            f.update(extra="1")                   # 1 = ενημέρωση, 0 = διαγραφή
+        elif name in ("BarCode", "HotKey", "Shleftime", "RecommendDays", "Tolerance", "MultiLabel",
+                      "Discount", "AllowPriceChange", "Message1"):
+            f.update(extra="0", align="zero")      # ουδέτερη τιμή· ο τεχνικός αλλάζει αν θέλει
         else:
             warnings.append("Το πεδίο «%s» δεν το ξέρω — βγαίνει κενό· όρισέ του στήλη ή "
                             "σταθερή τιμή στον πίνακα." % label)
@@ -5861,13 +5919,18 @@ class App(tk.Tk):
                 "«Φτιάξε και αρχείο για ILS»." % (name, fmt or "—"))
             return
         settings, warnings = ils_field_settings(fields)
+        _n2, entry2 = resolve_profile(self.cfg.get("profiles") or {}, name)
+        psettings = entry2.get("settings", {}) if isinstance(entry2, dict) else {}
+        options = ils_cfg_options(psettings or self.cfg, fields)
         total = sum(int(f.get("len") or 0) for f in fields if f.get("enabled"))
         lines = ["Προφίλ: %s   (γραμμή %d χαρακτήρων)" % (name, total), ""]
         lines += describe_ils_settings(settings)
+        lines += ["", "Επιλογές:"] + ["  %-18s %s" % (k + "=" + v, ILS_CFG_OPTIONS.get(k, ""))
+                                      for k, v in options]
         if warnings:
             lines += [""] + warnings
-        lines += ["", "Γραμμές για το AutoTrans.CFG:"]
-        lines += ["  %s=%s" % kv for kv in ils_cfg_values(settings)]
+        lines += ["", "Γραμμές για το AutoTrans.CFG ([ImportPluSet]):"]
+        lines += ["  %s=%s" % kv for kv in ils_cfg_values(settings) + options]
 
         win = tk.Toplevel(self)
         win.title("Field settings του ILS")
@@ -5894,7 +5957,8 @@ class App(tk.Tk):
             if not path:
                 return
             try:
-                backup, changed, added = write_autotrans_cfg(settings, path, existing=path)
+                backup, changed, added = write_autotrans_cfg(settings, path, existing=path,
+                                                             options=options)
             except Exception as exc:
                 messagebox.showerror(APP_NAME, "Δεν γράφτηκε το CFG.\n\n%s\n%s" % (path, exc),
                                      parent=win)
@@ -5916,7 +5980,7 @@ class App(tk.Tk):
             if not path:
                 return
             try:
-                write_autotrans_cfg(settings, path)
+                write_autotrans_cfg(settings, path, options=options)
             except Exception as exc:
                 messagebox.showerror(APP_NAME, "Δεν γράφτηκε το αρχείο.\n\n%s" % exc, parent=win)
                 return
