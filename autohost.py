@@ -1046,7 +1046,7 @@ def run_step2(cfg, fallback_input, log):
         row = []
         for f in fields:
             pos = int(f.get("pos") or 0) - off
-            ln = int(f.get("len") or 0)
+            ln = int(f.get("inlen") or f.get("len") or 0)     # inlen: μήκος στο ERP
             val = line[pos:pos + ln] if pos >= 0 else line[:0]
             if by_bytes:
                 val = val.decode(in_enc if in_enc != "utf-8-sig" else "utf-8", "replace")
@@ -2967,8 +2967,11 @@ def wizard_analyze_file(path, enc="auto", max_lines=40):
         if score > best_score:
             best, best_score = d, score
     out = {"enc": enc, "delimiter": best, "lines": lines, "ncols": 0, "varies": False,
-           "header": False}
+           "header": False, "fixed": False, "segments": [], "preset": {}}
     if not best:
+        out["fixed"] = True
+        out["segments"], out["preset"] = wizard_fixed_segments(lines)
+        out["ncols"] = len(out["segments"])
         return out
     from collections import Counter
     counts = [l.count(best) + 1 for l in lines]
@@ -2983,10 +2986,58 @@ def wizard_analyze_file(path, enc="auto", max_lines=40):
     return out
 
 
+# Το κλασικό host της ICS (ERGON κ.ά.): 76 χαρακτήρες — κωδικός, όνομα 40, barcode,
+# κατηγορία, τιμή σε λεπτά, μονάδα τιμής, barcode ξανά. Ίδιο με το παλιό make_export.par.
+ICS_FIXED_LAYOUT = ((2, 5, "code"), (7, 40, "name"), (47, 7, "barcode"), (60, 4, "category"),
+                    (64, 5, "price"), (69, 1, ""), (70, 7, ""))   # κωδικός 2-6, όπως το παλιό make_export.par
+
+
+def wizard_fixed_segments(lines):
+    """Τα «κομμάτια» μιας γραμμής σταθερού πλάτους: [(θέση 1-based, μήκος)], και προ-επιλογές.
+
+    Αν είναι το κλασικό host της ICS (76 χαρακτήρες, κωδικός ψηφία, τιμή ψηφία
+    στο 64-68) → η γνωστή διάταξη, με έτοιμες σημασίες. Αλλιώς μαντεψιά: κόβει
+    όπου μια στήλη χαρακτήρων είναι κενή σε ΟΛΕΣ τις γραμμές, και όπου αλλάζει
+    σταθερά ψηφίο↔γράμμα στην ίδια θέση σε όλες τις γραμμές. Ο τεχνικός διορθώνει
+    τις θέσεις στον οδηγό.
+    """
+    mikos = {len(l) for l in lines}
+    if mikos == {76} and all(l[0:6].isdigit() and l[63:68].isdigit() for l in lines[:10]):
+        return [(p, n) for p, n, _m in ICS_FIXED_LAYOUT], \
+               {i + 1: m for i, (_p, _n, m) in enumerate(ICS_FIXED_LAYOUT) if m}
+    w = max(mikos)
+
+    def kind(ch):
+        return "s" if ch == " " else ("d" if ch.isdigit() else "a")
+    blank = [all(i >= len(l) or l[i] == " " for l in lines) for i in range(w)]
+    # αλλαγή κλάσης ψηφίο↔γράμμα σταθερή σε όλες τις γραμμές (όχι μέσα σε ονόματα)
+    cut = [False] * (w + 1)
+    for i in range(1, w):
+        kinds = {(kind(l[i - 1]), kind(l[i])) for l in lines if i < len(l)}
+        if kinds and all(a != b and "s" not in (a, b) for a, b in kinds) and len({k[1] for k in kinds}) == 1:
+            cut[i] = True
+    segs, start = [], None
+    for i in range(w + 1):
+        b = True if i >= w else blank[i]
+        if not b and start is None:
+            start = i
+        elif (b or cut[i]) and start is not None:
+            segs.append((start + 1, i - start))
+            start = None if b else i
+    return segs or [(1, w)], {}
+
+
 def wizard_columns(analysis, start_line=1):
     """[(στήλη 1-based, όνομα επικεφαλίδας ή "", [δείγματα])] για κάθε στήλη."""
-    d = analysis["delimiter"]
     lines = analysis["lines"]
+    if analysis.get("fixed"):
+        body = lines[(1 if analysis.get("header") else 0) + (start_line - 1):]
+        cols = []
+        for i, (pos, ln) in enumerate(analysis["segments"]):
+            samples = [l[pos - 1:pos - 1 + ln].strip() for l in body[:8]]
+            cols.append((i + 1, "", samples))
+        return cols
+    d = analysis["delimiter"]
     header = next(csv.reader([lines[0]], delimiter=d)) if analysis.get("header") and lines else []
     body = lines[(1 if analysis.get("header") else 0) + (start_line - 1):]
     if analysis.get("varies"):
@@ -3071,18 +3122,28 @@ def wizard_build_profiles(meanings, analysis, price_mode, name_cap=40):
         raise ValueError("Χρειάζονται τουλάχιστον Κωδικός και Τιμή.")
     ncols = analysis["ncols"]
     name_col = by.get("name", 0)
+    fixed = bool(analysis.get("fixed"))
 
     def col(m):
         i = by.get(m, 0)
         if not i:
             return 0
+        if fixed:
+            return analysis["segments"][i - 1][0]
         if analysis.get("varies") and name_col and i > name_col:
             return i - (ncols + 1)
         return i
 
+    def src(m):
+        """Από πού γεμίζει: θέση (και μήκος στο ERP, για σταθερό πλάτος)."""
+        i = by.get(m, 0)
+        if fixed and i:
+            return {"pos": analysis["segments"][i - 1][0], "inlen": analysis["segments"][i - 1][1]}
+        return {"pos": col(m)}
+
     inp = {
-        "step2_input_type": "delimited",
-        "step2_input_delimiter": analysis["delimiter"],
+        "step2_input_type": "fixed" if fixed else "delimited",
+        "step2_input_delimiter": analysis.get("delimiter") or ",",
         "step2_in_encoding": analysis["enc"],
         "step2_startline": 2 if analysis.get("header") else 1,
         "step2_onebased": True,
@@ -3103,20 +3164,20 @@ def wizard_build_profiles(meanings, analysis, price_mode, name_cap=40):
                                step2_trailing_delim=True, step2_quotes=False,
                                step2_out_encoding="cp1253", step2_final_newline=True,
                                step2_write_header=True, step2_sanitize=True, step2_dedupe=True),
-              "fields": [F("ProductNumber", col("code")),
-                         F("ProductName", col("name"), name_cap, xform="nospace"),
-                         F("NameSpell", col("name"), name_cap, xform="nospace"),
-                         F("Price", col("price"), xform=price_tscale),
-                         F("BarCode", col("barcode") or col("code")),
+              "fields": [F("ProductNumber", **src("code")),
+                         F("ProductName", ln=name_cap, xform="nospace", **src("name")),
+                         F("NameSpell", ln=name_cap, xform="nospace", **src("name")),
+                         F("Price", **src("price"), xform=price_tscale),
+                         F("BarCode", **(src("barcode") if by.get("barcode") else src("code"))),
                          F("Price Unit", extra="0"),
-                         F("Abbr", col("name"), name_cap, xform="nospace"),
-                         F("AbbrSpell", col("name"), name_cap, xform="nospace")]}
+                         F("Abbr", ln=name_cap, xform="nospace", **src("name")),
+                         F("AbbrSpell", ln=name_cap, xform="nospace", **src("name"))]}
     if by.get("category"):
-        tscale["fields"].append(F("Category", col("category")))
+        tscale["fields"].append(F("Category", **src("category")))
     if by.get("dept"):
-        tscale["fields"].append(F("Department", col("dept")))
+        tscale["fields"].append(F("Department", **src("dept")))
     if by.get("vat"):
-        tscale["fields"].append(F("Tax", col("vat")))
+        tscale["fields"].append(F("Tax", **src("vat")))
 
     # Ishida (host2): κωδ, όνομα, κατηγορία, τιμή σε λεπτά, 0, ΦΠΑ — ίδια σειρά
     # με τον ERGON, ώστε η απευθείας αποστολή (κωδ 1, όνομα 2, τιμή -3) να ισχύει.
@@ -3124,27 +3185,27 @@ def wizard_build_profiles(meanings, analysis, price_mode, name_cap=40):
                                step2_trailing_delim=False, step2_quotes=False,
                                step2_out_encoding="cp1253", step2_final_newline=True,
                                step2_write_header=False, step2_sanitize=True, step2_dedupe=False),
-              "fields": [F("Κωδικός", col("code"), xform="digits"),
-                         F("Περιγραφή", col("name"), xform="nocomma"),
-                         F("Κατηγορία", col("category"), extra="" if by.get("category") else "0"),
-                         F("Τιμή", col("price"), xform=price_cents),
+              "fields": [F("Κωδικός", **src("code"), xform="digits"),
+                         F("Περιγραφή", **src("name"), xform="nocomma"),
+                         F("Κατηγορία", **src("category"), extra="" if by.get("category") else "0"),
+                         F("Τιμή", **src("price"), xform=price_cents),
                          F("Πεδίο 5", extra="0"),
-                         F("ΦΠΑ", col("vat"), xform="digits", extra="" if by.get("vat") else "0")]}
+                         F("ΦΠΑ", **src("vat"), xform="digits", extra="" if by.get("vat") else "0")]}
 
     # ILS: η επαληθευμένη διάταξη του ERGON (116 χαρακτήρες), με ρόλους για το CFG.
     ils = {"settings": dict(inp, step2_format="fixed", step2_delimiter=",",
                             step2_trailing_delim=False, step2_quotes=False,
                             step2_out_encoding="cp1253", step2_final_newline=True,
                             step2_write_header=False, step2_sanitize=True, step2_dedupe=False),
-           "fields": [F("Κωδικός", col("code"), 6, xform="digits", align="zero", ils="Code"),
-                      F("Όνομα", col("name"), 40, xform="nocomma", ils="PluName"),
+           "fields": [F("Κωδικός", ln=6, xform="digits", align="zero", ils="Code", **src("code")),
+                      F("Όνομα", ln=40, xform="nocomma", ils="PluName", **src("name")),
                       F("(κενό)", 0, 15, ils=""),
                       F("Σταθερό 01", 0, 2, extra="01", ils="Department"),
-                      F("Τιμή", col("price"), 5, xform=price_cents, align="zero", ils="UnitPrice"),
+                      F("Τιμή", ln=5, xform=price_cents, align="zero", ils="UnitPrice", **src("price")),
                       F("Τύπος", 0, 1, extra="0", ils="WeightUnit"),
-                      F("ΦΠΑ", col("vat"), 2, xform="digits", align="zero", ils="",
-                        extra="" if by.get("vat") else "00"),
-                      F("Κωδικός ξανά", col("code"), 5, xform="digits", align="zero", ils="LfCode"),
+                      F("ΦΠΑ", ln=2, xform="digits", align="zero", ils="",
+                        extra="" if by.get("vat") else "00", **src("vat")),
+                      F("Κωδικός ξανά", ln=5, xform="digits", align="zero", ils="LfCode", **src("code")),
                       F("(κενό τέλος)", 0, 40, ils="")]}
     return {"tscale": tscale, "ishida": ishida, "ils": ils}
 
@@ -3857,7 +3918,7 @@ def build_preview(cfg):
         for f in cfg.get("step2_fields", []):
             if not f.get("enabled"):
                 continue
-            pos, ln = int(f.get("pos") or 0) - off, int(f.get("len") or 0)
+            pos, ln = int(f.get("pos") or 0) - off, int(f.get("inlen") or f.get("len") or 0)
             rawv = sample[pos:pos + ln] if ln > 0 and pos >= 0 else ""
             val = apply_xform(apply_skip(rawv.strip(), f), f.get("xform", ""))
             if not val and str(f.get("extra", "")).strip():
@@ -5579,7 +5640,7 @@ class App(tk.Tk):
                       wraplength=360, justify="left").grid(row=0, column=0, columnspan=2,
                                                             sticky="w", padx=8, pady=(8, 2))
         delimited = self.cfg.get("step2_input_type", "fixed") == "delimited"
-        vals = {k: tk.StringVar(value=str(f.get(k, ""))) for k in ("name", "pos", "len", "extra")}
+        vals = {k: tk.StringVar(value=str(f.get(k, "") or "")) for k in ("name", "pos", "len", "extra", "inlen")}
         en = tk.BooleanVar(value=bool(f.get("enabled")))
         rows = (("name", "Περιγραφή / στήλη"),
                 ("pos", "Στήλη του ERP (1 = πρώτη, -1 = τελευταία)" if delimited else "Από Θέση"),
@@ -5614,11 +5675,18 @@ class App(tk.Tk):
                      width=32).grid(row=7, column=1, sticky="w", padx=8)
         ttk.Checkbutton(win, text="Για έξοδο σε αρχείο / αποστολή", variable=en).grid(
             row=8, column=1, sticky="w", padx=8)
+        if not delimited:
+            ttk.Label(win, text="Μήκος στο ERP (αν διαφέρει από το Μήκος Πεδίου):").grid(
+                row=10, column=0, sticky="w", padx=8, pady=4)
+            ttk.Entry(win, textvariable=vals["inlen"], width=8).grid(row=10, column=1, sticky="w", padx=8)
 
         def ok():
             try:
                 f["pos"] = int(vals["pos"].get() or 0)
                 f["len"] = int(vals["len"].get() or 0)
+                f["inlen"] = int(vals["inlen"].get() or 0)
+                if not f["inlen"]:
+                    f.pop("inlen", None)
             except ValueError:
                 messagebox.showerror(APP_NAME, "Η Θέση και το Μήκος πρέπει να είναι αριθμοί.", parent=win)
                 return
@@ -5631,7 +5699,7 @@ class App(tk.Tk):
             win.destroy()
             if on_done:
                 on_done()
-        ttk.Button(win, text="Καταχώρηση", command=ok).grid(row=9, column=1, sticky="e", padx=8, pady=10)
+        ttk.Button(win, text="Καταχώρηση", command=ok).grid(row=11, column=1, sticky="e", padx=8, pady=10)
         win.wait_window()
 
     def tscale_fields_dialog(self):
@@ -6305,12 +6373,17 @@ class App(tk.Tk):
                 messagebox.showerror(APP_NAME, "Δεν διαβάστηκε το αρχείο.\n\n%s" % exc, parent=win)
                 return
             state["analysis"] = an
-            if not an["delimiter"]:
-                v_info.set("Το αρχείο δεν έχει διαχωριστικό (κόμμα, ερωτηματικό, TAB) — μοιάζει "
-                           "σταθερού πλάτους. Ο οδηγός δουλεύει με στήλες· για σταθερό πλάτος "
-                           "ρύθμισε τον πίνακα του Βήματος 3 με Θέση/Μήκος.")
-                for w in cols_box.winfo_children():
-                    w.destroy()
+            if an.get("fixed"):
+                v_header.set(False)
+                v_info.set("Κωδικοσελίδα %s · ΣΤΑΘΕΡΟ ΠΛΑΤΟΣ (χωρίς διαχωριστικό), γραμμή %d χαρακτήρων · "
+                           "%d κομμάτια%s · %d γραμμές δείγμα. Διόρθωσε Από/Μήκος αν χρειάζεται και πάτα "
+                           "«Ανανέωση δειγμάτων»." % (
+                               an["enc"], max(len(l) for l in an["lines"]), len(an["segments"]),
+                               " — αναγνωρίστηκε το κλασικό host της ICS (76 χαρ.)" if an["preset"] else "",
+                               len(an["lines"])))
+                if not v_name.get().strip():
+                    v_name.set(os.path.splitext(os.path.basename(path))[0].upper())
+                rebuild(guess=True)
                 return
             v_header.set(bool(an["header"]))
             v_info.set("Κωδικοσελίδα %s · διαχωριστικό %s · %d στήλες%s · %d γραμμές δείγμα" % (
@@ -6323,29 +6396,86 @@ class App(tk.Tk):
                 v_name.set(os.path.splitext(os.path.basename(path))[0].upper())
             rebuild(guess=True)
 
+        def read_segments():
+            """Οι θέσεις/μήκη όπως τα έγραψε ο τεχνικός στα πεδία (σταθερό πλάτος)."""
+            an = state["analysis"]
+            segs = []
+            for i in sorted(state.get("segvars", {})):
+                vp, vl = state["segvars"][i]
+                try:
+                    p, n = int(vp.get() or 0), int(vl.get() or 0)
+                except ValueError:
+                    continue
+                if p > 0 and n > 0:
+                    segs.append((p, n))
+            if segs:
+                an["segments"] = segs
+                an["ncols"] = len(segs)
+
+        def add_segment():
+            an = state["analysis"]
+            if not an or not an.get("fixed"):
+                return
+            read_segments()
+            last = an["segments"][-1] if an["segments"] else (0, 1)
+            an["segments"].append((last[0] + last[1], 1))
+            an["ncols"] = len(an["segments"])
+            rebuild()
+
+        def remove_segment():
+            an = state["analysis"]
+            if not an or not an.get("fixed") or len(an["segments"]) <= 1:
+                return
+            read_segments()
+            an["segments"].pop()
+            an["ncols"] = len(an["segments"])
+            state["vars"].pop(an["ncols"] + 1, None)
+            rebuild()
+
+        def refresh_segments():
+            read_segments()
+            rebuild()
+
         def rebuild(guess=False):
             an = state["analysis"]
-            if not an or not an["delimiter"]:
+            if not an or not (an.get("delimiter") or an.get("fixed")):
                 return
+            fixed = bool(an.get("fixed"))
             an["header"] = v_header.get()
             cols = wizard_columns(an)
             state["cols"] = cols
             old = {i: v.get() for i, v in state["vars"].items()}
-            guessed = wizard_guess_meanings(cols) if guess or not old else {}
+            guessed = {}
+            if guess or not old:
+                guessed = dict(an.get("preset") or {})
+                for i, m in wizard_guess_meanings(cols).items():
+                    guessed.setdefault(i, m)
             for w in cols_box.winfo_children():
                 w.destroy()
             labels = [lbl for _k, lbl in WIZ_MEANINGS]
             keys = [k for k, _l in WIZ_MEANINGS]
             hdr = ttk.Frame(cols_box)
             hdr.pack(fill="x")
-            for txt, w in (("ΣΤΗΛΗ", 8), ("ΕΠΙΚΕΦΑΛΙΔΑ", 16), ("ΔΕΙΓΜΑΤΑ ΑΠΟ ΤΟ ΑΡΧΕΙΟ", 52), ("ΤΙ ΕΙΝΑΙ", 26)):
+            if fixed:
+                heads = (("ΚΟΜΜΑΤΙ", 8), ("ΑΠΟ", 6), ("ΜΗΚΟΣ", 7), ("ΔΕΙΓΜΑΤΑ ΑΠΟ ΤΟ ΑΡΧΕΙΟ", 52), ("ΤΙ ΕΙΝΑΙ", 26))
+            else:
+                heads = (("ΣΤΗΛΗ", 8), ("ΕΠΙΚΕΦΑΛΙΔΑ", 16), ("ΔΕΙΓΜΑΤΑ ΑΠΟ ΤΟ ΑΡΧΕΙΟ", 52), ("ΤΙ ΕΙΝΑΙ", 26))
+            for txt, w in heads:
                 ttk.Label(hdr, text=txt, style="Hint.TLabel", width=w).pack(side="left")
             state["vars"] = {}
+            state["segvars"] = {}
             for i, name, samples in cols:
                 r = ttk.Frame(cols_box)
                 r.pack(fill="x", pady=1)
                 ttk.Label(r, text="%d" % i, width=8).pack(side="left")
-                ttk.Label(r, text=name[:15], width=16).pack(side="left")
+                if fixed:
+                    pos, ln = an["segments"][i - 1]
+                    vp, vl = tk.StringVar(value=str(pos)), tk.StringVar(value=str(ln))
+                    ttk.Entry(r, textvariable=vp, width=5).pack(side="left", padx=(0, 4))
+                    ttk.Entry(r, textvariable=vl, width=5).pack(side="left", padx=(0, 6))
+                    state["segvars"][i] = (vp, vl)
+                else:
+                    ttk.Label(r, text=name[:15], width=16).pack(side="left")
                 deig = " | ".join(x[:22] for x in samples[:3])
                 ttk.Label(r, text=deig[:70], width=52, font=("Consolas", 9)).pack(side="left")
                 key = old.get(i) if i in old else WIZ_MEANING_LABEL.get(guessed.get(i, ""), labels[0])
@@ -6353,10 +6483,21 @@ class App(tk.Tk):
                 cb = ttk.Combobox(r, textvariable=v, values=labels, state="readonly", width=24)
                 cb.pack(side="left")
                 state["vars"][i] = v
+            if fixed:
+                br = ttk.Frame(cols_box)
+                br.pack(fill="x", pady=(4, 0))
+                ttk.Button(br, text="Ανανέωση δειγμάτων", command=refresh_segments).pack(side="left")
+                ttk.Button(br, text="+ Κομμάτι", command=add_segment).pack(side="left", padx=6)
+                ttk.Button(br, text="− Κομμάτι", command=remove_segment).pack(side="left")
+                ttk.Label(br, style="Hint.TLabel",
+                          text="Από = θέση του 1ου χαρακτήρα (1 = πρώτος), Μήκος = πόσοι χαρακτήρες."
+                          ).pack(side="left", padx=10)
             # τιμή: με υποδιαστολή ή σε λεπτά;
             for i, _n, samples in cols:
                 if WIZ_MEANING_LABEL.get("price") == state["vars"][i].get():
                     v_price.set(wizard_price_mode_guess(samples))
+            if fixed and an.get("preset"):
+                v_price.set("cents")             # το host της ICS γράφει λεπτά (01200 = 12,00 €)
             state["_keys"] = (labels, keys)
 
         def meanings():
@@ -6372,9 +6513,11 @@ class App(tk.Tk):
 
         def build():
             an = state["analysis"]
-            if not an or not an["delimiter"]:
+            if not an or not (an.get("delimiter") or an.get("fixed")):
                 raise ValueError("Κάνε πρώτα «Ανάλυση αρχείου».")
             an["header"] = v_header.get()
+            if an.get("fixed"):
+                read_segments()
             return wizard_build_profiles(meanings(), an, v_price.get())
 
         def preview():
