@@ -29,7 +29,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 APP_NAME = "Αυτόματη ενημέρωση ζυγών"      # τι βλέπει ο χρήστης
 APP_ID = "ICSautoScaleUpdater"             # όνομα exe / registry / φακέλων
-APP_BUILD = "2.19.1"                        # σύγκριση για ενημερώσεις
+APP_BUILD = "2.19.2"                        # σύγκριση για ενημερώσεις
 APP_VERSION = "ICSautoScaleUpdater · έκδοση %s — Θεσσαλονίκη, Αύγουστος 2026" % APP_BUILD
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/arch1based/tscale-autohost/main/VERSION"
 UPDATE_PAGE_URL = "https://github.com/arch1based/tscale-autohost"
@@ -399,8 +399,13 @@ def install_beta_side_by_side(zip_path, target_dir, log=None):
     raise ValueError("δεν βρέθηκε το exe της beta μετά το ξεπακετάρισμα")
 
 
-def download_update(url, dest, timeout=300, log=None):
-    """Κατεβάζει το zip της νέας έκδοσης και το ελέγχει πριν χρησιμοποιηθεί."""
+def download_update(url, dest, timeout=300, log=None, exe_name=None):
+    """Κατεβάζει το zip της νέας έκδοσης και το ελέγχει πριν χρησιμοποιηθεί.
+
+    exe_name: το exe που πρέπει να έχει το πακέτο (προεπιλογή το δικό μας)·
+    η beta δίπλα στην κανονική έχει άλλο, ICSautoScaleUpdater-beta.exe.
+    """
+    exe_name = exe_name or APP_ID + ".exe"
     data = _get(url, timeout, binary=True)
     if len(data) < 1024 * 1024:
         raise ValueError("το αρχείο που κατέβηκε είναι πολύ μικρό (%d bytes)" % len(data))
@@ -413,8 +418,8 @@ def download_update(url, dest, timeout=300, log=None):
         if z.testzip() is not None:
             raise ValueError("το zip είναι κατεστραμμένο")
         names = z.namelist()
-    if not any(n.lower().endswith(APP_ID.lower() + ".exe") for n in names):
-        raise ValueError("το πακέτο δεν περιέχει το %s.exe" % APP_ID)
+    if not any(n.lower().endswith(exe_name.lower()) for n in names):
+        raise ValueError("το πακέτο δεν περιέχει το %s" % exe_name)
     if log:
         log("  -> κατέβηκε: %.1f MB, %d αρχεία" % (len(data) / 1048576.0, len(names)))
     return dest
@@ -4403,7 +4408,7 @@ class App(tk.Tk):
         def job():
             try:
                 log = lambda m: self.after(0, self.log, m)
-                download_update(url, dest, log=log)
+                download_update(url, dest, log=log, exe_name=BETA_DIR_NAME + ".exe")
                 exe = install_beta_side_by_side(dest, target, log=log)
                 self.after(0, self._beta_ready, exe, version)
             except Exception as exc:
