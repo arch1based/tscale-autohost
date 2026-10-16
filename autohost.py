@@ -4326,13 +4326,37 @@ class App(tk.Tk):
         inner.bind("<Configure>", on_inner)
         canvas.bind("<Configure>", on_canvas)
 
-        def wheel(e):
-            delta = -1 if getattr(e, "num", 0) == 5 or getattr(e, "delta", 0) < 0 else 1
-            canvas.yview_scroll(-delta, "units")
-
-        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-            canvas.bind_all(seq, lambda e, c=canvas: wheel(e) if str(c) in str(e.widget) or True else None)
+        # Η ροδέλα: ΟΧΙ bind_all εδώ. Ένα bind_all ανά ακολουθία υπάρχει σε όλη την
+        # εφαρμογή· αν το έκανε κάθε καμβάς, ο τελευταίος (π.χ. ο οδηγός) έμενε
+        # δεμένος και αφού κλείσει το παράθυρό του, και κάθε κύλιση έβγαζε
+        # «invalid command name» ενώ οι καρτέλες δεν κυλούσαν πια. Τον καμβά τον
+        # σημαδεύουμε και τον βρίσκει ο καθολικός χειριστής (_install_wheel).
+        canvas._is_scroll_canvas = True
         return inner
+
+    def _install_wheel(self):
+        """Μία φορά, για όλη την εφαρμογή: κυλά τον καμβά που είναι κάτω από τον δείκτη."""
+        def wheel(e):
+            try:
+                w = self.winfo_containing(e.x_root, e.y_root)
+            except (tk.TclError, KeyError):
+                return
+            while w is not None:
+                # Πίνακες/κείμενα κυλούν μόνοι τους — μην κυλάμε και την καρτέλα από κάτω.
+                if isinstance(w, (ttk.Treeview, tk.Text, tk.Listbox, ttk.Combobox)):
+                    return
+                if getattr(w, "_is_scroll_canvas", False):
+                    try:
+                        if not w.winfo_exists():
+                            return
+                        delta = -1 if getattr(e, "num", 0) == 5 or getattr(e, "delta", 0) < 0 else 1
+                        w.yview_scroll(-delta, "units")
+                    except tk.TclError:
+                        pass
+                    return
+                w = getattr(w, "master", None)
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.bind_all(seq, wheel)
 
     def _add_edit_menu(self, widget):
         """Δεξί κλικ + συντομεύσεις που δουλεύουν και σε ελληνική διάταξη.
@@ -4614,6 +4638,7 @@ class App(tk.Tk):
         self._refresh_tab2_blocks()
 
         nb.pack(fill="both", expand=True, padx=12, pady=10)
+        self._install_wheel()
 
         def _on_tab_change(_event=None):
             try:
